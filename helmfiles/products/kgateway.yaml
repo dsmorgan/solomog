@@ -1,27 +1,14 @@
-# kgateway on a single cluster.
-# enterprise: Gloo Gateway (Solo's enterprise kgateway)
-# community:  upstream kgateway (open-source)
+# Product module: kgateway (community) / Gloo Gateway (enterprise), single cluster.
+# License: gloo_gateway_license_key (GLOO_GATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
 #
-# Usage (via solomog):
-#   solomog kgateway
-#   solomog kgateway EDITION=community
+# Composed via: solomog stack CLUSTER=... PRODUCTS="kgateway"
 #
-# TODO: verify chart names and repo URLs against your installed version:
+# TODO: verify chart names / repo URLs against your installed version:
 #   Enterprise: https://docs.solo.io/gateway/latest/setup/
 #   Community:  https://kgateway.dev/docs/quickstart/
 
-environments:
-  default:
-    values:
-      - environments/default.yaml
-  enterprise:
-    values:
-      - environments/default.yaml
-      - environments/enterprise.yaml
-  community:
-    values:
-      - environments/default.yaml
-      - environments/community.yaml
+bases:
+  - ../commons.yaml
 
 ---
 
@@ -37,16 +24,14 @@ repositories:
 {{ end }}
 
 releases:
-
   - name: gateway-crds
     namespace: gloo-system
 {{ if eq .Environment.Name "enterprise" }}
     chart: gloo-gateway/gloo-gateway-crds
-    version: "{{ .Values.kgateway_version }}"
 {{ else }}
     chart: kgateway/kgateway-crds
-    version: "{{ .Values.kgateway_version }}"
 {{ end }}
+    version: "{{ .Values.kgateway_version }}"
     wait: true
 
   - name: kgateway
@@ -61,8 +46,8 @@ releases:
     needs:
       - gloo-system/gateway-crds
     values:
-      - ../values/kgateway/values.yaml
+      - ../../values/kgateway/values.yaml
 {{ if eq .Environment.Name "enterprise" }}
       - license:
-          key: "{{ .Values.license_key }}"
+          key: "{{ .Values.gloo_gateway_license_key }}"
 {{ end }}

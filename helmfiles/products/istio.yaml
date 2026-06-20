@@ -1,0 +1,65 @@
+# Product module: Istio (cert-manager + base + istiod, plus CNI/ztunnel in ambient mode).
+# Context-agnostic — stack.sh targets a cluster with `helmfile --kube-context`.
+# Mode comes from ISTIO_MODE (ambient|sidecar), set by the Taskfile.
+#
+# Composed via: solomog stack CLUSTER=... PRODUCTS="istio ..."
+
+bases:
+  - ../commons.yaml
+
+---
+
+repositories:
+  - name: istio
+    url: "{{ .Values.helm_repo_istio }}"
+  - name: cert-manager
+    url: "{{ .Values.helm_repo_cert_manager }}"
+
+releases:
+  - name: cert-manager
+    namespace: cert-manager
+    chart: cert-manager/cert-manager
+    version: v1.14.5
+    wait: true
+    set:
+      - name: installCRDs
+        value: "true"
+
+  - name: istio-base
+    namespace: istio-system
+    chart: istio/base
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - cert-manager/cert-manager
+
+  - name: istiod
+    namespace: istio-system
+    chart: istio/istiod
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - istio-system/istio-base
+    values:
+      - ../../values/istio/base.yaml
+      - ../../values/istio/{{ .Values.istio_mode }}/values.yaml
+
+{{ if eq .Values.istio_mode "ambient" }}
+  - name: istio-cni
+    namespace: kube-system
+    chart: istio/cni
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - istio-system/istiod
+    values:
+      - profile: ambient
+
+  - name: ztunnel
+    namespace: istio-system
+    chart: istio/ztunnel
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - kube-system/istio-cni
+{{ end }}

@@ -1,0 +1,30 @@
+# Product module: agentgateway, single cluster.
+# License: agentgateway_license_key (AGENTGATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
+#
+# Composed via: solomog stack CLUSTER=... PRODUCTS="agentgateway"
+#
+# TODO: verify chart name / repo URL against the agentgateway release notes:
+#   https://docs.solo.io/agent-gateway/
+
+bases:
+  - ../commons.yaml
+
+---
+
+repositories:
+  - name: agentgateway
+    url: "{{ .Values.helm_repo_agentgateway }}"
+    oci: true
+
+releases:
+  - name: agentgateway
+    namespace: agentgateway
+    chart: agentgateway/agentgateway
+    version: "{{ .Values.agentgateway_version }}"
+    wait: true
+    values:
+      - ../../values/agentgateway/values.yaml
+{{ if eq .Environment.Name "enterprise" }}
+      - license:
+          key: "{{ .Values.agentgateway_license_key }}"
+{{ end }}

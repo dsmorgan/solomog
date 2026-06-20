@@ -214,7 +214,7 @@ releases:
     kubeContext: vcluster.cluster-one
     wait: true
     values:
-      - licenseKey: "{{ .Values.license_key }}"
+      - licenseKey: "{{ .Values.gloo_mesh_license_key }}"
         glooMeshMgmtServer:
           serviceType: ClusterIP
           enabled: true

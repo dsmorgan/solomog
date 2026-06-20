@@ -1,0 +1,49 @@
+# Product module: Gloo Mesh Enterprise management plane + agent (single cluster).
+# Enterprise only — in community mode this module installs nothing.
+# Assumes Istio is already present (compose after the istio module).
+#
+# License: gloo_mesh_license_key (GLOO_MESH_LICENSE_KEY or SOLO_LICENSE_KEY).
+#
+# Composed via: solomog stack CLUSTER=... PRODUCTS="istio gloo-mesh"
+
+bases:
+  - ../commons.yaml
+
+---
+
+{{ if eq .Environment.Name "enterprise" }}
+repositories:
+  - name: gloo-mesh-enterprise
+    url: "{{ .Values.helm_repo_gloo_mesh }}"
+
+releases:
+  - name: gloo-mesh-enterprise
+    namespace: gloo-mesh
+    chart: gloo-mesh-enterprise/gloo-mesh-enterprise
+    version: "{{ .Values.gloo_mesh_version }}"
+    wait: true
+    values:
+      - licenseKey: "{{ .Values.gloo_mesh_license_key }}"
+        glooMeshMgmtServer:
+          serviceType: ClusterIP
+          enabled: true
+        glooMeshUi:
+          enabled: true
+        prometheus:
+          enabled: true
+
+  - name: gloo-mesh-agent
+    namespace: gloo-mesh
+    chart: gloo-mesh-enterprise/gloo-mesh-agent
+    version: "{{ .Values.gloo_mesh_version }}"
+    wait: true
+    needs:
+      - gloo-mesh/gloo-mesh-enterprise
+    values:
+      - relay:
+          serverAddress: "gloo-mesh-mgmt-server.gloo-mesh.svc:9900"
+          cluster: solomog-cluster
+{{ else }}
+# community mode: Gloo Mesh Enterprise is not available — nothing to install.
+releases: []
+{{ end }}

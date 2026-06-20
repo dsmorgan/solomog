@@ -28,29 +28,50 @@ tasks:
     cmds: [cat versions.env]
     silent: true
 
+  # ─── Stack — compose any products on a single cluster ─────────────────────
+  # The general-purpose entry point. Installs any combination of products onto
+  # one cluster, in dependency order. Single-product tasks below are shortcuts.
+
+  stack:
+    desc: 'Compose products on one cluster: PRODUCTS="istio kgateway" CLUSTER=cluster-one'
+    vars:
+      CLUSTER: '{{.CLUSTER | default "cluster-one"}}'
+      PRODUCTS: '{{.PRODUCTS}}'
+      ISTIO_MODE: '{{.ISTIO_MODE | default "ambient"}}'
+    cmds:
+      - bash scripts/stack.sh {{.CLUSTER}} {{.PRODUCTS}}
+    env:
+      EDITION: '{{.EDITION}}'
+      ISTIO_MODE: '{{.ISTIO_MODE}}'
+    preconditions:
+      - sh: '[ -n "{{.PRODUCTS}}" ]'
+        msg: 'Specify products, e.g. PRODUCTS="istio kgateway agentgateway"'
+
   # ─── Istio — single cluster ───────────────────────────────────────────────
 
   istio:ambient:single:
     desc: "1 cluster · Istio ambient mode · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one"}
-      - helmfile sync -f helmfiles/istio-single.yaml -e {{.EDITION}}
+      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:single:
     desc: "1 cluster · Istio sidecar mode · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one"}
-      - helmfile sync -f helmfiles/istio-single.yaml -e {{.EDITION}}
+      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
+
+  gloo-mesh:single:
+    desc: "1 cluster · Istio + Gloo Mesh Enterprise mgmt plane · EDITION={{.EDITION}}"
+    cmds:
+      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio gloo-mesh
+    env:
+      EDITION: '{{.EDITION}}'
+      ISTIO_MODE: '{{.ISTIO_MODE | default "ambient"}}'
 
   # ─── Istio — 2 clusters, flat network ────────────────────────────────────
 
@@ -138,19 +159,16 @@ tasks:
   kgateway:
     desc: "1 cluster · kgateway standalone · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one"}
-      - helmfile sync -f helmfiles/kgateway.yaml -e {{.EDITION}}
+      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} kgateway
+    env:
+      EDITION: '{{.EDITION}}'
 
   kgateway:with-istio:
     desc: "1 cluster · kgateway + Istio sidecar · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one"}
-      - helmfile sync -f helmfiles/kgateway-with-istio.yaml -e {{.EDITION}}
+      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio kgateway
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
   # ─── agentgateway ────────────────────────────────────────────────────────
@@ -158,9 +176,9 @@ tasks:
   agentgateway:
     desc: "1 cluster · agentgateway · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one"}
-      - helmfile sync -f helmfiles/agentgateway.yaml -e {{.EDITION}}
+      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} agentgateway
+    env:
+      EDITION: '{{.EDITION}}'
 
   # ─── Sample apps ─────────────────────────────────────────────────────────
   # These operate on the current kubectl context unless CONTEXT is specified.
@@ -206,12 +224,15 @@ tasks:
 
   _vind-create:
     internal: true
-    cmds: [bash scripts/vind-create.sh {{.CLUSTERS}}]
+    cmds:
+      - bash scripts/vind-create.sh {{.CLUSTERS}}
 
   _networking:
     internal: true
-    cmds: [bash scripts/networking.sh {{.MODE}} {{.CLUSTERS}}]
+    cmds:
+      - bash scripts/networking.sh {{.MODE}} {{.CLUSTERS}}
 
   _gen-certs:
     internal: true
-    cmds: [bash scripts/gen-certs.sh {{.CLUSTERS}}]
+    cmds:
+      - bash scripts/gen-certs.sh {{.CLUSTERS}}

@@ -1,0 +1,14 @@
+# Shared environment definitions, merged into every product module via `bases:`.
+# Paths are resolved relative to this file (helmfiles/).
+environments:
+  default:
+    values:
+      - environments/default.yaml
+  enterprise:
+    values:
+      - environments/default.yaml
+      - environments/enterprise.yaml
+  community:
+    values:
+      - environments/default.yaml
+      - environments/community.yaml

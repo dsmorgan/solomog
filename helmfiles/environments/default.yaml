@@ -18,8 +18,14 @@ istio_mode: "{{ env "ISTIO_MODE" | default "ambient" }}"
 helm_repo_istio:        "https://istio-release.storage.googleapis.com/charts"
 helm_repo_cert_manager: "https://charts.jetstack.io"
 
-# Enterprise values are empty by default; overridden by enterprise.yaml
-license_key:              ""
+# Per-product license keys. A product-specific key wins; otherwise it falls
+# back to SOLO_LICENSE_KEY so a single key can cover every product.
+# These resolve to "" in community mode and are simply ignored there.
+gloo_mesh_license_key:    '{{ env "GLOO_MESH_LICENSE_KEY"    | default (env "SOLO_LICENSE_KEY") | default "" }}'
+gloo_gateway_license_key: '{{ env "GLOO_GATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
+agentgateway_license_key: '{{ env "AGENTGATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
+
+# Enterprise repo URLs are empty by default; overridden by enterprise.yaml
 helm_repo_gloo_mesh:      ""
 helm_repo_kgateway:       ""
 helm_repo_agentgateway:   ""

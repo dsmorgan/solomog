@@ -1,10 +1,9 @@
 # Solo enterprise edition overrides.
-# Sets chart repos to Solo's OCI/Helm registries and injects the license key.
+# Sets chart repos to Solo's OCI/Helm registries.
 #
-# SOLO_LICENSE_KEY must be set in .env.
-# TODO: verify the exact OCI paths against your Gloo Mesh version release notes.
-
-license_key: "{{ requiredEnv "SOLO_LICENSE_KEY" }}"
+# License keys are resolved per-product in default.yaml (gloo_mesh_license_key,
+# gloo_gateway_license_key, agentgateway_license_key) from .env.
+# TODO: verify the exact OCI paths against your product version release notes.
 
 # Gloo Mesh Enterprise management plane + agent
 # Verify at: https://docs.solo.io/gloo-mesh-enterprise/latest/setup/installation/
