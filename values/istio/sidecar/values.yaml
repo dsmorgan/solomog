@@ -1,0 +1,6 @@
+# istiod values for sidecar (classic) mode
+profile: default
+
+# Auto-inject sidecars into namespaces labelled istio-injection=enabled
+sidecarInjectorWebhook:
+  enableNamespacesByDefault: false

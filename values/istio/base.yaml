@@ -1,0 +1,21 @@
+# Base istiod values shared across all scenarios.
+# Per-scenario overrides live in ambient/values.yaml and sidecar/values.yaml.
+
+global:
+  # meshID and clusterName are overridden per release in multi-cluster helmfiles.
+  meshID: mesh1
+  network: network1
+  multiCluster:
+    clusterName: cluster-one
+
+pilot:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+# Disable telemetry addons — use Gloo Mesh UI or Prometheus operator instead
+telemetry:
+  enabled: true
+  v2:
+    enabled: true

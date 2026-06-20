@@ -1,0 +1,21 @@
+# Online Boutique chart values.
+# Ref: https://github.com/GoogleCloudPlatform/microservices-demo/tree/main/helm-chart
+
+# Reduce resource requests for local vcluster environments
+cartService:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+checkoutService:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+frontend:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi

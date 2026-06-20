@@ -1,0 +1,208 @@
+# Two-cluster Istio scenario — single network (flat) topology.
+# Both clusters share the same network; pods can reach each other directly.
+# Host-level nftables routing is set up by networking.sh (flat mode) before this runs.
+#
+# cluster-one: management plane (Gloo Mesh) + workload
+# cluster-two: workload cluster, registered with cluster-one
+#
+# Usage (via solomog):
+#   solomog istio:ambient:multi-flat
+#   solomog istio:sidecar:multi-flat EDITION=community
+
+environments:
+  default:
+    values:
+      - environments/default.yaml
+  enterprise:
+    values:
+      - environments/default.yaml
+      - environments/enterprise.yaml
+  community:
+    values:
+      - environments/default.yaml
+      - environments/community.yaml
+
+---
+
+repositories:
+  - name: istio
+    url: "{{ .Values.helm_repo_istio }}"
+  - name: cert-manager
+    url: "{{ .Values.helm_repo_cert_manager }}"
+{{ if eq .Environment.Name "enterprise" }}
+  - name: gloo-mesh-enterprise
+    url: "{{ .Values.helm_repo_gloo_mesh }}"
+{{ end }}
+
+releases:
+
+  # ── cert-manager (cluster-one) ────────────────────────────────────────────
+  - name: cert-manager
+    namespace: cert-manager
+    chart: cert-manager/cert-manager
+    version: v1.14.5
+    kubeContext: vcluster.cluster-one
+    wait: true
+    set:
+      - name: installCRDs
+        value: "true"
+
+  # ── Istio on cluster-one ──────────────────────────────────────────────────
+  - name: istio-base-c1
+    namespace: istio-system
+    chart: istio/base
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-one
+    wait: true
+    needs:
+      - cert-manager/cert-manager
+
+  - name: istiod-c1
+    namespace: istio-system
+    chart: istio/istiod
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-one
+    wait: true
+    needs:
+      - istio-system/istio-base-c1
+    values:
+      - ../values/istio/base.yaml
+      - ../values/istio/{{ .Values.istio_mode }}/values.yaml
+      - global:
+          meshID: mesh1
+          network: network1
+          multiCluster:
+            clusterName: cluster-one
+
+{{ if eq .Values.istio_mode "ambient" }}
+  - name: istio-cni-c1
+    namespace: kube-system
+    chart: istio/cni
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-one
+    wait: true
+    needs:
+      - istio-system/istiod-c1
+    values:
+      - profile: ambient
+
+  - name: ztunnel-c1
+    namespace: istio-system
+    chart: istio/ztunnel
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-one
+    wait: true
+    needs:
+      - kube-system/istio-cni-c1
+{{ end }}
+
+  # ── cert-manager (cluster-two) ────────────────────────────────────────────
+  - name: cert-manager-c2
+    namespace: cert-manager
+    chart: cert-manager/cert-manager
+    version: v1.14.5
+    kubeContext: vcluster.cluster-two
+    wait: true
+    set:
+      - name: installCRDs
+        value: "true"
+
+  # ── Istio on cluster-two ──────────────────────────────────────────────────
+  - name: istio-base-c2
+    namespace: istio-system
+    chart: istio/base
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-two
+    wait: true
+    needs:
+      - cert-manager/cert-manager-c2
+
+  - name: istiod-c2
+    namespace: istio-system
+    chart: istio/istiod
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-two
+    wait: true
+    needs:
+      - istio-system/istio-base-c2
+    values:
+      - ../values/istio/base.yaml
+      - ../values/istio/{{ .Values.istio_mode }}/values.yaml
+      - global:
+          meshID: mesh1
+          network: network1
+          multiCluster:
+            clusterName: cluster-two
+
+{{ if eq .Values.istio_mode "ambient" }}
+  - name: istio-cni-c2
+    namespace: kube-system
+    chart: istio/cni
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-two
+    wait: true
+    needs:
+      - istio-system/istiod-c2
+    values:
+      - profile: ambient
+
+  - name: ztunnel-c2
+    namespace: istio-system
+    chart: istio/ztunnel
+    version: "{{ .Values.istio_version }}"
+    kubeContext: vcluster.cluster-two
+    wait: true
+    needs:
+      - kube-system/istio-cni-c2
+{{ end }}
+
+{{ if eq .Environment.Name "enterprise" }}
+  # ── Gloo Mesh Enterprise (management plane on cluster-one) ────────────────
+  - name: gloo-mesh-enterprise
+    namespace: gloo-mesh
+    chart: gloo-mesh-enterprise/gloo-mesh-enterprise
+    version: "{{ .Values.gloo_mesh_version }}"
+    kubeContext: vcluster.cluster-one
+    wait: true
+    needs:
+{{ if eq .Values.istio_mode "ambient" }}
+      - istio-system/ztunnel-c1
+{{ else }}
+      - istio-system/istiod-c1
+{{ end }}
+    values:
+      - licenseKey: "{{ .Values.license_key }}"
+        glooMeshMgmtServer:
+          serviceType: ClusterIP
+          enabled: true
+        glooMeshUi:
+          enabled: true
+
+  # ── Gloo Mesh Agent (cluster-one) ─────────────────────────────────────────
+  - name: gloo-mesh-agent-c1
+    namespace: gloo-mesh
+    chart: gloo-mesh-enterprise/gloo-mesh-agent
+    version: "{{ .Values.gloo_mesh_version }}"
+    kubeContext: vcluster.cluster-one
+    wait: true
+    needs:
+      - gloo-mesh/gloo-mesh-enterprise
+    values:
+      - relay:
+          serverAddress: "gloo-mesh-mgmt-server.gloo-mesh.svc:9900"
+          cluster: cluster-one
+
+  # ── Gloo Mesh Agent (cluster-two) ─────────────────────────────────────────
+  - name: gloo-mesh-agent-c2
+    namespace: gloo-mesh
+    chart: gloo-mesh-enterprise/gloo-mesh-agent
+    version: "{{ .Values.gloo_mesh_version }}"
+    kubeContext: vcluster.cluster-two
+    wait: true
+    needs:
+      - gloo-mesh/gloo-mesh-enterprise
+    values:
+      - relay:
+          serverAddress: "gloo-mesh-mgmt-server.gloo-mesh.svc.cluster.local:9900"
+          cluster: cluster-two
+{{ end }}

@@ -1,0 +1,101 @@
+# Single-cluster Istio scenario.
+# Supports both ambient and sidecar mode via the ISTIO_MODE env var (set by Taskfile).
+# Optionally installs Gloo Mesh Enterprise management plane when EDITION=enterprise.
+#
+# Usage (via solomog):
+#   solomog istio:ambient:single
+#   solomog istio:sidecar:single
+#   solomog istio:ambient:single EDITION=community
+
+environments:
+  default:
+    values:
+      - environments/default.yaml
+  enterprise:
+    values:
+      - environments/default.yaml
+      - environments/enterprise.yaml
+  community:
+    values:
+      - environments/default.yaml
+      - environments/community.yaml
+
+---
+
+repositories:
+  - name: istio
+    url: "{{ .Values.helm_repo_istio }}"
+  - name: cert-manager
+    url: "{{ .Values.helm_repo_cert_manager }}"
+{{ if eq .Environment.Name "enterprise" }}
+  - name: gloo-mesh-enterprise
+    url: "{{ .Values.helm_repo_gloo_mesh }}"
+{{ end }}
+
+releases:
+  - name: cert-manager
+    namespace: cert-manager
+    chart: cert-manager/cert-manager
+    version: v1.14.5
+    wait: true
+    set:
+      - name: installCRDs
+        value: "true"
+
+  - name: istio-base
+    namespace: istio-system
+    chart: istio/base
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - cert-manager/cert-manager
+
+  - name: istiod
+    namespace: istio-system
+    chart: istio/istiod
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - istio-system/istio-base
+    values:
+      - ../values/istio/base.yaml
+      - ../values/istio/{{ .Values.istio_mode }}/values.yaml
+
+{{ if eq .Values.istio_mode "ambient" }}
+  - name: istio-cni
+    namespace: kube-system
+    chart: istio/cni
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - istio-system/istiod
+    values:
+      - profile: ambient
+
+  - name: ztunnel
+    namespace: istio-system
+    chart: istio/ztunnel
+    version: "{{ .Values.istio_version }}"
+    wait: true
+    needs:
+      - kube-system/istio-cni
+{{ end }}
+
+{{ if eq .Environment.Name "enterprise" }}
+  - name: gloo-mesh-enterprise
+    namespace: gloo-mesh
+    chart: gloo-mesh-enterprise/gloo-mesh-enterprise
+    version: "{{ .Values.gloo_mesh_version }}"
+    wait: true
+    needs:
+      - istio-system/istiod
+    values:
+      - licenseKey: "{{ .Values.license_key }}"
+        glooMeshMgmtServer:
+          serviceType: ClusterIP
+          enabled: true
+        glooMeshUi:
+          enabled: true
+        prometheus:
+          enabled: true
+{{ end }}

@@ -1,0 +1,25 @@
+# Base values available to every helmfile release.
+# Loaded first; edition-specific files (enterprise.yaml / community.yaml) override as needed.
+
+gloo_mesh_version: "{{ env "GLOO_MESH_VERSION" }}"
+kgateway_version: "{{ env "KGATEWAY_VERSION" }}"
+agentgateway_version: "{{ env "AGENTGATEWAY_VERSION" }}"
+istio_version: "{{ env "ISTIO_VERSION" }}"
+
+# Cluster-specific Istio version overrides (used by multi-3 scenarios).
+# Fall back to istio_version when the env var is not set.
+istio_version_cluster_two:   "{{ env "ISTIO_VERSION_CLUSTER_TWO"   | default (env "ISTIO_VERSION") }}"
+istio_version_cluster_three: "{{ env "ISTIO_VERSION_CLUSTER_THREE" | default (env "ISTIO_VERSION") }}"
+
+# Data plane mode: "ambient" or "sidecar" — set by Taskfile env per scenario
+istio_mode: "{{ env "ISTIO_MODE" | default "ambient" }}"
+
+# Edition-agnostic chart repos
+helm_repo_istio:        "https://istio-release.storage.googleapis.com/charts"
+helm_repo_cert_manager: "https://charts.jetstack.io"
+
+# Enterprise values are empty by default; overridden by enterprise.yaml
+license_key:              ""
+helm_repo_gloo_mesh:      ""
+helm_repo_kgateway:       ""
+helm_repo_agentgateway:   ""

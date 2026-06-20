@@ -1,0 +1,11 @@
+# kgateway / Gloo Gateway values.
+# TODO: tune these for your environment after first install.
+# Ref: https://docs.solo.io/gateway/latest/reference/helm/
+
+# Use a single-replica deployment for local testing
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi

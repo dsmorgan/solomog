@@ -1,0 +1,217 @@
+version: '3'
+
+dotenv: ['.env', 'versions.env']
+
+vars:
+  # Override with EDITION=community to use upstream OSS charts (no license key needed)
+  EDITION: '{{.EDITION | default "enterprise"}}'
+
+tasks:
+
+  # ─── Meta ─────────────────────────────────────────────────────────────────
+
+  default:
+    desc: List all available scenarios
+    cmds: [task --list]
+    silent: true
+
+  setup:
+    desc: Install prerequisites via Homebrew and create the solomog symlink
+    cmds: [bash scripts/setup.sh]
+
+  versions:update:
+    desc: Fetch latest product versions from GitHub and update versions.env
+    cmds: [bash scripts/versions-update.sh]
+
+  versions:show:
+    desc: Show currently pinned product versions
+    cmds: [cat versions.env]
+    silent: true
+
+  # ─── Istio — single cluster ───────────────────────────────────────────────
+
+  istio:ambient:single:
+    desc: "1 cluster · Istio ambient mode · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one"}
+      - helmfile sync -f helmfiles/istio-single.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: ambient
+
+  istio:sidecar:single:
+    desc: "1 cluster · Istio sidecar mode · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one"}
+      - helmfile sync -f helmfiles/istio-single.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: sidecar
+
+  # ─── Istio — 2 clusters, flat network ────────────────────────────────────
+
+  istio:ambient:multi-flat:
+    desc: "2 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - task: _networking
+        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - helmfile sync -f helmfiles/istio-multi-flat.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: ambient
+
+  istio:sidecar:multi-flat:
+    desc: "2 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - task: _networking
+        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - helmfile sync -f helmfiles/istio-multi-flat.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: sidecar
+
+  # ─── Istio — 2 clusters, east-west gateways ──────────────────────────────
+
+  istio:ambient:multi-gateway:
+    desc: "2 clusters · ambient · east-west gateways · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - helmfile sync -f helmfiles/istio-multi-gateway.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: ambient
+
+  istio:sidecar:multi-gateway:
+    desc: "2 clusters · sidecar · east-west gateways · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one cluster-two"}
+      - helmfile sync -f helmfiles/istio-multi-gateway.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: sidecar
+
+  # ─── Istio — 3 clusters ───────────────────────────────────────────────────
+  # Set ISTIO_VERSION_CLUSTER_THREE in versions.env for a mixed-version scenario.
+
+  istio:ambient:multi-3:
+    desc: "3 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
+      - task: _networking
+        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two cluster-three"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
+      - helmfile sync -f helmfiles/istio-multi-3.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: ambient
+
+  istio:sidecar:multi-3:
+    desc: "3 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
+      - task: _networking
+        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two cluster-three"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
+      - helmfile sync -f helmfiles/istio-multi-3.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: sidecar
+
+  # ─── kgateway ────────────────────────────────────────────────────────────
+
+  kgateway:
+    desc: "1 cluster · kgateway standalone · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one"}
+      - helmfile sync -f helmfiles/kgateway.yaml -e {{.EDITION}}
+
+  kgateway:with-istio:
+    desc: "1 cluster · kgateway + Istio sidecar · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one"}
+      - task: _gen-certs
+        vars: {CLUSTERS: "cluster-one"}
+      - helmfile sync -f helmfiles/kgateway-with-istio.yaml -e {{.EDITION}}
+    env:
+      ISTIO_MODE: sidecar
+
+  # ─── agentgateway ────────────────────────────────────────────────────────
+
+  agentgateway:
+    desc: "1 cluster · agentgateway · EDITION={{.EDITION}}"
+    cmds:
+      - task: _vind-create
+        vars: {CLUSTERS: "cluster-one"}
+      - helmfile sync -f helmfiles/agentgateway.yaml -e {{.EDITION}}
+
+  # ─── Sample apps ─────────────────────────────────────────────────────────
+  # These operate on the current kubectl context unless CONTEXT is specified.
+
+  apps:bookinfo:
+    desc: "Deploy Bookinfo sample app (CONTEXT={{.CONTEXT}})"
+    vars:
+      CONTEXT: '{{.CONTEXT | default "vcluster.cluster-one"}}'
+    cmds:
+      - bash scripts/apps/install-bookinfo.sh {{.CONTEXT}}
+
+  apps:online-boutique:
+    desc: "Deploy Online Boutique sample app (CONTEXT={{.CONTEXT}})"
+    vars:
+      CONTEXT: '{{.CONTEXT | default "vcluster.cluster-one"}}'
+    cmds:
+      - helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context {{.CONTEXT}}
+
+  apps:utils:
+    desc: "Deploy utility pods: httpbin, curl, netshoot (CONTEXT={{.CONTEXT}})"
+    vars:
+      CONTEXT: '{{.CONTEXT | default "vcluster.cluster-one"}}'
+    cmds:
+      - helmfile sync -f helmfiles/apps/utils.yaml --kube-context {{.CONTEXT}}
+
+  # ─── Teardown ─────────────────────────────────────────────────────────────
+
+  teardown:
+    desc: "Destroy all clusters (prompts for confirmation)"
+    cmds: [bash scripts/vind-teardown.sh]
+
+  teardown:cluster:
+    desc: "Destroy a specific cluster (CLUSTER=cluster-one)"
+    vars:
+      CLUSTER: '{{.CLUSTER | default ""}}'
+    cmds:
+      - bash scripts/vind-teardown.sh {{.CLUSTER}}
+    preconditions:
+      - sh: '[ -n "{{.CLUSTER}}" ]'
+        msg: "Specify a cluster name: CLUSTER=cluster-one"
+
+  # ─── Internal helpers ─────────────────────────────────────────────────────
+
+  _vind-create:
+    internal: true
+    cmds: [bash scripts/vind-create.sh {{.CLUSTERS}}]
+
+  _networking:
+    internal: true
+    cmds: [bash scripts/networking.sh {{.MODE}} {{.CLUSTERS}}]
+
+  _gen-certs:
+    internal: true
+    cmds: [bash scripts/gen-certs.sh {{.CLUSTERS}}]

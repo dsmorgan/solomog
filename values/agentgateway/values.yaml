@@ -1,0 +1,10 @@
+# agentgateway values.
+# TODO: tune for your environment after first install.
+# Ref: https://docs.solo.io/agent-gateway/
+
+replicaCount: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi

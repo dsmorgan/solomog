@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# solomog — thin wrapper around task that always runs from the solomog repo root.
+# Symlink this to ~/.local/bin/solomog (done by: solomog setup).
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+cd "$SCRIPT_DIR"
+exec task "$@"

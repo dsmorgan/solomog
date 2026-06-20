@@ -1,0 +1,5 @@
+apiVersion: v2
+name: utils
+description: Utility pods for local cluster testing — httpbin, curl, netshoot
+type: application
+version: 0.1.0

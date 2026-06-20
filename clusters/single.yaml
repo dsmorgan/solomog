@@ -1,0 +1,41 @@
+# vcluster config for single-cluster scenarios.
+# __CLUSTER_NAME__, __POD_CIDR__, __SVC_CIDR__ are replaced by vind-create.sh at runtime.
+#
+# Ref: https://www.vcluster.com/docs/vcluster/configure/vcluster-yaml/
+
+controlPlane:
+  distro:
+    k3s:
+      enabled: true
+      # Unique CIDRs prevent routing conflicts when multiple vclusters are running.
+      extraArgs:
+        - "--cluster-cidr=__POD_CIDR__"
+        - "--service-cidr=__SVC_CIDR__"
+  coredns:
+    enabled: true
+
+sync:
+  toHost:
+    pods:
+      enabled: true
+    services:
+      enabled: true
+    configMaps:
+      enabled: true
+    secrets:
+      enabled: true
+    ingresses:
+      enabled: true
+    serviceAccounts:
+      enabled: true
+  fromHost:
+    nodes:
+      enabled: true
+      selector:
+        all: true
+
+# Expose the vcluster API server so kubectl can reach it from the host
+networking:
+  advanced:
+    proxyMetricsServer:
+      enabled: false

@@ -1,0 +1,12 @@
+# Community / open-source edition overrides.
+# No license key required. Uses upstream / public chart repos.
+
+license_key: ""
+
+# kgateway community (upstream Kubernetes Gateway API implementation)
+# https://github.com/kgateway-dev/kgateway
+helm_repo_kgateway: "oci://ghcr.io/kgateway-dev/charts"
+
+# agentgateway community
+# https://github.com/agentgateway/agentgateway
+helm_repo_agentgateway: "oci://ghcr.io/agentgateway/charts"

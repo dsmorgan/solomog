@@ -1,0 +1,12 @@
+# Utility pods for manual testing: httpbin, a curl pod, and netshoot.
+# These are lightweight and deployed to a dedicated "utils" namespace.
+#
+# Usage (via solomog):
+#   solomog apps:utils
+#   solomog apps:utils CONTEXT=vcluster.cluster-two
+
+releases:
+  - name: utils
+    namespace: utils
+    chart: ../../charts/utils
+    wait: true

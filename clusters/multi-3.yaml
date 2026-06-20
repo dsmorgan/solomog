@@ -1,0 +1,33 @@
+# vcluster config for 3-cluster scenarios.
+# Identical to multi.yaml — each cluster gets a unique instance with different CIDRs.
+# __CLUSTER_NAME__, __POD_CIDR__, __SVC_CIDR__ are replaced by vind-create.sh at runtime.
+
+controlPlane:
+  distro:
+    k3s:
+      enabled: true
+      extraArgs:
+        - "--cluster-cidr=__POD_CIDR__"
+        - "--service-cidr=__SVC_CIDR__"
+  coredns:
+    enabled: true
+
+sync:
+  toHost:
+    pods:
+      enabled: true
+    services:
+      enabled: true
+    configMaps:
+      enabled: true
+    secrets:
+      enabled: true
+    ingresses:
+      enabled: true
+    serviceAccounts:
+      enabled: true
+  fromHost:
+    nodes:
+      enabled: true
+      selector:
+        all: true
