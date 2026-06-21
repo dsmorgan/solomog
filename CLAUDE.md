@@ -114,6 +114,15 @@ For new cross-cluster topologies, write a dedicated helmfile.
 
 ## Gotchas (learned the hard way)
 
+- **Scripts must stay bash 3.2 compatible.** macOS ships bash 3.2.57, and Taskfile
+  runs scripts via `bash scripts/...` which resolves to it. Avoid bash 4+ features:
+  no `mapfile`/`readarray` (use `while IFS= read -r`), no `${var,,}`/`${var^^}`
+  (use `[[ "$x" =~ ^[Yy] ]]` or `tr`), and guard empty arrays before `"${a[@]}"`
+  under `set -u`.
+- **Teardown only destroys solomog-created clusters.** `vind-create.sh` records each
+  cluster it creates in `.solomog/clusters` (gitignored); `vind-teardown.sh` with no
+  args only targets those that still exist, so hand-made clusters are never nuked.
+  Explicit `CLUSTER=<name>` overrides this.
 - **Taskfile is plain YAML, not gotmpl.** A flow sequence containing a template,
   e.g. `cmds: [bash x.sh {{.VAR}}]`, breaks the YAML parser because `{{` opens an
   inline mapping. Use block style:

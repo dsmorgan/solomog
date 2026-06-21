@@ -56,7 +56,7 @@ fi
 
 read -rp "Update versions.env with the values shown above? [y/N] " confirm
 echo ""
-if [[ "${confirm,,}" != "y" ]]; then
+if [[ ! "$confirm" =~ ^[Yy] ]]; then
   echo "No changes made."
   exit 0
 fi
