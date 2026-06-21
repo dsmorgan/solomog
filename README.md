@@ -89,8 +89,12 @@ solomog            # lists every available scenario
     upstream Istio Helm charts.
   - `kgateway` = **enterprise kgateway** (kgateway 2.2.x) / upstream kgateway in community.
   - `gloo-gateway` = **Gloo Gateway** (gloo-ee 1.21.x) — a *separate* product, not the same as kgateway.
-  - `agentgateway` = **enterprise agentgateway** (2.3.x).
+  - `agentgateway` = **enterprise agentgateway** (2.3.x) / OSS agentgateway (1.3.x) in community.
   - `gloo-mesh` = optional **Gloo Mesh Enterprise** management plane (repo unverified — TODO).
+
+  Enterprise and community use different registries and version lines; the right
+  ones are selected automatically by `EDITION`. All chart coordinates are verified
+  against the product docs except `gloo-mesh`.
 - **Editions** are a helmfile environment dimension: `EDITION=enterprise` (default)
   or `EDITION=community`. Switches chart repos and license handling.
 - **Istio mode** is `ISTIO_MODE=ambient` (default) or `sidecar`.

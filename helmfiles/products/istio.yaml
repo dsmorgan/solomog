@@ -41,6 +41,7 @@ releases:
         args:
           - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
           - apply
+          - --server-side
           - -f
           - "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ .Values.gateway_api_version }}/standard-install.yaml"
     values:
@@ -80,6 +81,7 @@ releases:
         args:
           - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
           - apply
+          - --server-side
           - -f
           - "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ .Values.gateway_api_version }}/standard-install.yaml"
 

@@ -37,6 +37,17 @@ releases:
 {{ end }}
     version: "{{ .Values.kgateway_version }}"
     wait: true
+    # kgateway implements the Gateway API — install its upstream CRDs first.
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: kubectl
+        args:
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
+          - apply
+          - --server-side
+          - -f
+          - "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ .Values.gateway_api_version }}/standard-install.yaml"
 
   - name: kgateway
     namespace: kgateway-system

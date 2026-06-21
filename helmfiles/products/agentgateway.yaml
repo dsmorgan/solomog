@@ -1,10 +1,15 @@
-# Product module: agentgateway (2.3.x).
+# Product module: agentgateway.
 #
-#   enterprise → enterprise-agentgateway-crds + enterprise-agentgateway (OCI),
-#                namespace agentgateway-system, license licensing.licenseKey.
-#                Creates the `enterprise-agentgateway` GatewayClass.
+#   enterprise → enterprise-agentgateway-crds + enterprise-agentgateway (2.3.x)
+#                repo oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts
+#                license licensing.licenseKey.
 #                Verified: https://docs.solo.io/agentgateway/2.3.x/install/helm/
-#   community  → upstream agentgateway (best-effort; verify chart name/repo).
+#   community  → agentgateway-crds + agentgateway (1.3.x)
+#                repo oci://cr.agentgateway.dev/charts
+#                Verified: https://agentgateway.dev/docs/kubernetes/latest/install/helm/
+#
+# Both editions install to agentgateway-system and require the Kubernetes Gateway
+# API CRDs (applied first via a presync hook).
 #
 # License: agentgateway_license_key (AGENTGATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
 # Composed via: solomog stack CLUSTER=... PRODUCTS="agentgateway"
@@ -15,41 +20,37 @@ bases:
 ---
 
 repositories:
-{{ if eq .Environment.Name "enterprise" }}
-  - name: enterprise-agentgateway
-    url: "{{ .Values.helm_repo_agentgateway }}"
-    oci: true
-{{ else }}
   - name: agentgateway
     url: "{{ .Values.helm_repo_agentgateway }}"
     oci: true
-{{ end }}
 
 releases:
-{{ if eq .Environment.Name "enterprise" }}
   - name: agentgateway-crds
     namespace: agentgateway-system
-    chart: enterprise-agentgateway/enterprise-agentgateway-crds
+    chart: agentgateway/{{ if eq .Environment.Name "enterprise" }}enterprise-agentgateway-crds{{ else }}agentgateway-crds{{ end }}
     version: "{{ .Values.agentgateway_version }}"
     wait: true
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: kubectl
+        args:
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
+          - apply
+          - --server-side
+          - -f
+          - "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ .Values.gateway_api_version }}/standard-install.yaml"
 
   - name: agentgateway
     namespace: agentgateway-system
-    chart: enterprise-agentgateway/enterprise-agentgateway
+    chart: agentgateway/{{ if eq .Environment.Name "enterprise" }}enterprise-agentgateway{{ else }}agentgateway{{ end }}
     version: "{{ .Values.agentgateway_version }}"
     wait: true
     needs:
       - agentgateway-system/agentgateway-crds
     values:
       - ../../values/agentgateway/values.yaml
+{{ if eq .Environment.Name "enterprise" }}
       - licensing:
           licenseKey: "{{ .Values.agentgateway_license_key }}"
-{{ else }}
-  - name: agentgateway
-    namespace: agentgateway-system
-    chart: agentgateway/agentgateway
-    version: "{{ .Values.agentgateway_version }}"
-    wait: true
-    values:
-      - ../../values/agentgateway/values.yaml
 {{ end }}

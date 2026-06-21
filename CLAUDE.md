@@ -126,9 +126,22 @@ For new cross-cluster topologies, write a dedicated helmfile.
   clusters in a mesh — delete `certs/` to rotate.
 - **`gloo-mesh` in community mode is a no-op** (Gloo Mesh Enterprise has no OSS
   build) — the module emits `releases: []`. Don't add community repos for it.
-- Chart coordinates **verified** against docs: `istio` (operator 0.5.2 / istio 1.30.x),
-  `kgateway` (2.2.x), `gloo-gateway` (1.21.x), `agentgateway` (2.3.x). Only the
-  `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
+- Chart coordinates **verified** against docs for both editions:
+  - `istio` — enterprise: gloo-operator 0.5.2 / istio 1.30.x; community: upstream
+    charts (istio-release), ambient profile, ~1.26.x.
+  - `kgateway` — enterprise 2.2.x (`us-docker.pkg.dev/.../enterprise-kgateway`);
+    community 2.3.x (`cr.kgateway.dev/kgateway-dev/charts`).
+  - `agentgateway` — enterprise 2.3.x (`.../enterprise-agentgateway`); community
+    1.3.x (`cr.agentgateway.dev/charts`). Both editions ship a `-crds` chart.
+  - `gloo-gateway` — 1.21.x (classic Helm repos).
+  Only the `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
+- Enterprise and community are on **different version lines** for kgateway and
+  agentgateway. `community.yaml` overrides `kgateway_version`/`agentgateway_version`
+  from `*_COMMUNITY_VERSION` env vars — don't assume one version fits both editions.
+- All Gateway-API-based products (istio, kgateway, agentgateway) install the
+  **upstream Gateway API CRDs** via a `presync` hook (`kubectl apply --server-side`,
+  version from `gateway_api_version`). This is separate from each product's own
+  `-crds` chart.
 - `kgateway` (enterprise kgateway) vs `gloo-gateway` (Gloo Gateway) are **distinct
   products** with different charts, namespaces, and license value paths. An earlier
   draft conflated them — keep them separate.
