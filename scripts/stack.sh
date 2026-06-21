@@ -7,7 +7,7 @@ set -euo pipefail
 #
 # Products are installed in this fixed order regardless of argument order, so
 # dependencies resolve correctly (mesh before gateways):
-#     istio → gloo-mesh → kgateway → agentgateway
+#     istio → gloo-mesh → kgateway → gloo-gateway → agentgateway
 #
 # Environment:
 #   EDITION      enterprise (default) | community   — passed through to helmfile
@@ -32,7 +32,7 @@ REQUESTED=("$@")
 CTX="vcluster.${CLUSTER}"
 
 # Canonical install order — append new products here as modules are added.
-CANONICAL_ORDER=(istio gloo-mesh kgateway agentgateway)
+CANONICAL_ORDER=(istio gloo-mesh kgateway gloo-gateway agentgateway)
 
 # Validate every requested product has a module.
 for p in "${REQUESTED[@]}"; do
@@ -59,7 +59,10 @@ if requested istio || requested gloo-mesh; then
   bash "$REPO_DIR/scripts/gen-certs.sh" "$CLUSTER"
 fi
 
-# 3. Install each requested product in canonical order
+# 3. Install each requested product in canonical order.
+# SOLO_CONTEXT is exported so helmfile hooks (e.g. gloo-gateway's Gateway API
+# CRD bootstrap) target the right cluster.
+export SOLO_CONTEXT="$CTX"
 for product in "${CANONICAL_ORDER[@]}"; do
   requested "$product" || continue
   echo ""

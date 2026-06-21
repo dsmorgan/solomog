@@ -1,11 +1,15 @@
-# Product module: kgateway (community) / Gloo Gateway (enterprise), single cluster.
-# License: gloo_gateway_license_key (GLOO_GATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
+# Product module: kgateway.
+#   enterprise → Solo Enterprise kgateway (kgateway 2.2.x)
+#                charts: enterprise-kgateway-crds, enterprise-kgateway (OCI)
+#                namespace: kgateway-system
+#                license: licensing.licenseKey
+#                https://docs.solo.io/kgateway/2.2.x/install/helm/
+#   community  → upstream open-source kgateway (kgateway-dev)
 #
+# NOTE: this is distinct from Gloo Gateway — see products/gloo-gateway.yaml.
+#
+# License: kgateway_license_key (KGATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
 # Composed via: solomog stack CLUSTER=... PRODUCTS="kgateway"
-#
-# TODO: verify chart names / repo URLs against your installed version:
-#   Enterprise: https://docs.solo.io/gateway/latest/setup/
-#   Community:  https://kgateway.dev/docs/quickstart/
 
 bases:
   - ../commons.yaml
@@ -14,7 +18,7 @@ bases:
 
 repositories:
 {{ if eq .Environment.Name "enterprise" }}
-  - name: gloo-gateway
+  - name: enterprise-kgateway
     url: "{{ .Values.helm_repo_kgateway }}"
     oci: true
 {{ else }}
@@ -24,10 +28,10 @@ repositories:
 {{ end }}
 
 releases:
-  - name: gateway-crds
-    namespace: gloo-system
+  - name: kgateway-crds
+    namespace: kgateway-system
 {{ if eq .Environment.Name "enterprise" }}
-    chart: gloo-gateway/gloo-gateway-crds
+    chart: enterprise-kgateway/enterprise-kgateway-crds
 {{ else }}
     chart: kgateway/kgateway-crds
 {{ end }}
@@ -35,19 +39,19 @@ releases:
     wait: true
 
   - name: kgateway
-    namespace: gloo-system
+    namespace: kgateway-system
 {{ if eq .Environment.Name "enterprise" }}
-    chart: gloo-gateway/gloo-gateway
+    chart: enterprise-kgateway/enterprise-kgateway
 {{ else }}
     chart: kgateway/kgateway
 {{ end }}
     version: "{{ .Values.kgateway_version }}"
     wait: true
     needs:
-      - gloo-system/gateway-crds
+      - kgateway-system/kgateway-crds
     values:
       - ../../values/kgateway/values.yaml
 {{ if eq .Environment.Name "enterprise" }}
-      - license:
-          key: "{{ .Values.gloo_gateway_license_key }}"
+      - licensing:
+          licenseKey: "{{ .Values.kgateway_license_key }}"
 {{ end }}

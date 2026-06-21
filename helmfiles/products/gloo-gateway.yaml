@@ -1,0 +1,64 @@
+# Product module: Gloo Gateway (1.21.x) — Solo's Gloo Edge-lineage gateway with
+# Kubernetes Gateway API support. Distinct from enterprise kgateway (products/kgateway.yaml).
+#
+#   enterprise → glooe/gloo-ee   (repo https://storage.googleapis.com/gloo-ee-helm)
+#                license: top-level license_key
+#   community  → gloo/gloo       (repo https://storage.googleapis.com/solo-public-helm)
+#
+# Namespace: gloo-system.   Verified: https://docs.solo.io/gateway/1.21.x/quickstart/
+#
+# License: gloo_gateway_license_key (GLOO_GATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
+# Composed via: solomog stack CLUSTER=... PRODUCTS="gloo-gateway"
+#
+# The kube gateway integration requires the upstream Gateway API CRDs, which the
+# Gloo chart does not bundle — a presync hook applies them first.
+
+bases:
+  - ../commons.yaml
+
+---
+
+repositories:
+  - name: gloo-gateway
+    url: "{{ .Values.helm_repo_gloo_gateway }}"
+
+releases:
+  - name: gloo-gateway
+    namespace: gloo-system
+{{ if eq .Environment.Name "enterprise" }}
+    chart: gloo-gateway/gloo-ee
+{{ else }}
+    chart: gloo-gateway/gloo
+{{ end }}
+    version: "{{ .Values.gloo_gateway_version }}"
+    wait: true
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: kubectl
+        args:
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
+          - apply
+          - -f
+          - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
+    values:
+{{ if eq .Environment.Name "enterprise" }}
+      # gloo-ee nests config under the `gloo` key; license_key is top-level.
+      - license_key: "{{ .Values.gloo_gateway_license_key }}"
+        gloo:
+          gatewayProxies:
+            gatewayProxy:
+              disabled: true
+          kubeGateway:
+            enabled: true
+          gloo:
+            disableLeaderElection: true
+{{ else }}
+      - gatewayProxies:
+          gatewayProxy:
+            disabled: true
+        kubeGateway:
+          enabled: true
+        gloo:
+          disableLeaderElection: true
+{{ end }}

@@ -1,18 +1,22 @@
 # Solo enterprise edition overrides.
 # Sets chart repos to Solo's OCI/Helm registries.
 #
-# License keys are resolved per-product in default.yaml (gloo_mesh_license_key,
-# gloo_gateway_license_key, agentgateway_license_key) from .env.
-# TODO: verify the exact OCI paths against your product version release notes.
+# License keys are resolved per-product in default.yaml from .env.
 
 # Gloo Mesh Enterprise management plane + agent
-# Verify at: https://docs.solo.io/gloo-mesh-enterprise/latest/setup/installation/
+# TODO: verify against https://docs.solo.io/gloo-mesh-enterprise/latest/setup/installation/
 helm_repo_gloo_mesh: "https://storage.googleapis.com/gloo-mesh-enterprise/gloo-mesh-enterprise"
 
-# Gloo Gateway (Enterprise kgateway)
-# Verify at: https://docs.solo.io/gateway/latest/setup/
-helm_repo_kgateway: "oci://us-docker.pkg.dev/gloo-mesh/release"
+# Enterprise kgateway (kgateway 2.2.x) — OCI registry.
+# Charts: enterprise-kgateway-crds, enterprise-kgateway. Namespace: kgateway-system.
+# Verified: https://docs.solo.io/kgateway/2.2.x/install/helm/
+helm_repo_kgateway: "oci://us-docker.pkg.dev/solo-public/enterprise-kgateway/charts"
+
+# Gloo Gateway Enterprise (1.21.x) — classic Helm repo.
+# Chart: glooe/gloo-ee. Namespace: gloo-system.
+# Verified: https://docs.solo.io/gateway/1.21.x/quickstart/
+helm_repo_gloo_gateway: "https://storage.googleapis.com/gloo-ee-helm"
 
 # Agent Gateway Enterprise
-# Verify at: https://docs.solo.io/agent-gateway/
+# TODO: verify chart name / repo URL against https://docs.solo.io/agent-gateway/
 helm_repo_agentgateway: "oci://us-docker.pkg.dev/solo-public/helm"

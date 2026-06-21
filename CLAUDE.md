@@ -28,8 +28,12 @@ The `solomog` wrapper just `cd`s to the repo root and `exec task "$@"`.
 
 These combine freely and are the core mental model:
 
-1. **Product** — `istio`, `gloo-mesh`, `kgateway`, `agentgateway`. One self-contained
-   helmfile module each in [helmfiles/products/](helmfiles/products/).
+1. **Product** — `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`.
+   One self-contained helmfile module each in [helmfiles/products/](helmfiles/products/).
+   - `kgateway` = **enterprise kgateway** (kgateway 2.2.x, OCI charts `enterprise-kgateway[-crds]`,
+     ns `kgateway-system`, license `licensing.licenseKey`) / upstream kgateway in community.
+   - `gloo-gateway` = **Gloo Gateway** (gloo-ee/gloo 1.21.x, classic Helm repos, ns `gloo-system`,
+     license top-level `license_key`). This is a *different product* from kgateway — do not merge them.
 2. **Edition** — `enterprise` (default) or `community`. A helmfile *environment*.
    Selects chart repos and whether license keys apply.
 3. **Istio mode** — `ambient` (default) or `sidecar`. Passed as `ISTIO_MODE` env,
@@ -42,8 +46,10 @@ These combine freely and are the core mental model:
 1. `vind-create.sh` — create the cluster (unique CIDRs).
 2. `gen-certs.sh` — only if `istio` or `gloo-mesh` is requested.
 3. For each product in **`CANONICAL_ORDER`** (`istio gloo-mesh kgateway
-   agentgateway`), if requested, `helmfile sync -f products/<p>.yaml -e $EDITION
-   --kube-context vcluster.$CLUSTER`.
+   gloo-gateway agentgateway`), if requested, `helmfile sync -f products/<p>.yaml
+   -e $EDITION --kube-context vcluster.$CLUSTER`. `stack.sh` also exports
+   `SOLO_CONTEXT` so helmfile hooks (e.g. gloo-gateway's Gateway API CRD bootstrap)
+   target the right cluster.
 
 Single-product tasks (`istio:*:single`, `kgateway`, `agentgateway`, etc.) are thin
 shortcuts that call `stack.sh` with a fixed product list.
@@ -106,8 +112,12 @@ For new cross-cluster topologies, write a dedicated helmfile.
   tasks order `gen-certs` first; preserve that ordering.
 - **`gloo-mesh` in community mode is a no-op** (Gloo Mesh Enterprise has no OSS
   build) — the module emits `releases: []`. Don't add community repos for it.
-- Several enterprise chart names / OCI URLs are marked `TODO` — they were best-effort
-  and need verification against real releases before enterprise installs succeed.
+- `kgateway` and `gloo-gateway` chart coordinates are **verified** against the 2.2.x /
+  1.21.x docs. `gloo-mesh` and `agentgateway` repos are still best-effort `TODO`s —
+  verify before enterprise installs of those two.
+- `kgateway` (enterprise kgateway) vs `gloo-gateway` (Gloo Gateway) are **distinct
+  products** with different charts, namespaces, and license value paths. An earlier
+  draft conflated them — keep them separate.
 
 ## Validating changes without a cluster
 

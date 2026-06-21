@@ -3,6 +3,7 @@
 
 gloo_mesh_version: "{{ env "GLOO_MESH_VERSION" }}"
 kgateway_version: "{{ env "KGATEWAY_VERSION" }}"
+gloo_gateway_version: "{{ env "GLOO_GATEWAY_VERSION" }}"
 agentgateway_version: "{{ env "AGENTGATEWAY_VERSION" }}"
 istio_version: "{{ env "ISTIO_VERSION" }}"
 
@@ -22,10 +23,12 @@ helm_repo_cert_manager: "https://charts.jetstack.io"
 # back to SOLO_LICENSE_KEY so a single key can cover every product.
 # These resolve to "" in community mode and are simply ignored there.
 gloo_mesh_license_key:    '{{ env "GLOO_MESH_LICENSE_KEY"    | default (env "SOLO_LICENSE_KEY") | default "" }}'
+kgateway_license_key:     '{{ env "KGATEWAY_LICENSE_KEY"     | default (env "SOLO_LICENSE_KEY") | default "" }}'
 gloo_gateway_license_key: '{{ env "GLOO_GATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
 agentgateway_license_key: '{{ env "AGENTGATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
 
 # Enterprise repo URLs are empty by default; overridden by enterprise.yaml
 helm_repo_gloo_mesh:      ""
 helm_repo_kgateway:       ""
+helm_repo_gloo_gateway:   ""
 helm_repo_agentgateway:   ""

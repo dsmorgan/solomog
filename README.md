@@ -83,7 +83,9 @@ solomog            # lists every available scenario
 ## Concepts
 
 - **Products** are composable helmfile modules in [helmfiles/products/](helmfiles/products/):
-  `istio`, `gloo-mesh`, `kgateway`, `agentgateway`.
+  `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`.
+  - `kgateway` = **enterprise kgateway** (kgateway 2.2.x) / upstream kgateway in community.
+  - `gloo-gateway` = **Gloo Gateway** (gloo-ee 1.21.x) — a *separate* product, not the same as kgateway.
 - **Editions** are a helmfile environment dimension: `EDITION=enterprise` (default)
   or `EDITION=community`. Switches chart repos and license handling.
 - **Istio mode** is `ISTIO_MODE=ambient` (default) or `sidecar`.
@@ -105,12 +107,14 @@ solomog stack PRODUCTS="istio gloo-mesh" ISTIO_MODE=sidecar
 solomog istio:ambient:single
 solomog istio:sidecar:single
 solomog gloo-mesh:single                 # istio + Gloo Mesh mgmt plane
-solomog kgateway
+solomog kgateway                         # enterprise kgateway 2.2.x
 solomog kgateway:with-istio
+solomog gloo-gateway                     # Gloo Gateway 1.21.x (separate product)
 solomog agentgateway
 
 # Community editions (no license key needed)
 solomog kgateway EDITION=community
+solomog gloo-gateway EDITION=community
 ```
 
 ### Multi-cluster Istio
@@ -147,8 +151,9 @@ Set keys in `.env`. Use one key for everything, or map a specific key per produc
 
 ```bash
 SOLO_LICENSE_KEY=...              # fallback for any product without its own key
-GLOO_MESH_LICENSE_KEY=...         # overrides the fallback for Gloo Mesh
-GLOO_GATEWAY_LICENSE_KEY=...      # overrides for kgateway/Gloo Gateway
+GLOO_MESH_LICENSE_KEY=...         # overrides for Gloo Mesh
+KGATEWAY_LICENSE_KEY=...          # overrides for enterprise kgateway
+GLOO_GATEWAY_LICENSE_KEY=...      # overrides for Gloo Gateway
 AGENTGATEWAY_LICENSE_KEY=...      # overrides for agentgateway
 ```
 

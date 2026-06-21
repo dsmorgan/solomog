@@ -171,6 +171,15 @@ tasks:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
+  # ─── Gloo Gateway (distinct from kgateway) ────────────────────────────────
+
+  gloo-gateway:
+    desc: "1 cluster · Gloo Gateway 1.21.x · EDITION={{.EDITION}}"
+    cmds:
+      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} gloo-gateway
+    env:
+      EDITION: '{{.EDITION}}'
+
   # ─── agentgateway ────────────────────────────────────────────────────────
 
   agentgateway:
