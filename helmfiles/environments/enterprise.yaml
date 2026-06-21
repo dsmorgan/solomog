@@ -2,11 +2,12 @@
 # Sets chart repos to Solo's OCI/Helm registries.
 #
 # License keys are resolved per-product in default.yaml from .env.
+# NOTE: OCI repo URLs are scheme-less — helmfile prepends oci:// when oci: true.
 
 # Gloo Operator — installs Solo's managed Istio (enterprise istio path).
 # Charts: gloo-operator. Namespace: gloo-mesh. License: manager.env.SOLO_ISTIO_LICENSE_KEY.
 # Verified: https://docs.solo.io/istio/1.30.x/quickstart/multi/
-helm_repo_gloo_operator: "oci://us-docker.pkg.dev/solo-public/gloo-operator-helm"
+helm_repo_gloo_operator: "us-docker.pkg.dev/solo-public/gloo-operator-helm"
 
 # Gloo Mesh Enterprise management plane + agent (optional product).
 # TODO: verify against https://docs.solo.io/gloo-mesh-enterprise/latest/setup/installation/
@@ -15,7 +16,7 @@ helm_repo_gloo_mesh: "https://storage.googleapis.com/gloo-mesh-enterprise/gloo-m
 # Enterprise kgateway (kgateway 2.2.x) — OCI registry.
 # Charts: enterprise-kgateway-crds, enterprise-kgateway. Namespace: kgateway-system.
 # Verified: https://docs.solo.io/kgateway/2.2.x/install/helm/
-helm_repo_kgateway: "oci://us-docker.pkg.dev/solo-public/enterprise-kgateway/charts"
+helm_repo_kgateway: "us-docker.pkg.dev/solo-public/enterprise-kgateway/charts"
 
 # Gloo Gateway Enterprise (1.21.x) — classic Helm repo.
 # Chart: glooe/gloo-ee. Namespace: gloo-system.
@@ -25,4 +26,4 @@ helm_repo_gloo_gateway: "https://storage.googleapis.com/gloo-ee-helm"
 # Enterprise agentgateway (2.3.x) — OCI registry.
 # Charts: enterprise-agentgateway-crds, enterprise-agentgateway. Namespace: agentgateway-system.
 # Verified: https://docs.solo.io/agentgateway/2.3.x/install/helm/
-helm_repo_agentgateway: "oci://us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts"
+helm_repo_agentgateway: "us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts"

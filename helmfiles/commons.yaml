@@ -1,14 +1,15 @@
 # Shared environment definitions, merged into every product module via `bases:`.
-# Paths are resolved relative to this file (helmfiles/).
+# NOTE: helmfile resolves these paths relative to the *consuming* helmfile
+# (helmfiles/products/<module>.yaml), not this file — hence the ../environments prefix.
 environments:
   default:
     values:
-      - environments/default.yaml
+      - ../environments/default.yaml.gotmpl
   enterprise:
     values:
-      - environments/default.yaml
-      - environments/enterprise.yaml
+      - ../environments/default.yaml.gotmpl
+      - ../environments/enterprise.yaml
   community:
     values:
-      - environments/default.yaml
-      - environments/community.yaml
+      - ../environments/default.yaml.gotmpl
+      - ../environments/community.yaml.gotmpl

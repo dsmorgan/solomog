@@ -43,8 +43,9 @@ cp .env.example .env
 # 2. Add your license key(s) to .env  (see "License keys" below)
 #    For community-only use you can leave these blank.
 
-# 3. Install prerequisites and link the `solomog` command onto your PATH
-task setup
+# 3. Install prerequisites and link the `solomog` command onto your PATH.
+#    Run the script directly — `task` isn't installed yet, and this installs it.
+bash scripts/setup.sh
 #    This installs the brew tools and symlinks ./solomog -> ~/.local/bin/solomog
 #    If ~/.local/bin isn't on your PATH, add to ~/.zshrc:
 #      export PATH="$HOME/.local/bin:$PATH"

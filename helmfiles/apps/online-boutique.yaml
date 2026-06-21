@@ -8,7 +8,8 @@
 
 repositories:
   - name: online-boutique
-    url: oci://us-docker.pkg.dev/google-samples/charts
+    # scheme-less — helmfile prepends oci:// when oci: true
+    url: us-docker.pkg.dev/google-samples/charts
     oci: true
 
 releases:

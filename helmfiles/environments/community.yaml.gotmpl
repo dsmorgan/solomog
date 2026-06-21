@@ -1,11 +1,12 @@
 # Community / open-source edition overrides.
 # No license key required. Uses upstream / public chart repos and the OSS
 # version lines (which differ from enterprise).
+# NOTE: OCI repo URLs are scheme-less — helmfile prepends oci:// when oci: true.
 
 # kgateway community (kgateway 2.3.x) — OCI registry.
 # Charts: kgateway-crds, kgateway. Namespace: kgateway-system.
 # Verified: https://kgateway.dev/docs/envoy/latest/quickstart/
-helm_repo_kgateway: "oci://cr.kgateway.dev/kgateway-dev/charts"
+helm_repo_kgateway: "cr.kgateway.dev/kgateway-dev/charts"
 kgateway_version: "{{ env "KGATEWAY_COMMUNITY_VERSION" }}"
 
 # Gloo Gateway open source (1.21.x) — classic Helm repo.
@@ -16,5 +17,5 @@ helm_repo_gloo_gateway: "https://storage.googleapis.com/solo-public-helm"
 # agentgateway community (1.3.x) — OCI registry.
 # Charts: agentgateway-crds, agentgateway. Namespace: agentgateway-system.
 # Verified: https://agentgateway.dev/docs/kubernetes/latest/install/helm/
-helm_repo_agentgateway: "oci://cr.agentgateway.dev/charts"
+helm_repo_agentgateway: "cr.agentgateway.dev/charts"
 agentgateway_version: "{{ env "AGENTGATEWAY_COMMUNITY_VERSION" }}"

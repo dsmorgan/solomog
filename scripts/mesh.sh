@@ -67,7 +67,7 @@ for cluster in "${CLUSTERS[@]}"; do
   SOLO_CONTEXT="$ctx" SOLO_CLUSTER="$cluster" SOLO_NETWORK="$network" ISTIO_MODE="$ISTIO_MODE" \
   ${cluster_version:+ISTIO_VERSION="$cluster_version"} \
     helmfile sync \
-      -f "$REPO_DIR/helmfiles/products/istio.yaml" \
+      -f "$REPO_DIR/helmfiles/products/istio.yaml.gotmpl" \
       -e "$EDITION" \
       --kube-context "$ctx"
 done

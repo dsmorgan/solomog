@@ -36,9 +36,9 @@ CANONICAL_ORDER=(istio gloo-mesh kgateway gloo-gateway agentgateway)
 
 # Validate every requested product has a module.
 for p in "${REQUESTED[@]}"; do
-  if [[ ! -f "$PRODUCTS_DIR/${p}.yaml" ]]; then
-    echo "Error: unknown product '${p}' (no helmfiles/products/${p}.yaml)" >&2
-    echo "Available: $(cd "$PRODUCTS_DIR" && ls *.yaml | sed 's/.yaml//' | tr '\n' ' ')" >&2
+  if [[ ! -f "$PRODUCTS_DIR/${p}.yaml.gotmpl" ]]; then
+    echo "Error: unknown product '${p}' (no helmfiles/products/${p}.yaml.gotmpl)" >&2
+    echo "Available: $(cd "$PRODUCTS_DIR" && ls *.yaml.gotmpl | sed 's/.yaml.gotmpl//' | tr '\n' ' ')" >&2
     exit 1
   fi
 done
@@ -69,7 +69,7 @@ for product in "${CANONICAL_ORDER[@]}"; do
   echo ""
   echo "==> Installing '${product}' onto ${CTX} (edition=${EDITION})"
   helmfile sync \
-    -f "$PRODUCTS_DIR/${product}.yaml" \
+    -f "$PRODUCTS_DIR/${product}.yaml.gotmpl" \
     -e "$EDITION" \
     --kube-context "$CTX"
 done

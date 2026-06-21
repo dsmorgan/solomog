@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 # solomog — thin wrapper around task that always runs from the solomog repo root.
-# Symlink this to ~/.local/bin/solomog (done by: solomog setup).
+# Symlink this to ~/.local/bin/solomog (done by: bash scripts/setup.sh).
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 cd "$SCRIPT_DIR"
+
+if ! command -v task &>/dev/null; then
+  echo "solomog: 'task' (go-task) is not installed yet." >&2
+  echo "Bootstrap prerequisites first:  bash \"$SCRIPT_DIR/scripts/setup.sh\"" >&2
+  exit 127
+fi
+
 exec task "$@"
