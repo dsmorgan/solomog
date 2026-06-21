@@ -60,9 +60,10 @@ if requested istio || requested gloo-mesh; then
 fi
 
 # 3. Install each requested product in canonical order.
-# SOLO_CONTEXT is exported so helmfile hooks (e.g. gloo-gateway's Gateway API
-# CRD bootstrap) target the right cluster.
+# Exported so helmfile hooks / the istio ServiceMeshController target this cluster.
 export SOLO_CONTEXT="$CTX"
+export SOLO_CLUSTER="$CLUSTER"
+export SOLO_NETWORK="$CLUSTER"
 for product in "${CANONICAL_ORDER[@]}"; do
   requested "$product" || continue
   echo ""

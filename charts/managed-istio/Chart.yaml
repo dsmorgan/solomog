@@ -1,0 +1,5 @@
+apiVersion: v2
+name: managed-istio
+description: Renders a Gloo Operator ServiceMeshController CR to install Solo's managed Istio
+type: application
+version: 0.1.0

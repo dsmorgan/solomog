@@ -1,10 +1,13 @@
-# Product module: agentgateway, single cluster.
+# Product module: agentgateway (2.3.x).
+#
+#   enterprise → enterprise-agentgateway-crds + enterprise-agentgateway (OCI),
+#                namespace agentgateway-system, license licensing.licenseKey.
+#                Creates the `enterprise-agentgateway` GatewayClass.
+#                Verified: https://docs.solo.io/agentgateway/2.3.x/install/helm/
+#   community  → upstream agentgateway (best-effort; verify chart name/repo).
+#
 # License: agentgateway_license_key (AGENTGATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
-#
 # Composed via: solomog stack CLUSTER=... PRODUCTS="agentgateway"
-#
-# TODO: verify chart name / repo URL against the agentgateway release notes:
-#   https://docs.solo.io/agent-gateway/
 
 bases:
   - ../commons.yaml
@@ -12,19 +15,41 @@ bases:
 ---
 
 repositories:
+{{ if eq .Environment.Name "enterprise" }}
+  - name: enterprise-agentgateway
+    url: "{{ .Values.helm_repo_agentgateway }}"
+    oci: true
+{{ else }}
   - name: agentgateway
     url: "{{ .Values.helm_repo_agentgateway }}"
     oci: true
+{{ end }}
 
 releases:
+{{ if eq .Environment.Name "enterprise" }}
+  - name: agentgateway-crds
+    namespace: agentgateway-system
+    chart: enterprise-agentgateway/enterprise-agentgateway-crds
+    version: "{{ .Values.agentgateway_version }}"
+    wait: true
+
   - name: agentgateway
-    namespace: agentgateway
+    namespace: agentgateway-system
+    chart: enterprise-agentgateway/enterprise-agentgateway
+    version: "{{ .Values.agentgateway_version }}"
+    wait: true
+    needs:
+      - agentgateway-system/agentgateway-crds
+    values:
+      - ../../values/agentgateway/values.yaml
+      - licensing:
+          licenseKey: "{{ .Values.agentgateway_license_key }}"
+{{ else }}
+  - name: agentgateway
+    namespace: agentgateway-system
     chart: agentgateway/agentgateway
     version: "{{ .Values.agentgateway_version }}"
     wait: true
     values:
       - ../../values/agentgateway/values.yaml
-{{ if eq .Environment.Name "enterprise" }}
-      - license:
-          key: "{{ .Values.agentgateway_license_key }}"
 {{ end }}

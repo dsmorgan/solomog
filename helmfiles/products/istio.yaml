@@ -1,37 +1,87 @@
-# Product module: Istio (cert-manager + base + istiod, plus CNI/ztunnel in ambient mode).
-# Context-agnostic — stack.sh targets a cluster with `helmfile --kube-context`.
-# Mode comes from ISTIO_MODE (ambient|sidecar), set by the Taskfile.
+# Product module: Istio.
 #
-# Composed via: solomog stack CLUSTER=... PRODUCTS="istio ..."
+#   enterprise → Solo managed Istio via the Gloo Operator + a ServiceMeshController CR.
+#                operator chart: gloo-operator (OCI), namespace gloo-mesh,
+#                license manager.env.SOLO_ISTIO_LICENSE_KEY.
+#                dataplaneMode (Ambient/Sidecar) comes from ISTIO_MODE.
+#                Verified: https://docs.solo.io/istio/1.30.x/quickstart/multi/
+#
+#   community  → upstream Istio Helm charts (base, istiod, +cni/ztunnel in ambient).
+#
+# Both editions install the Gateway API CRDs first (presync hook), and rely on a
+# shared-CA `cacerts` secret already applied by scripts/gen-certs.sh.
+#
+# Per-cluster identity for the CR comes from SOLO_CLUSTER / SOLO_NETWORK (exported
+# by stack.sh and mesh.sh); single-cluster runs default to cluster-one.
+#
+# License: istio_license_key (SOLO_ISTIO_LICENSE_KEY or SOLO_LICENSE_KEY).
 
 bases:
   - ../commons.yaml
 
 ---
 
+{{ if eq .Environment.Name "enterprise" }}
+# ── Enterprise: Gloo Operator + ServiceMeshController ───────────────────────
+repositories:
+  - name: gloo-operator
+    url: "{{ .Values.helm_repo_gloo_operator }}"
+    oci: true
+
+releases:
+  - name: gloo-operator
+    namespace: gloo-mesh
+    chart: gloo-operator/gloo-operator
+    version: "{{ .Values.gloo_operator_version }}"
+    wait: true
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: kubectl
+        args:
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
+          - apply
+          - -f
+          - "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ .Values.gateway_api_version }}/standard-install.yaml"
+    values:
+      - manager:
+          env:
+            SOLO_ISTIO_LICENSE_KEY: "{{ .Values.istio_license_key }}"
+
+  - name: managed-istio
+    namespace: gloo-mesh
+    chart: ../../charts/managed-istio
+    wait: true
+    needs:
+      - gloo-mesh/gloo-operator
+    values:
+      - cluster: "{{ env "SOLO_CLUSTER" | default "cluster-one" }}"
+        network: "{{ env "SOLO_NETWORK" | default (env "SOLO_CLUSTER") | default "cluster-one" }}"
+        dataplaneMode: "{{ if eq .Values.istio_mode "ambient" }}Ambient{{ else }}Sidecar{{ end }}"
+        installNamespace: istio-system
+        version: "{{ .Values.istio_version }}"
+
+{{ else }}
+# ── Community: upstream Istio Helm charts ───────────────────────────────────
 repositories:
   - name: istio
     url: "{{ .Values.helm_repo_istio }}"
-  - name: cert-manager
-    url: "{{ .Values.helm_repo_cert_manager }}"
 
 releases:
-  - name: cert-manager
-    namespace: cert-manager
-    chart: cert-manager/cert-manager
-    version: v1.14.5
-    wait: true
-    set:
-      - name: installCRDs
-        value: "true"
-
   - name: istio-base
     namespace: istio-system
     chart: istio/base
     version: "{{ .Values.istio_version }}"
     wait: true
-    needs:
-      - cert-manager/cert-manager
+    hooks:
+      - events: ["presync"]
+        showlogs: true
+        command: kubectl
+        args:
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
+          - apply
+          - -f
+          - "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ .Values.gateway_api_version }}/standard-install.yaml"
 
   - name: istiod
     namespace: istio-system
@@ -62,4 +112,5 @@ releases:
     wait: true
     needs:
       - kube-system/istio-cni
+{{ end }}
 {{ end }}

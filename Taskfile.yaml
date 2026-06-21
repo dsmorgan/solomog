@@ -73,85 +73,58 @@ tasks:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: '{{.ISTIO_MODE | default "ambient"}}'
 
-  # ─── Istio — 2 clusters, flat network ────────────────────────────────────
+  # ─── Istio — multi-cluster mesh ───────────────────────────────────────────
+  # mesh.sh installs the istio product module onto each cluster with a shared CA.
+  # flat    → clusters share one network; pod routing via networking.sh.
+  # gateway → per-cluster network (east-west wiring is a documented TODO).
+  # 3-cluster scenarios support mixed Istio versions via versions.env overrides.
 
   istio:ambient:multi-flat:
     desc: "2 clusters · ambient · flat network · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - task: _networking
-        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - helmfile sync -f helmfiles/istio-multi-flat.yaml -e {{.EDITION}}
+      - bash scripts/mesh.sh flat cluster-one cluster-two
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-flat:
     desc: "2 clusters · sidecar · flat network · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - task: _networking
-        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - helmfile sync -f helmfiles/istio-multi-flat.yaml -e {{.EDITION}}
+      - bash scripts/mesh.sh flat cluster-one cluster-two
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
-  # ─── Istio — 2 clusters, east-west gateways ──────────────────────────────
-
   istio:ambient:multi-gateway:
-    desc: "2 clusters · ambient · east-west gateways · EDITION={{.EDITION}}"
+    desc: "2 clusters · ambient · multi-network (east-west) · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - helmfile sync -f helmfiles/istio-multi-gateway.yaml -e {{.EDITION}}
+      - bash scripts/mesh.sh gateway cluster-one cluster-two
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-gateway:
-    desc: "2 clusters · sidecar · east-west gateways · EDITION={{.EDITION}}"
+    desc: "2 clusters · sidecar · multi-network (east-west) · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one cluster-two"}
-      - helmfile sync -f helmfiles/istio-multi-gateway.yaml -e {{.EDITION}}
+      - bash scripts/mesh.sh gateway cluster-one cluster-two
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
-
-  # ─── Istio — 3 clusters ───────────────────────────────────────────────────
-  # Set ISTIO_VERSION_CLUSTER_THREE in versions.env for a mixed-version scenario.
 
   istio:ambient:multi-3:
     desc: "3 clusters · ambient · flat network · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
-      - task: _networking
-        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two cluster-three"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
-      - helmfile sync -f helmfiles/istio-multi-3.yaml -e {{.EDITION}}
+      - bash scripts/mesh.sh flat cluster-one cluster-two cluster-three
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-3:
     desc: "3 clusters · sidecar · flat network · EDITION={{.EDITION}}"
     cmds:
-      - task: _vind-create
-        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
-      - task: _networking
-        vars: {MODE: flat, CLUSTERS: "cluster-one cluster-two cluster-three"}
-      - task: _gen-certs
-        vars: {CLUSTERS: "cluster-one cluster-two cluster-three"}
-      - helmfile sync -f helmfiles/istio-multi-3.yaml -e {{.EDITION}}
+      - bash scripts/mesh.sh flat cluster-one cluster-two cluster-three
     env:
+      EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
   # ─── kgateway ────────────────────────────────────────────────────────────
@@ -228,20 +201,3 @@ tasks:
     preconditions:
       - sh: '[ -n "{{.CLUSTER}}" ]'
         msg: "Specify a cluster name: CLUSTER=cluster-one"
-
-  # ─── Internal helpers ─────────────────────────────────────────────────────
-
-  _vind-create:
-    internal: true
-    cmds:
-      - bash scripts/vind-create.sh {{.CLUSTERS}}
-
-  _networking:
-    internal: true
-    cmds:
-      - bash scripts/networking.sh {{.MODE}} {{.CLUSTERS}}
-
-  _gen-certs:
-    internal: true
-    cmds:
-      - bash scripts/gen-certs.sh {{.CLUSTERS}}

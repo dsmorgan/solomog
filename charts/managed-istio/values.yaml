@@ -1,0 +1,6 @@
+# Defaults; the istio product module / mesh.sh override these per cluster.
+cluster: cluster-one
+network: cluster-one
+dataplaneMode: Ambient          # Ambient | Sidecar
+installNamespace: istio-system
+version: "1.30.1"

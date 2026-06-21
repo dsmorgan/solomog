@@ -84,8 +84,13 @@ solomog            # lists every available scenario
 
 - **Products** are composable helmfile modules in [helmfiles/products/](helmfiles/products/):
   `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`.
+  - `istio` = enterprise installs **Solo managed Istio** via the **Gloo Operator** +
+    a `ServiceMeshController` CR (`dataplaneMode` Ambient/Sidecar); community installs
+    upstream Istio Helm charts.
   - `kgateway` = **enterprise kgateway** (kgateway 2.2.x) / upstream kgateway in community.
   - `gloo-gateway` = **Gloo Gateway** (gloo-ee 1.21.x) — a *separate* product, not the same as kgateway.
+  - `agentgateway` = **enterprise agentgateway** (2.3.x).
+  - `gloo-mesh` = optional **Gloo Mesh Enterprise** management plane (repo unverified — TODO).
 - **Editions** are a helmfile environment dimension: `EDITION=enterprise` (default)
   or `EDITION=community`. Switches chart repos and license handling.
 - **Istio mode** is `ISTIO_MODE=ambient` (default) or `sidecar`.
@@ -120,11 +125,16 @@ solomog gloo-gateway EDITION=community
 ### Multi-cluster Istio
 
 ```bash
-solomog istio:ambient:multi-flat         # 2 clusters, flat network
-solomog istio:ambient:multi-gateway      # 2 clusters, east-west gateways
+solomog istio:ambient:multi-flat         # 2 clusters, shared (flat) network
+solomog istio:ambient:multi-gateway      # 2 clusters, multi-network (east-west: TODO)
 solomog istio:ambient:multi-3            # 3 clusters (supports mixed versions)
 # sidecar:* variants exist for each
 ```
+
+Multi-cluster meshes are orchestrated by [scripts/mesh.sh](scripts/mesh.sh), which
+installs the `istio` product module onto each cluster with one shared root CA.
+Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) in
+`versions.env` enable mixed-version meshes.
 
 ### Sample apps
 
@@ -151,7 +161,8 @@ Set keys in `.env`. Use one key for everything, or map a specific key per produc
 
 ```bash
 SOLO_LICENSE_KEY=...              # fallback for any product without its own key
-GLOO_MESH_LICENSE_KEY=...         # overrides for Gloo Mesh
+SOLO_ISTIO_LICENSE_KEY=...        # overrides for Solo managed Istio (Gloo Operator)
+GLOO_MESH_LICENSE_KEY=...         # overrides for Gloo Mesh mgmt plane
 KGATEWAY_LICENSE_KEY=...          # overrides for enterprise kgateway
 GLOO_GATEWAY_LICENSE_KEY=...      # overrides for Gloo Gateway
 AGENTGATEWAY_LICENSE_KEY=...      # overrides for agentgateway
@@ -179,6 +190,7 @@ solomog
 │   ├── networking.sh           # flat-network nftables routing (Docker Desktop)
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order
+│   ├── mesh.sh                 # multi-cluster Istio (istio module per cluster, shared CA)
 │   ├── versions-update.sh      # fetch latest versions from GitHub
 │   └── apps/install-bookinfo.sh
 ├── clusters/                   # vcluster configs (single, multi, multi-3)
@@ -186,10 +198,11 @@ solomog
 │   ├── commons.yaml            # shared environment definitions (bases)
 │   ├── environments/           # default + enterprise/community + ambient/sidecar
 │   ├── products/               # one module per product (composable)
-│   ├── istio-multi-*.yaml      # cross-cluster scenarios
 │   └── apps/                   # sample app helmfiles
 ├── values/                     # per-product Helm values
-└── charts/utils/               # local chart for httpbin/curl/netshoot
+└── charts/
+    ├── managed-istio/          # ServiceMeshController CR for the Gloo Operator
+    └── utils/                  # httpbin/curl/netshoot
 ```
 
 See [CLAUDE.md](CLAUDE.md) for architecture details and how to extend this repo.

@@ -30,10 +30,19 @@ These combine freely and are the core mental model:
 
 1. **Product** — `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`.
    One self-contained helmfile module each in [helmfiles/products/](helmfiles/products/).
+   - `istio` = **enterprise**: Solo managed Istio via the **Gloo Operator**
+     (`gloo-operator` OCI chart, ns `gloo-mesh`, license `manager.env.SOLO_ISTIO_LICENSE_KEY`)
+     plus a `ServiceMeshController` CR (rendered by `charts/managed-istio`; `dataplaneMode`
+     Ambient/Sidecar from `ISTIO_MODE`, `version` = Istio version). **community**: upstream
+     Istio Helm charts (base/istiod/+cni/ztunnel). Both apply Gateway API CRDs via a presync hook.
    - `kgateway` = **enterprise kgateway** (kgateway 2.2.x, OCI charts `enterprise-kgateway[-crds]`,
      ns `kgateway-system`, license `licensing.licenseKey`) / upstream kgateway in community.
    - `gloo-gateway` = **Gloo Gateway** (gloo-ee/gloo 1.21.x, classic Helm repos, ns `gloo-system`,
-     license top-level `license_key`). This is a *different product* from kgateway — do not merge them.
+     license top-level `license_key`). A *different product* from kgateway — do not merge them.
+   - `agentgateway` = **enterprise agentgateway** (2.3.x, OCI charts `enterprise-agentgateway[-crds]`,
+     ns `agentgateway-system`, license `licensing.licenseKey`).
+   - `gloo-mesh` = optional Gloo Mesh Enterprise mgmt plane. Repo unverified (TODO); not used
+     by any default scenario. Distinct from the Gloo Operator above.
 2. **Edition** — `enterprise` (default) or `community`. A helmfile *environment*.
    Selects chart repos and whether license keys apply.
 3. **Istio mode** — `ambient` (default) or `sidecar`. Passed as `ISTIO_MODE` env,
@@ -56,12 +65,16 @@ shortcuts that call `stack.sh` with a fixed product list.
 
 ### Multi-cluster
 
-Cross-cluster Istio scenarios ([helmfiles/istio-multi-flat.yaml](helmfiles/istio-multi-flat.yaml),
-`-multi-gateway`, `-multi-3`) are **dedicated** helmfiles, not product modules —
-they need per-context releases that share `meshID`/`network` and reference each
-other (mgmt server ↔ agents). Don't try to force these into the product-module
-shape. Their tasks use the internal `_vind-create` / `_networking` / `_gen-certs`
-helpers.
+Cross-cluster Istio is orchestrated by [scripts/mesh.sh](scripts/mesh.sh), which
+**reuses the `istio` product module** — it creates the clusters, generates one
+shared root CA across all of them (`gen-certs.sh`), wires flat pod routing
+(`networking.sh`) when applicable, then runs the istio module against each cluster
+context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
+- `flat` topology → all clusters share network `solomog` (relies on networking.sh).
+- `gateway` topology → per-cluster network; **east-west gateway + endpoint discovery
+  wiring is not yet automated** (TODO — see the multi-network steps in the docs).
+- Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) give
+  mixed-version meshes; mesh.sh maps `cluster-two` → `ISTIO_VERSION_CLUSTER_TWO`.
 
 ## Conventions
 
@@ -108,16 +121,23 @@ For new cross-cluster topologies, write a dedicated helmfile.
   ```
 - **nftables rules are ephemeral** — they vanish on Docker Desktop restart. Flat
   multi-cluster networking must be re-applied.
-- **Certs must exist before istiod installs.** `stack.sh` and the multi-cluster
-  tasks order `gen-certs` first; preserve that ordering.
+- **Certs must exist before Istio installs.** `stack.sh` and `mesh.sh` order
+  `gen-certs` first; preserve that ordering. One shared root CA is reused across all
+  clusters in a mesh — delete `certs/` to rotate.
 - **`gloo-mesh` in community mode is a no-op** (Gloo Mesh Enterprise has no OSS
   build) — the module emits `releases: []`. Don't add community repos for it.
-- `kgateway` and `gloo-gateway` chart coordinates are **verified** against the 2.2.x /
-  1.21.x docs. `gloo-mesh` and `agentgateway` repos are still best-effort `TODO`s —
-  verify before enterprise installs of those two.
+- Chart coordinates **verified** against docs: `istio` (operator 0.5.2 / istio 1.30.x),
+  `kgateway` (2.2.x), `gloo-gateway` (1.21.x), `agentgateway` (2.3.x). Only the
+  `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
 - `kgateway` (enterprise kgateway) vs `gloo-gateway` (Gloo Gateway) are **distinct
   products** with different charts, namespaces, and license value paths. An earlier
   draft conflated them — keep them separate.
+- The **Gloo Operator** (part of the `istio` product) vs **Gloo Mesh Enterprise**
+  (`gloo-mesh` mgmt-plane product) are also distinct — both happen to use the
+  `gloo-mesh` namespace. Don't conflate them.
+- Enterprise Istio is operator-managed, so there are **no istio base/istiod/cni/
+  ztunnel Helm releases** in that path — the `ServiceMeshController` CR drives it.
+  Only the community path installs those charts directly.
 
 ## Validating changes without a cluster
 
@@ -130,8 +150,13 @@ For new cross-cluster topologies, write a dedicated helmfile.
 
 ## Status / open questions
 
+- **Multi-network (`gateway`) east-west wiring** is not automated — `mesh.sh` sets
+  per-cluster networks but does not create east-west gateways or endpoint discovery.
+  Finish from https://docs.solo.io/istio/1.30.x/quickstart/multi/.
+- **`gloo-mesh` mgmt-plane repo** is the last unverified chart coordinate.
 - Confirm whether enterprise products use **distinct** license keys or one shared
-  Gloo license (design supports both).
-- Verify enterprise chart repos/names/versions against the user's actual versions.
+  Gloo license (design supports both; per-product env vars fall back to SOLO_LICENSE_KEY).
 - vcluster config (`clusters/*.yaml`) k3s `extraArgs` format should be checked
   against the installed vcluster version (the schema changed across 0.19+).
+- Community/upstream chart versions differ from enterprise version lines
+  (kgateway, istio) — `versions.env` is pinned to enterprise values by default.

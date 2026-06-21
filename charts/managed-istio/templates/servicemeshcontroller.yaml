@@ -1,0 +1,14 @@
+# Gloo Operator ServiceMeshController — instructs the operator to install/manage Istio.
+# Ref: https://docs.solo.io/istio/1.30.x/quickstart/multi/
+apiVersion: operator.gloo.solo.io/v1
+kind: ServiceMeshController
+metadata:
+  name: managed-istio
+  labels:
+    app.kubernetes.io/name: managed-istio
+spec:
+  cluster: {{ .Values.cluster }}
+  network: {{ .Values.network }}
+  dataplaneMode: {{ .Values.dataplaneMode }}
+  installNamespace: {{ .Values.installNamespace | default "istio-system" }}
+  version: "{{ .Values.version }}"
