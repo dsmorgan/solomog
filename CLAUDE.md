@@ -119,6 +119,19 @@ For new cross-cluster topologies, write a dedicated helmfile.
   cmds:
     - bash x.sh {{.VAR}}
   ```
+- **Helmfiles and env-values files that use templating MUST end in `.gotmpl`.**
+  Helmfile v1 does not template plain `.yaml` (it parses them as literal YAML, so
+  `{{ env "X" }}` both fails to render and breaks parsing via nested quotes). All
+  `helmfiles/products/*.yaml.gotmpl` and the templated env files
+  (`default.yaml.gotmpl`, `community.yaml.gotmpl`) carry the extension; static files
+  (`enterprise.yaml`, `commons.yaml`, `apps/*.yaml`) stay `.yaml`. Scripts reference
+  modules by their full `.yaml.gotmpl` name.
+- **`bases:` env-values paths resolve relative to the *consuming* helmfile**, not the
+  base file. That's why `commons.yaml` uses `../environments/...` (the modules live
+  in `helmfiles/products/`).
+- **OCI repo URLs must be scheme-less when `oci: true`** — helmfile prepends `oci://`
+  itself, so an `oci://` in the URL produces `oci://oci://...`. Classic HTTP Helm
+  repos (Gloo Gateway) keep their `https://`.
 - **nftables rules are ephemeral** — they vanish on Docker Desktop restart. Flat
   multi-cluster networking must be re-applied.
 - **Certs must exist before Istio installs.** `stack.sh` and `mesh.sh` order
@@ -156,10 +169,17 @@ For new cross-cluster topologies, write a dedicated helmfile.
 
 - YAML-lint the Taskfile (it's pure YAML):
   `ruby -ryaml -e "YAML.load_stream(File.read('Taskfile.yaml'))"`
-- Product modules / scenario helmfiles are gotmpl — lint with
-  `helmfile -f <file> -e <env> template` (needs helmfile + chart access), or
-  `helmfile -f <file> lint`. A plain YAML parser will (correctly) reject the
-  unrendered `{{ }}`.
+- **Fast module check (no cluster, no chart pull)** — validates templating, env
+  resolution, and repo/chart construction:
+  ```bash
+  set -a; source versions.env; set +a
+  export SOLO_CONTEXT=vcluster.cluster-one SOLO_CLUSTER=cluster-one ISTIO_MODE=ambient
+  helmfile -e community -f helmfiles/products/<mod>.yaml.gotmpl build
+  ```
+  (`build` resolves everything but does not pull; `template` additionally pulls and
+  renders the charts — use it to confirm chart names/versions actually exist.)
+- A plain YAML parser will (correctly) reject the unrendered `{{ }}` in `.gotmpl`
+  files — use `helmfile build`, not a YAML linter, for those.
 
 ## Status / open questions
 
