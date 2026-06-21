@@ -37,7 +37,7 @@ releases:
         showlogs: true
         command: kubectl
         args:
-          - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster-docker_cluster-one" }}"
           - apply
           - -f
           - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml

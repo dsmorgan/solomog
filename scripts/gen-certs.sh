@@ -44,7 +44,7 @@ else
 fi
 
 for cluster in "${CLUSTERS[@]}"; do
-  ctx="vcluster.${cluster}"
+  ctx="vcluster-docker_${cluster}"
   cert_dir="$CERTS_DIR/$cluster"
   mkdir -p "$cert_dir"
 

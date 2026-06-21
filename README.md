@@ -13,7 +13,7 @@ topologies.
 
 ## Prerequisites
 
-These must be present **before** running `task setup`:
+These must be present **before** running `bash scripts/setup.sh`:
 
 | Dependency | Purpose | Install |
 |---|---|---|
@@ -22,7 +22,7 @@ These must be present **before** running `task setup`:
 | **meshctl** | Gloo Mesh CLI (expected at `~/.gloo-mesh/bin/meshctl`, on `$PATH`) | https://docs.solo.io/gloo-mesh-enterprise/latest/setup/cli/ |
 | **Homebrew** | Installs the remaining tools below | https://brew.sh |
 
-`task setup` installs the rest via Homebrew:
+`bash scripts/setup.sh` installs the rest via Homebrew:
 
 | Tool | Purpose |
 |---|---|
@@ -65,11 +65,12 @@ solomog            # lists every available scenario
   ([scripts/networking.sh](scripts/networking.sh)) injects `nftables` rules into
   the Docker Desktop Linux VM via `nsenter`. These rules are **ephemeral** — re-run
   the relevant scenario (or just `networking.sh`) after a Docker Desktop restart.
-- **kube context naming.** Each cluster `NAME` is reachable at context
-  `vcluster.NAME` (e.g. `vcluster.cluster-one`). Scripts and helmfiles assume this.
-- **Cluster CIDRs are auto-assigned** per cluster index to avoid overlap:
-  pod `10.<N>0.0.0/16`, service `10.1<N>.0.0/20`. See
-  [scripts/vind-create.sh](scripts/vind-create.sh).
+- **vcluster docker driver.** Clusters are created with `vcluster create --driver
+  docker` (vcluster-in-Docker) using default config, then `vcluster connect`ed.
+- **kube context naming.** The docker driver registers contexts as
+  `vcluster-docker_NAME` (e.g. `vcluster-docker_cluster-one`) — note the Docker
+  *network* is `vcluster.NAME`, which is different. Scripts/helmfiles use the
+  `vcluster-docker_` context form.
 - **Shared root CA** is generated once into `certs/` (gitignored) and reused across
   runs. Delete `certs/` to rotate. Multi-cluster Istio mTLS depends on this.
 - **Enterprise chart repos/versions** in
@@ -144,7 +145,7 @@ Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) in
 ### Sample apps
 
 ```bash
-solomog apps:bookinfo CONTEXT=vcluster.cluster-one
+solomog apps:bookinfo CONTEXT=vcluster-docker_cluster-one
 solomog apps:online-boutique
 solomog apps:utils                       # httpbin, curl, netshoot
 ```

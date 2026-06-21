@@ -168,21 +168,21 @@ tasks:
   apps:bookinfo:
     desc: "Deploy Bookinfo sample app (CONTEXT={{.CONTEXT}})"
     vars:
-      CONTEXT: '{{.CONTEXT | default "vcluster.cluster-one"}}'
+      CONTEXT: '{{.CONTEXT | default "vcluster-docker_cluster-one"}}'
     cmds:
       - bash scripts/apps/install-bookinfo.sh {{.CONTEXT}}
 
   apps:online-boutique:
     desc: "Deploy Online Boutique sample app (CONTEXT={{.CONTEXT}})"
     vars:
-      CONTEXT: '{{.CONTEXT | default "vcluster.cluster-one"}}'
+      CONTEXT: '{{.CONTEXT | default "vcluster-docker_cluster-one"}}'
     cmds:
       - helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context {{.CONTEXT}}
 
   apps:utils:
     desc: "Deploy utility pods: httpbin, curl, netshoot (CONTEXT={{.CONTEXT}})"
     vars:
-      CONTEXT: '{{.CONTEXT | default "vcluster.cluster-one"}}'
+      CONTEXT: '{{.CONTEXT | default "vcluster-docker_cluster-one"}}'
     cmds:
       - helmfile sync -f helmfiles/apps/utils.yaml --kube-context {{.CONTEXT}}
 

@@ -43,7 +43,7 @@ releases:
         showlogs: true
         command: kubectl
         args:
-          - "--context={{ env "SOLO_CONTEXT" | default "vcluster.cluster-one" }}"
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster-docker_cluster-one" }}"
           - apply
           - --server-side
           - -f

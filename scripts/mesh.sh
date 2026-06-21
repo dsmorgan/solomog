@@ -50,7 +50,7 @@ bash "$REPO_DIR/scripts/gen-certs.sh" "${CLUSTERS[@]}"
 # Per-cluster Istio version overrides (ISTIO_VERSION_CLUSTER_TWO, _THREE, ...)
 # enable mixed-version meshes; otherwise the shared ISTIO_VERSION is used.
 for cluster in "${CLUSTERS[@]}"; do
-  ctx="vcluster.${cluster}"
+  ctx="vcluster-docker_${cluster}"
   if [[ "$TOPOLOGY" == "flat" ]]; then
     network="solomog"          # shared network → flat
   else

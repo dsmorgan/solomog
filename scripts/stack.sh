@@ -29,7 +29,7 @@ fi
 
 CLUSTER="$1"; shift
 REQUESTED=("$@")
-CTX="vcluster.${CLUSTER}"
+CTX="vcluster-docker_${CLUSTER}"
 
 # Canonical install order — append new products here as modules are added.
 CANONICAL_ORDER=(istio gloo-mesh kgateway gloo-gateway agentgateway)

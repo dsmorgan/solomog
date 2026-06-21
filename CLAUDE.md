@@ -52,11 +52,11 @@ These combine freely and are the core mental model:
 ### Composition flow (single cluster)
 
 `solomog stack PRODUCTS="..." CLUSTER=..." ` → [scripts/stack.sh](scripts/stack.sh):
-1. `vind-create.sh` — create the cluster (unique CIDRs).
+1. `vind-create.sh` — create the cluster (docker driver, default config) + connect.
 2. `gen-certs.sh` — only if `istio` or `gloo-mesh` is requested.
 3. For each product in **`CANONICAL_ORDER`** (`istio gloo-mesh kgateway
    gloo-gateway agentgateway`), if requested, `helmfile sync -f products/<p>.yaml
-   -e $EDITION --kube-context vcluster.$CLUSTER`. `stack.sh` also exports
+   -e $EDITION --kube-context vcluster-docker_$CLUSTER`. `stack.sh` also exports
    `SOLO_CONTEXT` so helmfile hooks (e.g. gloo-gateway's Gateway API CRD bootstrap)
    target the right cluster.
 
@@ -78,7 +78,9 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 
 ## Conventions
 
-- **kube context = `vcluster.<cluster-name>`** everywhere.
+- **kube context = `vcluster-docker_<cluster-name>`** everywhere (the docker
+  driver's naming). The Docker *network* is `vcluster.<name>` — different; only
+  networking.sh uses the network name.
 - **License resolution** is centralized in
   [helmfiles/environments/default.yaml](helmfiles/environments/default.yaml):
   `<product>_license_key` = product-specific env var `| default SOLO_LICENSE_KEY`.
@@ -132,6 +134,14 @@ For new cross-cluster topologies, write a dedicated helmfile.
 - **OCI repo URLs must be scheme-less when `oci: true`** — helmfile prepends `oci://`
   itself, so an `oci://` in the URL produces `oci://oci://...`. Classic HTTP Helm
   repos (Gloo Gateway) keep their `https://`.
+- **vcluster docker driver: defaults only, and `connect` registers the context.**
+  vcluster 0.35 removed the `controlPlane.distro.k3s` config (k8s is the embedded
+  default) — passing it fails with `unknown field "k3s"` and the create retries for
+  ~3 min before dying. So vind-create.sh passes **no config file**. Also
+  `vcluster create --connect=false` does NOT add a kube context; you must run
+  `vcluster connect <name>` afterward (it writes `vcluster-docker_<name>` and
+  switches the active context). Custom pod/service CIDRs aren't available on this
+  driver (they need `privateNodes.enabled`).
 - **nftables rules are ephemeral** — they vanish on Docker Desktop restart. Flat
   multi-cluster networking must be re-applied.
 - **Certs must exist before Istio installs.** `stack.sh` and `mesh.sh` order
@@ -173,7 +183,7 @@ For new cross-cluster topologies, write a dedicated helmfile.
   resolution, and repo/chart construction:
   ```bash
   set -a; source versions.env; set +a
-  export SOLO_CONTEXT=vcluster.cluster-one SOLO_CLUSTER=cluster-one ISTIO_MODE=ambient
+  export SOLO_CONTEXT=vcluster-docker_cluster-one SOLO_CLUSTER=cluster-one ISTIO_MODE=ambient
   helmfile -e community -f helmfiles/products/<mod>.yaml.gotmpl build
   ```
   (`build` resolves everything but does not pull; `template` additionally pulls and
