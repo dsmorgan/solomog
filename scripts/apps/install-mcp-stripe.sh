@@ -18,6 +18,12 @@ set -euo pipefail
 
 CONTEXT="${1:?Usage: install-mcp-stripe.sh <kube-context>}"
 
+# Routing is opt-in (ROUTE=true). When set, an HTTPRoute attaches this backend to
+# the gateway at ROUTE_PATH. The backend itself is always created.
+ROUTE="${ROUTE:-false}"
+ROUTE_PATH="${ROUTE_PATH:-/mcp}"
+GATEWAY="${GATEWAY:-agentgateway-proxy}"
+
 # Preflight: the enterprise agentgateway API must be present (direct GET, deterministic).
 if ! kubectl --context "$CONTEXT" get crd \
      enterpriseagentgatewaybackends.enterpriseagentgateway.solo.io >/dev/null 2>&1; then
@@ -214,9 +220,35 @@ echo "==> Waiting for stripe-mock to be ready..."
 kubectl --context "$CONTEXT" wait --for=condition=available \
   deployment/stripe-mock -n stripe-mock --timeout=90s || true
 
+if [[ "$ROUTE" == "true" ]]; then
+  echo "==> Routing: HTTPRoute openapi-mcp-stripe → ${GATEWAY} at ${ROUTE_PATH}"
+  kubectl --context "$CONTEXT" apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openapi-mcp-stripe
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: ${GATEWAY}
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: ${ROUTE_PATH}
+      backendRefs:
+        - name: stripe-mock-openapi
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+EOF
+  if ! kubectl --context "$CONTEXT" get gateway "$GATEWAY" -n agentgateway-system >/dev/null 2>&1; then
+    echo "    NOTE: Gateway '${GATEWAY}' not found — run 'solomog expose' first so the route programs."
+  fi
+else
+  echo "==> Backend only (no route). Add one with: ROUTE=true [ROUTE_PATH=${ROUTE_PATH}]"
+fi
+
 echo ""
-echo "==> Mock MCP (stripe-mock via OpenAPI) deployed: server + schema + secret + backend."
-echo "    The backend gets an Accepted status only once it's attached to a programmed"
-echo "    route — so it stays blank until routing (HTTPRoute + the agentgateway-proxy"
-echo "    Gateway) is wired up. Routing is handled separately by design."
-echo "    Then list tools at /mcp via MCP Inspector or curl (see the workshop doc)."
+echo "==> Mock MCP (stripe-mock via OpenAPI) deployed."
+echo "    Once routed + gateway is up, list tools at ${ROUTE_PATH} via MCP Inspector or curl."

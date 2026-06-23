@@ -194,6 +194,24 @@ tasks:
     env:
       EDITION: '{{.EDITION}}'
 
+  # ─── Gateway exposure (Gateway + TLS + DNS) ───────────────────────────────
+  # Creates the Gateway and makes it reachable locally. Product-agnostic; defaults
+  # target enterprise agentgateway. Override NAME/NAMESPACE/CLASS/HOST as needed.
+
+  expose:
+    desc: "Create + expose a Gateway (TLS + /etc/hosts) on CLUSTER. NAME/NAMESPACE/CLASS/HOST overridable."
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+    cmds:
+      - bash scripts/run.sh "Expose gateway {{.NAME | default \"agentgateway-proxy\"}} → {{.CLUSTER}}" bash scripts/expose.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      NAME: '{{.NAME | default ""}}'
+      NAMESPACE: '{{.NAMESPACE | default ""}}'
+      CLASS: '{{.CLASS | default ""}}'
+      HOST: '{{.HOST | default ""}}'
+      SECRET: '{{.SECRET | default ""}}'
+
   # ─── Sample apps ─────────────────────────────────────────────────────────
   # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.
 
@@ -219,18 +237,24 @@ tasks:
       - bash scripts/run.sh "Deploy utils (httpbin, curl, netshoot) → {{.CLUSTER}}" helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
   apps:mock-openai:
-    desc: "Deploy mock OpenAI server (vLLM sim) + agentgateway route to CLUSTER (needs enterprise agentgateway)"
+    desc: "Deploy mock OpenAI server (vLLM sim) to CLUSTER. Add route with ROUTE=true [ROUTE_PATH=/openai]."
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Deploy mock OpenAI (vLLM sim) → {{.CLUSTER}}" bash scripts/apps/install-mock-openai.sh vcluster-docker_{{.CLUSTER}}
+    env:
+      ROUTE: '{{.ROUTE | default "false"}}'
+      ROUTE_PATH: '{{.ROUTE_PATH | default "/openai"}}'
 
   apps:mcp-stripe:
-    desc: "Deploy stripe-mock as MCP tools via OpenAPI (needs enterprise agentgateway; no route)"
+    desc: "Deploy stripe-mock as MCP tools via OpenAPI to CLUSTER. Add route with ROUTE=true [ROUTE_PATH=/mcp]."
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Deploy mock MCP (stripe-mock → OpenAPI) → {{.CLUSTER}}" bash scripts/apps/install-mcp-stripe.sh vcluster-docker_{{.CLUSTER}}
+    env:
+      ROUTE: '{{.ROUTE | default "false"}}'
+      ROUTE_PATH: '{{.ROUTE_PATH | default "/mcp"}}'
 
   # ─── Teardown ─────────────────────────────────────────────────────────────
 

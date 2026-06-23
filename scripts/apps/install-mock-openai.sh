@@ -22,6 +22,12 @@ set -euo pipefail
 CONTEXT="${1:?Usage: install-mock-openai.sh <kube-context>}"
 NS=agentgateway-system
 
+# Routing is opt-in (ROUTE=true). When set, an HTTPRoute attaches this backend to
+# the gateway at ROUTE_PATH. The backend itself is always created.
+ROUTE="${ROUTE:-false}"
+ROUTE_PATH="${ROUTE_PATH:-/openai}"
+GATEWAY="${GATEWAY:-agentgateway-proxy}"
+
 # Preflight: the enterprise agentgateway API must be present. A direct CRD GET is
 # deterministic (unlike `api-resources`, whose full discovery can transiently fail).
 if ! kubectl --context "$CONTEXT" get crd \
@@ -96,29 +102,8 @@ spec:
   type: ClusterIP
 EOF
 
-echo "==> Creating HTTPRoute + EnterpriseAgentgatewayBackend (mock-openai)"
+echo "==> Creating EnterpriseAgentgatewayBackend (mock-openai)"
 kubectl --context "$CONTEXT" apply -f - <<'EOF'
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: mock-openai
-  namespace: agentgateway-system
-spec:
-  parentRefs:
-    - name: agentgateway-proxy
-      namespace: agentgateway-system
-  rules:
-    - matches:
-        - path:
-            type: PathPrefix
-            value: /openai
-      backendRefs:
-        - name: mock-openai
-          group: enterpriseagentgateway.solo.io
-          kind: EnterpriseAgentgatewayBackend
-      timeouts:
-        request: "120s"
----
 apiVersion: enterpriseagentgateway.solo.io/v1alpha1
 kind: EnterpriseAgentgatewayBackend
 metadata:
@@ -134,12 +119,35 @@ spec:
       path: "/v1/chat/completions"
 EOF
 
-# The HTTPRoute needs a parent Gateway named agentgateway-proxy to get an address.
-if ! kubectl --context "$CONTEXT" get gateway agentgateway-proxy -n "$NS" >/dev/null 2>&1; then
-  echo ""
-  echo "NOTE: Gateway 'agentgateway-proxy' not found in ${NS}; the HTTPRoute has no"
-  echo "      parent yet, so there's no external address to curl. The workshop's setup"
-  echo "      lab creates that Gateway."
+if [[ "$ROUTE" == "true" ]]; then
+  echo "==> Routing: HTTPRoute mock-openai → ${GATEWAY} at ${ROUTE_PATH}"
+  kubectl --context "$CONTEXT" apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mock-openai
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: ${GATEWAY}
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: ${ROUTE_PATH}
+      backendRefs:
+        - name: mock-openai
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
+EOF
+  if ! kubectl --context "$CONTEXT" get gateway "$GATEWAY" -n "$NS" >/dev/null 2>&1; then
+    echo "    NOTE: Gateway '${GATEWAY}' not found — run 'solomog expose' first so the route programs."
+  fi
+else
+  echo "==> Backend only (no route). Add one with: ROUTE=true [ROUTE_PATH=${ROUTE_PATH}]"
 fi
 
 echo ""

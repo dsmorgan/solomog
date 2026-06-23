@@ -26,6 +26,7 @@ check_brew "helmfile"
 check_brew "helm"
 check_brew "jq"
 check_brew "step"
+check_brew "mkcert"
 
 echo ""
 echo "==> Creating solomog symlink..."

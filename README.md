@@ -147,6 +147,29 @@ each cluster with one shared root CA. Per-cluster Istio version overrides
 > from whichever you set; multi-cluster tasks take the whole list. So a singular/plural
 > slip (`CLUSTERS=foo` on a single task, `CLUSTER="a b"` on a mesh) just works.
 
+### Expose a gateway (Gateway + TLS + DNS) and route apps
+
+`expose` creates the Gateway, an mkcert TLS cert/secret, and wires the vcluster
+LoadBalancer IP into `/etc/hosts` (the `/etc/hosts` edit needs `sudo`). Apps attach
+their own HTTPRoute when invoked with `ROUTE=true` — all in one CLI call:
+
+```bash
+# Gateway + TLS + DNS, then route two apps onto it (distinct default paths)
+solomog expose apps:mock-openai apps:mcp-stripe ROUTE=true CLUSTER=a1
+#   expose      → Gateway agentgateway-proxy (http:8080 + https:443/TLS), host agentgateway.local
+#   mock-openai → HTTPRoute at /openai
+#   mcp-stripe  → HTTPRoute at /mcp
+
+# expose for a different gateway/product
+solomog expose CLUSTER=a1 NAME=kgw NAMESPACE=kgateway-system CLASS=kgateway HOST=kgw.local
+
+# route a single app on a custom path
+solomog apps:mock-openai CLUSTER=a1 ROUTE=true ROUTE_PATH=/llm
+```
+
+Without `ROUTE=true`, apps deploy their backend only (no route). `expose` defaults to
+enterprise agentgateway; `NAME`/`NAMESPACE`/`CLASS`/`HOST`/`SECRET` are overridable.
+
 ### Sample apps
 
 ```bash
@@ -156,8 +179,11 @@ solomog apps:utils                       # httpbin, curl, netshoot
 solomog apps:mock-openai                 # OpenAI-compatible mock LLM + agentgateway route
                                          #   (needs enterprise agentgateway installed)
 solomog apps:mcp-stripe                  # stripe-mock exposed as MCP tools via OpenAPI
-                                         #   (needs enterprise agentgateway; route handled separately)
+                                         #   (needs enterprise agentgateway; add ROUTE=true to route)
 ```
+
+Both AI/MCP apps need a gateway to be reachable — run `solomog expose` (above) first
+or in the same CLI call.
 
 ### Versions & teardown
 

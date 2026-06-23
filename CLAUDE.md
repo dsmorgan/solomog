@@ -113,6 +113,20 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 5. Optionally add a shortcut task in [Taskfile.yaml](Taskfile.yaml).
 6. Add a `values/<name>/values.yaml` for tunables.
 
+### Gateway exposure & app routing
+- **`expose`** ([scripts/expose.sh](scripts/expose.sh)) is the product-agnostic gateway
+  layer: it creates the `Gateway` (http:8080 + https:443/TLS), an mkcert TLS secret, and
+  writes the vcluster LoadBalancer IP into `/etc/hosts` (sudo). vcluster auto-provisions
+  the LB as an haproxy container (`vcluster.lb.<cluster>.<gw>.<ns>`) and the Gateway's
+  `status.addresses[0].value` is the reachable IP. Defaults to agentgateway
+  (class `enterprise-agentgateway`, gw `agentgateway-proxy`); override NAME/NAMESPACE/CLASS/HOST.
+- **App routing is an opt-in `ROUTE` flag**, not a separate task: each app always creates
+  its backend, and adds its `HTTPRoute` only when `ROUTE=true`, on a per-app default
+  `ROUTE_PATH` (`/openai`, `/mcp`). This keeps "gateway + apps + routes" a single CLI call
+  via task chaining (`solomog expose apps:a apps:b ROUTE=true`) with no path collisions,
+  since each app owns its default path. **Never name the path var `PATH`** — it clobbers
+  the shell `$PATH`; use `ROUTE_PATH`.
+
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.
