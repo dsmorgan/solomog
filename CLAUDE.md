@@ -81,6 +81,11 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 - **kube context = `vcluster-docker_<cluster-name>`** everywhere (the docker
   driver's naming). The Docker *network* is `vcluster.<name>` — different; only
   networking.sh uses the network name.
+- **`CLUSTER` and `CLUSTERS` are interchangeable aliases** across all tasks. Single
+  tasks resolve `{{.CLUSTER | default .CLUSTERS | default "<def>" | splitList " " | first}}`
+  (first name); multi tasks resolve `{{.CLUSTERS | default .CLUSTER | default "<defs>"}}`
+  (whole list). New cluster-scoped tasks should follow the same pattern so the
+  singular/plural slip stays harmless.
 - **License resolution** is centralized in
   [helmfiles/environments/default.yaml](helmfiles/environments/default.yaml):
   `<product>_license_key` = product-specific env var `| default SOLO_LICENSE_KEY`.

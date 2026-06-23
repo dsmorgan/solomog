@@ -6,6 +6,11 @@ vars:
   # Override with EDITION=community to use upstream OSS charts (no license key needed)
   EDITION: '{{.EDITION | default "enterprise"}}'
 
+# CLUSTER and CLUSTERS are interchangeable aliases everywhere:
+#   - single-cluster tasks take the first name from whichever is set
+#   - multi-cluster tasks take the full space-separated list from whichever is set
+# So `CLUSTERS=foo` on a single task and `CLUSTER="a b"` on a multi task both work.
+
 tasks:
 
   # ─── Meta ─────────────────────────────────────────────────────────────────
@@ -35,7 +40,7 @@ tasks:
   stack:
     desc: 'Compose products on one cluster: PRODUCTS="istio kgateway" CLUSTER=cluster-one'
     vars:
-      CLUSTER: '{{.CLUSTER | default "cluster-one"}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
       PRODUCTS: '{{.PRODUCTS}}'
       ISTIO_MODE: '{{.ISTIO_MODE | default "ambient"}}'
     cmds:
@@ -51,24 +56,30 @@ tasks:
 
   istio:ambient:single:
     desc: "1 cluster · Istio ambient mode · EDITION={{.EDITION}}"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio
+      - bash scripts/stack.sh {{.CLUSTER}} istio
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:single:
     desc: "1 cluster · Istio sidecar mode · EDITION={{.EDITION}}"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio
+      - bash scripts/stack.sh {{.CLUSTER}} istio
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
   gloo-mesh:single:
     desc: "1 cluster · Istio + Gloo Mesh Enterprise mgmt plane · EDITION={{.EDITION}}"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio gloo-mesh
+      - bash scripts/stack.sh {{.CLUSTER}} istio gloo-mesh
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: '{{.ISTIO_MODE | default "ambient"}}'
@@ -77,52 +88,65 @@ tasks:
   # mesh.sh installs the istio product module onto each cluster with a shared CA.
   # flat    → clusters share one network; pod routing via networking.sh.
   # gateway → per-cluster network (east-west wiring is a documented TODO).
+  # Override the cluster names with CLUSTERS="a b" (or CLUSTER="a b").
   # 3-cluster scenarios support mixed Istio versions via versions.env overrides.
 
   istio:ambient:multi-flat:
     desc: "2 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
-      - bash scripts/mesh.sh flat cluster-one cluster-two
+      - bash scripts/mesh.sh flat {{.CLUSTERS}}
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-flat:
     desc: "2 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
-      - bash scripts/mesh.sh flat cluster-one cluster-two
+      - bash scripts/mesh.sh flat {{.CLUSTERS}}
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
   istio:ambient:multi-gateway:
     desc: "2 clusters · ambient · multi-network (east-west) · EDITION={{.EDITION}}"
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
-      - bash scripts/mesh.sh gateway cluster-one cluster-two
+      - bash scripts/mesh.sh gateway {{.CLUSTERS}}
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-gateway:
     desc: "2 clusters · sidecar · multi-network (east-west) · EDITION={{.EDITION}}"
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
-      - bash scripts/mesh.sh gateway cluster-one cluster-two
+      - bash scripts/mesh.sh gateway {{.CLUSTERS}}
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
   istio:ambient:multi-3:
     desc: "3 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two cluster-three"}}'
     cmds:
-      - bash scripts/mesh.sh flat cluster-one cluster-two cluster-three
+      - bash scripts/mesh.sh flat {{.CLUSTERS}}
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-3:
     desc: "3 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two cluster-three"}}'
     cmds:
-      - bash scripts/mesh.sh flat cluster-one cluster-two cluster-three
+      - bash scripts/mesh.sh flat {{.CLUSTERS}}
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
@@ -131,15 +155,19 @@ tasks:
 
   kgateway:
     desc: "1 cluster · kgateway standalone · EDITION={{.EDITION}}"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} kgateway
+      - bash scripts/stack.sh {{.CLUSTER}} kgateway
     env:
       EDITION: '{{.EDITION}}'
 
   kgateway:with-istio:
     desc: "1 cluster · kgateway + Istio sidecar · EDITION={{.EDITION}}"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} istio kgateway
+      - bash scripts/stack.sh {{.CLUSTER}} istio kgateway
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
@@ -148,8 +176,10 @@ tasks:
 
   gloo-gateway:
     desc: "1 cluster · Gloo Gateway 1.21.x · EDITION={{.EDITION}}"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} gloo-gateway
+      - bash scripts/stack.sh {{.CLUSTER}} gloo-gateway
     env:
       EDITION: '{{.EDITION}}'
 
@@ -157,8 +187,10 @@ tasks:
 
   agentgateway:
     desc: "1 cluster · agentgateway · EDITION={{.EDITION}}"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/stack.sh {{.CLUSTER | default "cluster-one"}} agentgateway
+      - bash scripts/stack.sh {{.CLUSTER}} agentgateway
     env:
       EDITION: '{{.EDITION}}'
 
@@ -166,25 +198,31 @@ tasks:
   # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.
 
   apps:bookinfo:
-    desc: "Deploy Bookinfo sample app (CLUSTER={{.CLUSTER | default \"cluster-one\"}})"
+    desc: "Deploy Bookinfo sample app to CLUSTER (default cluster-one)"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/apps/install-bookinfo.sh vcluster-docker_{{.CLUSTER | default "cluster-one"}}
+      - bash scripts/apps/install-bookinfo.sh vcluster-docker_{{.CLUSTER}}
 
   apps:online-boutique:
-    desc: "Deploy Online Boutique sample app (CLUSTER={{.CLUSTER | default \"cluster-one\"}})"
+    desc: "Deploy Online Boutique sample app to CLUSTER (default cluster-one)"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context vcluster-docker_{{.CLUSTER | default "cluster-one"}}
+      - helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
   apps:utils:
-    desc: "Deploy utility pods: httpbin, curl, netshoot (CLUSTER={{.CLUSTER | default \"cluster-one\"}})"
+    desc: "Deploy utility pods: httpbin, curl, netshoot to CLUSTER (default cluster-one)"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER | default "cluster-one"}}
+      - helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
   # ─── Teardown ─────────────────────────────────────────────────────────────
 
   teardown:
-    desc: "Destroy solomog-created clusters: all, or one via CLUSTER=<name>. Prompts first."
+    desc: "Destroy solomog-created clusters: all, or some via CLUSTER=<name> / CLUSTERS=\"a b\". Prompts first."
     vars:
-      CLUSTER: '{{.CLUSTER | default ""}}'
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default ""}}'
     cmds:
-      - bash scripts/vind-teardown.sh {{.CLUSTER}}
+      - bash scripts/vind-teardown.sh {{.CLUSTERS}}

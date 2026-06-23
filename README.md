@@ -137,10 +137,15 @@ solomog istio:ambient:multi-3            # 3 clusters (supports mixed versions)
 # sidecar:* variants exist for each
 ```
 
-Multi-cluster meshes are orchestrated by [scripts/mesh.sh](scripts/mesh.sh), which
-installs the `istio` product module onto each cluster with one shared root CA.
-Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) in
-`versions.env` enable mixed-version meshes.
+Override the cluster names with `CLUSTERS="east west"` (or `CLUSTER="east west"` —
+the two are interchangeable aliases). Multi-cluster meshes are orchestrated by
+[scripts/mesh.sh](scripts/mesh.sh), which installs the `istio` product module onto
+each cluster with one shared root CA. Per-cluster Istio version overrides
+(`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) in `versions.env` enable mixed-version meshes.
+
+> **`CLUSTER` / `CLUSTERS` are aliases.** Single-cluster tasks take the first name
+> from whichever you set; multi-cluster tasks take the whole list. So a singular/plural
+> slip (`CLUSTERS=foo` on a single task, `CLUSTER="a b"` on a mesh) just works.
 
 ### Sample apps
 
