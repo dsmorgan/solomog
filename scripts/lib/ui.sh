@@ -32,23 +32,45 @@ _SM_START_QUIPS=(
   "sigma provisioning grindset: engaged"
   "about to absolutely mog this deployment"
 )
-_SM_DONE_QUIPS=(
+_SM_WIN_QUIPS=(
   "cluster mogged into existence. you are so back"
   "absolutely mogged. ratio'd the YAML"
   "looksmaxxing complete. infra is now gigachad-tier"
   "it's giving production-ready. mog secured"
-  "W provisioning. the clusters fear you"
-  "deployment mogged. you may now touch grass"
+  "W run. the clusters fear you"
+  "mogged. you may now touch grass"
+)
+_SM_LOSS_QUIPS=(
+  "it's so over. the YAML mogged you back"
+  "down bad. we got ratio'd by a CRD"
+  "cooked. check the logs, king"
+  "the cluster resisted. regroup and re-run"
+  "L + ratio. it's over (for now)"
 )
 
 # Reset the run timer (uses the bash SECONDS builtin).
 solomog_clock_reset() { SECONDS=0; }
 
 # solomog_intro — 🗿 start banner with a random quip (muted by SOLOMOG_SERIOUS=1).
+# Called once per session by the `solomog` wrapper, not per task.
 solomog_intro() {
   [ -n "${SOLOMOG_SERIOUS:-}" ] && return 0
   local q="${_SM_START_QUIPS[$((RANDOM % ${#_SM_START_QUIPS[@]}))]}"
   printf '\n%s%s🗿  solomog — %s%s\n' "$_SM_P" "$_SM_B" "$q" "$_SM_R"
+}
+
+# solomog_outro <exit-code> — 🗿 closing banner; "we're so back" on success,
+# "it's so over" on failure. Called once per session by the wrapper.
+solomog_outro() {
+  [ -n "${SOLOMOG_SERIOUS:-}" ] && return 0
+  local rc="${1:-0}" q
+  if [ "$rc" = "0" ]; then
+    q="${_SM_WIN_QUIPS[$((RANDOM % ${#_SM_WIN_QUIPS[@]}))]}"
+    printf '\n%s%s🗿  solomog — %s%s\n' "$_SM_P" "$_SM_B" "$q" "$_SM_R"
+  else
+    q="${_SM_LOSS_QUIPS[$((RANDOM % ${#_SM_LOSS_QUIPS[@]}))]}"
+    printf '\n%s%s🗿  solomog — %s (exit %s)%s\n' "$_SM_P" "$_SM_B" "$q" "$rc" "$_SM_R"
+  fi
 }
 
 # solomog_step "<label>" — opening delimiter for a step; shows elapsed since reset.
@@ -68,9 +90,5 @@ solomog_summary() {
     printf '%s     • %s%s\n' "$_SM_P" "$line" "$_SM_R"
   done
   printf '%s%s  ⏱  total run time: %ss%s\n' "$_SM_P" "$_SM_B" "$SECONDS" "$_SM_R"
-  if [ -z "${SOLOMOG_SERIOUS:-}" ]; then
-    local q="${_SM_DONE_QUIPS[$((RANDOM % ${#_SM_DONE_QUIPS[@]}))]}"
-    printf '%s%s  🗿 %s%s\n' "$_SM_P" "$_SM_B" "$q" "$_SM_R"
-  fi
   printf '%s%s%s\n'     "$_SM_P" "$_SM_BOT" "$_SM_R"
 }

@@ -63,7 +63,6 @@ requested() {
 }
 
 solomog_clock_reset
-solomog_intro
 
 # 1. Create the cluster
 solomog_step "Create cluster: ${CLUSTER}  (edition=${EDITION}, products=[${REQUESTED[*]}])"

@@ -15,7 +15,6 @@ TITLE="${1:?Usage: run.sh \"<title>\" <command> [args...]}"
 shift
 
 solomog_clock_reset
-solomog_intro
 solomog_step "$TITLE"
 
 "$@"

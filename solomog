@@ -10,4 +10,15 @@ if ! command -v task &>/dev/null; then
   exit 127
 fi
 
-exec task "$@"
+# 🗿 mog bookends: one opening message before the run, one closing message after —
+# regardless of how many tasks are chained. Per-task framing lives in the scripts.
+# Skipped for a bare `solomog` (no args = just the task list).
+source "$SCRIPT_DIR/scripts/lib/ui.sh"
+
+[ $# -gt 0 ] && solomog_intro
+
+task "$@"
+rc=$?
+
+[ $# -gt 0 ] && solomog_outro "$rc"
+exit $rc
