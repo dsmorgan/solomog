@@ -118,8 +118,11 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   layer: it creates the `Gateway` (http:8080 + https:443/TLS), an mkcert TLS secret, and
   writes the vcluster LoadBalancer IP into `/etc/hosts` (sudo). vcluster auto-provisions
   the LB as an haproxy container (`vcluster.lb.<cluster>.<gw>.<ns>`) and the Gateway's
-  `status.addresses[0].value` is the reachable IP. Defaults to agentgateway
-  (class `enterprise-agentgateway`, gw `agentgateway-proxy`); override NAME/NAMESPACE/CLASS/HOST.
+  `status.addresses[0].value` is the reachable IP. `PRODUCT` seeds the defaults:
+  `agentgateway` → gw `agw` / ns `agentgateway-system` / class `enterprise-agentgateway`;
+  `kgateway` → gw `kgw` / ns `kgateway-system` / class `enterprise-kgateway`.
+  NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY` default is `agw`
+  (the agentgateway apps route there) — keep it in sync with the agentgateway gw name.
   Hostname defaults to `<NAME>.<CLUSTER>.test` — always use **`.test`** (RFC 6761), never
   `.local` (mDNS/Bonjour collision → slow resolution); the cluster component keeps the host
   unique across clusters.

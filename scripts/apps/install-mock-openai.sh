@@ -14,8 +14,8 @@ set -euo pipefail
 #
 # Requires ENTERPRISE agentgateway (provides the EnterpriseAgentgatewayBackend CRD).
 # Install it first:  solomog agentgateway CLUSTER=<name>
-# The HTTPRoute targets a Gateway named `agentgateway-proxy` (created by the
-# workshop's setup lab); without it the route has no external address.
+# With ROUTE=true the HTTPRoute targets the gateway named by GATEWAY (default agw,
+# created by `solomog expose`); without that gateway the route has no address.
 #
 # Usage: install-mock-openai.sh <kube-context>
 
@@ -26,7 +26,7 @@ NS=agentgateway-system
 # the gateway at ROUTE_PATH. The backend itself is always created.
 ROUTE="${ROUTE:-false}"
 ROUTE_PATH="${ROUTE_PATH:-/openai}"
-GATEWAY="${GATEWAY:-agentgateway-proxy}"
+GATEWAY="${GATEWAY:-agw}"
 
 # Preflight: the enterprise agentgateway API must be present. A direct CRD GET is
 # deterministic (unlike `api-resources`, whose full discovery can transiently fail).
@@ -151,9 +151,6 @@ else
 fi
 
 echo ""
-echo "==> Mock OpenAI deployed. Once the gateway has an address:"
-echo "    GATEWAY_IP=\$(kubectl --context $CONTEXT get svc -n $NS \\"
-echo "      --selector=gateway.networking.k8s.io/gateway-name=agentgateway-proxy \\"
-echo "      -o jsonpath='{.items[*].status.loadBalancer.ingress[0].ip}')"
-echo "    curl -i \"\$GATEWAY_IP:8080/openai\" -H 'content-type: application/json' \\"
+echo "==> Mock OpenAI deployed. With the gateway exposed (solomog expose), curl via its host:"
+echo "    curl -i \"http://${GATEWAY}.<cluster>.test:8080${ROUTE_PATH}\" -H 'content-type: application/json' \\"
 echo "      -d '{\"model\":\"mock-gpt-4o\",\"messages\":[{\"role\":\"user\",\"content\":\"Whats your favorite poem?\"}]}'"

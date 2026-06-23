@@ -22,7 +22,7 @@ CONTEXT="${1:?Usage: install-mcp-stripe.sh <kube-context>}"
 # the gateway at ROUTE_PATH. The backend itself is always created.
 ROUTE="${ROUTE:-false}"
 ROUTE_PATH="${ROUTE_PATH:-/mcp}"
-GATEWAY="${GATEWAY:-agentgateway-proxy}"
+GATEWAY="${GATEWAY:-agw}"
 
 # Preflight: the enterprise agentgateway API must be present (direct GET, deterministic).
 if ! kubectl --context "$CONTEXT" get crd \

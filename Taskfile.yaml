@@ -199,13 +199,15 @@ tasks:
   # target enterprise agentgateway. Override NAME/NAMESPACE/CLASS/HOST as needed.
 
   expose:
-    desc: "Create + expose a Gateway (TLS + /etc/hosts) on CLUSTER. NAME/NAMESPACE/CLASS/HOST overridable."
+    desc: "Create + expose a Gateway (TLS + /etc/hosts). PRODUCT=agentgateway|kgateway; NAME/NAMESPACE/CLASS/HOST overridable."
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      PRODUCT: '{{.PRODUCT | default "agentgateway"}}'
     cmds:
-      - bash scripts/run.sh "Expose gateway {{.NAME | default \"agentgateway-proxy\"}} → {{.CLUSTER}}" bash scripts/expose.sh
+      - bash scripts/run.sh "Expose {{.PRODUCT}} gateway → {{.CLUSTER}}" bash scripts/expose.sh
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      PRODUCT: '{{.PRODUCT | default "agentgateway"}}'
       NAME: '{{.NAME | default ""}}'
       NAMESPACE: '{{.NAMESPACE | default ""}}'
       CLASS: '{{.CLASS | default ""}}'

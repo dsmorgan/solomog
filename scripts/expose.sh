@@ -9,14 +9,18 @@ set -euo pipefail
 #   3. Waits for the vcluster LoadBalancer (haproxy) to assign an address.
 #   4. Updates /etc/hosts so HOST + *.HOST resolve to that address (needs sudo).
 #
-# Product-agnostic: defaults target enterprise agentgateway, but NAME / NAMESPACE /
-# CLASS / HOST / SECRET can be overridden for kgateway, istio, etc.
+# PRODUCT picks sensible defaults for the gateway name, namespace, and class:
+#   agentgateway → agw / agentgateway-system / enterprise-agentgateway
+#   kgateway     → kgw / kgateway-system     / enterprise-kgateway
+# Any of NAME / NAMESPACE / CLASS / HOST / SECRET can still be overridden directly
+# (e.g. for istio, or community editions whose GatewayClass differs).
 #
 # Env:
 #   CLUSTER     cluster name (context vcluster-docker_<CLUSTER>); default cluster-one
-#   NAME        Gateway name;        default agentgateway-proxy
-#   NAMESPACE   namespace;           default agentgateway-system
-#   CLASS       gatewayClassName;    default enterprise-agentgateway
+#   PRODUCT     agentgateway (default) | kgateway — seeds the defaults below
+#   NAME        Gateway name;        default per PRODUCT (agw / kgw)
+#   NAMESPACE   namespace;           default per PRODUCT
+#   CLASS       gatewayClassName;    default per PRODUCT
 #   HOST        hostname for TLS+DNS; default <NAME>.<CLUSTER>.test
 #               (.test is RFC 6761 reserved for testing; .local is avoided because
 #                it collides with mDNS/Bonjour and resolves slowly. Including the
@@ -25,13 +29,27 @@ set -euo pipefail
 #   HTTP_PORT   HTTP listener port;  default 8080
 
 CLUSTER="${CLUSTER:-cluster-one}"
-NAME="${NAME:-agentgateway-proxy}"
-NAMESPACE="${NAMESPACE:-agentgateway-system}"
-CLASS="${CLASS:-enterprise-agentgateway}"
+PRODUCT="${PRODUCT:-agentgateway}"
+
+case "$PRODUCT" in
+  agentgateway) _NAME=agw; _NS=agentgateway-system; _CLASS=enterprise-agentgateway ;;
+  kgateway)     _NAME=kgw; _NS=kgateway-system;     _CLASS=enterprise-kgateway ;;
+  *) _NAME=""; _NS=""; _CLASS="" ;;
+esac
+
+NAME="${NAME:-$_NAME}"
+NAMESPACE="${NAMESPACE:-$_NS}"
+CLASS="${CLASS:-$_CLASS}"
 HOST="${HOST:-${NAME}.${CLUSTER}.test}"
 SECRET="${SECRET:-${NAME}-tls}"
 HTTP_PORT="${HTTP_PORT:-8080}"
 CTX="vcluster-docker_${CLUSTER}"
+
+if [[ -z "$NAME" || -z "$NAMESPACE" || -z "$CLASS" ]]; then
+  echo "Error: unknown PRODUCT '$PRODUCT'. Either use PRODUCT=agentgateway|kgateway," >&2
+  echo "       or set NAME, NAMESPACE, and CLASS explicitly." >&2
+  exit 1
+fi
 
 if ! command -v mkcert &>/dev/null; then
   echo "Error: mkcert not found. Install it:  brew install mkcert" >&2
