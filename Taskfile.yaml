@@ -17,7 +17,7 @@ tasks:
 
   default:
     desc: List all available scenarios
-    cmds: [task --list]
+    cmds: [bash scripts/list.sh]
     silent: true
 
   setup:
