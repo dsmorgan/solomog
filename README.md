@@ -155,8 +155,8 @@ solomog apps:utils                       # httpbin, curl, netshoot
 ```bash
 solomog versions:show
 solomog versions:update                  # check GitHub, optionally bump versions.env
-solomog teardown                         # prompts before destroying all clusters
-solomog teardown:cluster CLUSTER=cluster-one
+solomog teardown                         # prompts, then destroys all solomog-created clusters
+solomog teardown CLUSTER=cluster-one     # destroy just one cluster
 ```
 
 ---

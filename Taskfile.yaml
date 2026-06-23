@@ -189,15 +189,8 @@ tasks:
   # ─── Teardown ─────────────────────────────────────────────────────────────
 
   teardown:
-    desc: "Destroy all clusters (prompts for confirmation)"
-    cmds: [bash scripts/vind-teardown.sh]
-
-  teardown:cluster:
-    desc: "Destroy a specific cluster (CLUSTER=cluster-one)"
+    desc: "Destroy solomog-created clusters: all, or one via CLUSTER=<name>. Prompts first."
     vars:
       CLUSTER: '{{.CLUSTER | default ""}}'
     cmds:
       - bash scripts/vind-teardown.sh {{.CLUSTER}}
-    preconditions:
-      - sh: '[ -n "{{.CLUSTER}}" ]'
-        msg: "Specify a cluster name: CLUSTER=cluster-one"
