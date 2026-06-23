@@ -231,11 +231,16 @@ tasks:
       - bash scripts/run.sh "Deploy Online Boutique → {{.CLUSTER}}" helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
   apps:utils:
-    desc: "Deploy utility pods: httpbin, curl, netshoot to CLUSTER (default cluster-one)"
+    desc: "Deploy utils (httpbin, curl, netshoot). Route httpbin with ROUTE=true [ROUTE_PATH=/httpbin]."
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/run.sh "Deploy utils (httpbin, curl, netshoot) → {{.CLUSTER}}" helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Deploy utils (httpbin, curl, netshoot) → {{.CLUSTER}}" bash scripts/apps/install-utils.sh vcluster-docker_{{.CLUSTER}}
+    env:
+      ROUTE: '{{.ROUTE | default "false"}}'
+      ROUTE_PATH: '{{.ROUTE_PATH | default "/httpbin"}}'
+      GATEWAY: '{{.GATEWAY | default ""}}'
+      GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'
 
   apps:mock-openai:
     desc: "Deploy mock OpenAI server (vLLM sim) to CLUSTER. Add route with ROUTE=true [ROUTE_PATH=/openai]."

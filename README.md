@@ -185,6 +185,8 @@ multiple clusters are up.
 solomog apps:bookinfo CLUSTER=cluster-one
 solomog apps:online-boutique
 solomog apps:utils                       # httpbin, curl, netshoot
+solomog apps:utils CLUSTER=a1 ROUTE=true # also route httpbin through the gateway (any gateway)
+                                         #   at /httpbin — the universal routing smoke test
 solomog apps:mock-openai                 # OpenAI-compatible mock LLM + agentgateway route
                                          #   (needs enterprise agentgateway installed)
 solomog apps:mcp-stripe                  # stripe-mock exposed as MCP tools via OpenAPI

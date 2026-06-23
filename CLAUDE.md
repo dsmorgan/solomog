@@ -131,10 +131,15 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   unique across clusters.
 - **App routing is an opt-in `ROUTE` flag**, not a separate task: each app always creates
   its backend, and adds its `HTTPRoute` only when `ROUTE=true`, on a per-app default
-  `ROUTE_PATH` (`/openai`, `/mcp`). This keeps "gateway + apps + routes" a single CLI call
-  via task chaining (`solomog expose apps:a apps:b ROUTE=true`) with no path collisions,
-  since each app owns its default path. **Never name the path var `PATH`** — it clobbers
-  the shell `$PATH`; use `ROUTE_PATH`.
+  `ROUTE_PATH` (`/openai`, `/mcp`, `/httpbin`). This keeps "gateway + apps + routes" a single
+  CLI call via task chaining (`solomog expose apps:a apps:b ROUTE=true`) with no path
+  collisions, since each app owns its default path. **Never name the path var `PATH`** — it
+  clobbers the shell `$PATH`; use `ROUTE_PATH`.
+- **`mock-openai`/`mcp-stripe` are agentgateway-only** (route to an `EnterpriseAgentgatewayBackend`,
+  so `GATEWAY` defaults to `agw`). **`apps:utils` routes httpbin as a plain Service backend**,
+  so it works on *any* gateway — it auto-detects the gateway name/ns (agw/kgw) like expose,
+  and uses a `URLRewrite` filter (ReplacePrefixMatch `/`) so `/httpbin/get` → httpbin's `/get`.
+  httpbin is the gateway-agnostic routing smoke test (the only routable sample for kgateway).
 
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
