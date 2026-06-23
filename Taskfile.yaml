@@ -163,28 +163,22 @@ tasks:
       EDITION: '{{.EDITION}}'
 
   # ─── Sample apps ─────────────────────────────────────────────────────────
-  # These operate on the current kubectl context unless CONTEXT is specified.
+  # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.
 
   apps:bookinfo:
-    desc: "Deploy Bookinfo sample app (CONTEXT={{.CONTEXT}})"
-    vars:
-      CONTEXT: '{{.CONTEXT | default "vcluster-docker_cluster-one"}}'
+    desc: "Deploy Bookinfo sample app (CLUSTER={{.CLUSTER | default \"cluster-one\"}})"
     cmds:
-      - bash scripts/apps/install-bookinfo.sh {{.CONTEXT}}
+      - bash scripts/apps/install-bookinfo.sh vcluster-docker_{{.CLUSTER | default "cluster-one"}}
 
   apps:online-boutique:
-    desc: "Deploy Online Boutique sample app (CONTEXT={{.CONTEXT}})"
-    vars:
-      CONTEXT: '{{.CONTEXT | default "vcluster-docker_cluster-one"}}'
+    desc: "Deploy Online Boutique sample app (CLUSTER={{.CLUSTER | default \"cluster-one\"}})"
     cmds:
-      - helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context {{.CONTEXT}}
+      - helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context vcluster-docker_{{.CLUSTER | default "cluster-one"}}
 
   apps:utils:
-    desc: "Deploy utility pods: httpbin, curl, netshoot (CONTEXT={{.CONTEXT}})"
-    vars:
-      CONTEXT: '{{.CONTEXT | default "vcluster-docker_cluster-one"}}'
+    desc: "Deploy utility pods: httpbin, curl, netshoot (CLUSTER={{.CLUSTER | default \"cluster-one\"}})"
     cmds:
-      - helmfile sync -f helmfiles/apps/utils.yaml --kube-context {{.CONTEXT}}
+      - helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER | default "cluster-one"}}
 
   # ─── Teardown ─────────────────────────────────────────────────────────────
 

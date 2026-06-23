@@ -145,7 +145,7 @@ Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) in
 ### Sample apps
 
 ```bash
-solomog apps:bookinfo CONTEXT=vcluster-docker_cluster-one
+solomog apps:bookinfo CLUSTER=cluster-one
 solomog apps:online-boutique
 solomog apps:utils                       # httpbin, curl, netshoot
 ```

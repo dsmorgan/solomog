@@ -3,7 +3,7 @@
 #
 # Usage (via solomog):
 #   solomog apps:utils
-#   solomog apps:utils CONTEXT=vcluster-docker_cluster-two
+#   solomog apps:utils CLUSTER=cluster-two
 
 releases:
   - name: utils

@@ -4,7 +4,7 @@
 #
 # Usage (via solomog):
 #   solomog apps:online-boutique
-#   solomog apps:online-boutique CONTEXT=vcluster-docker_cluster-two
+#   solomog apps:online-boutique CLUSTER=cluster-two
 
 repositories:
   - name: online-boutique
