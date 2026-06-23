@@ -202,21 +202,21 @@ tasks:
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - bash scripts/apps/install-bookinfo.sh vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Deploy Bookinfo → {{.CLUSTER}}" bash scripts/apps/install-bookinfo.sh vcluster-docker_{{.CLUSTER}}
 
   apps:online-boutique:
     desc: "Deploy Online Boutique sample app to CLUSTER (default cluster-one)"
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Deploy Online Boutique → {{.CLUSTER}}" helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
   apps:utils:
     desc: "Deploy utility pods: httpbin, curl, netshoot to CLUSTER (default cluster-one)"
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
-      - helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Deploy utils (httpbin, curl, netshoot) → {{.CLUSTER}}" helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
   # ─── Teardown ─────────────────────────────────────────────────────────────
 

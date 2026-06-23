@@ -117,6 +117,13 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.
 
+**Every task must be framed in the purple delimiters.** `stack.sh` and `mesh.sh`
+frame themselves (intro + per-step + summary). Any *leaf* task that calls a tool
+directly (like the `apps:*` helmfile installs) must go through
+`scripts/run.sh "<title>" <command...>`, which adds the 🗿 intro, a step delimiter,
+and a finish summary with run time. Don't call `helmfile`/scripts bare from a task —
+chained runs (`solomog a b c`) should show clean framing for each task.
+
 ## Gotchas (learned the hard way)
 
 - **Scripts must stay bash 3.2 compatible.** macOS ships bash 3.2.57, and Taskfile
