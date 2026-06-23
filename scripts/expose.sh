@@ -17,7 +17,10 @@ set -euo pipefail
 #   NAME        Gateway name;        default agentgateway-proxy
 #   NAMESPACE   namespace;           default agentgateway-system
 #   CLASS       gatewayClassName;    default enterprise-agentgateway
-#   HOST        hostname for TLS+DNS; default <NAME>.local
+#   HOST        hostname for TLS+DNS; default <NAME>.<CLUSTER>.test
+#               (.test is RFC 6761 reserved for testing; .local is avoided because
+#                it collides with mDNS/Bonjour and resolves slowly. Including the
+#                cluster keeps the host unique when several clusters are up at once.)
 #   SECRET      tls secret name;     default <NAME>-tls
 #   HTTP_PORT   HTTP listener port;  default 8080
 
@@ -25,7 +28,7 @@ CLUSTER="${CLUSTER:-cluster-one}"
 NAME="${NAME:-agentgateway-proxy}"
 NAMESPACE="${NAMESPACE:-agentgateway-system}"
 CLASS="${CLASS:-enterprise-agentgateway}"
-HOST="${HOST:-${NAME}.local}"
+HOST="${HOST:-${NAME}.${CLUSTER}.test}"
 SECRET="${SECRET:-${NAME}-tls}"
 HTTP_PORT="${HTTP_PORT:-8080}"
 CTX="vcluster-docker_${CLUSTER}"

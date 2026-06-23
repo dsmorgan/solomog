@@ -120,6 +120,9 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   the LB as an haproxy container (`vcluster.lb.<cluster>.<gw>.<ns>`) and the Gateway's
   `status.addresses[0].value` is the reachable IP. Defaults to agentgateway
   (class `enterprise-agentgateway`, gw `agentgateway-proxy`); override NAME/NAMESPACE/CLASS/HOST.
+  Hostname defaults to `<NAME>.<CLUSTER>.test` — always use **`.test`** (RFC 6761), never
+  `.local` (mDNS/Bonjour collision → slow resolution); the cluster component keeps the host
+  unique across clusters.
 - **App routing is an opt-in `ROUTE` flag**, not a separate task: each app always creates
   its backend, and adds its `HTTPRoute` only when `ROUTE=true`, on a per-app default
   `ROUTE_PATH` (`/openai`, `/mcp`). This keeps "gateway + apps + routes" a single CLI call

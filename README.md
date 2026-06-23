@@ -156,12 +156,12 @@ their own HTTPRoute when invoked with `ROUTE=true` — all in one CLI call:
 ```bash
 # Gateway + TLS + DNS, then route two apps onto it (distinct default paths)
 solomog expose apps:mock-openai apps:mcp-stripe ROUTE=true CLUSTER=a1
-#   expose      → Gateway agentgateway-proxy (http:8080 + https:443/TLS), host agentgateway.local
+#   expose      → Gateway agentgateway-proxy (http:8080 + https:443/TLS), host agentgateway-proxy.a1.test
 #   mock-openai → HTTPRoute at /openai
 #   mcp-stripe  → HTTPRoute at /mcp
 
 # expose for a different gateway/product
-solomog expose CLUSTER=a1 NAME=kgw NAMESPACE=kgateway-system CLASS=kgateway HOST=kgw.local
+solomog expose CLUSTER=a1 NAME=kgw NAMESPACE=kgateway-system CLASS=kgateway
 
 # route a single app on a custom path
 solomog apps:mock-openai CLUSTER=a1 ROUTE=true ROUTE_PATH=/llm
@@ -169,6 +169,11 @@ solomog apps:mock-openai CLUSTER=a1 ROUTE=true ROUTE_PATH=/llm
 
 Without `ROUTE=true`, apps deploy their backend only (no route). `expose` defaults to
 enterprise agentgateway; `NAME`/`NAMESPACE`/`CLASS`/`HOST`/`SECRET` are overridable.
+
+The hostname defaults to **`<NAME>.<CLUSTER>.test`** (e.g. `agentgateway-proxy.a1.test`) —
+`.test` is the RFC 6761 name reserved for testing (`.local` is avoided: it collides with
+mDNS/Bonjour and resolves slowly), and including the cluster keeps hostnames unique when
+multiple clusters are up.
 
 ### Sample apps
 
