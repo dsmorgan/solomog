@@ -156,6 +156,11 @@ For new cross-cluster topologies, write a dedicated helmfile.
   `vcluster connect <name>` afterward (it writes `vcluster-docker_<name>` and
   switches the active context). Custom pod/service CIDRs aren't available on this
   driver (they need `privateNodes.enabled`).
+- **Images must be multi-arch (arm64).** The clusters run on Apple Silicon, so
+  amd64-only images crash with `exec format error` in a crash loop. The original
+  `kennethreitz/httpbin` is amd64-only — replaced with `mccutchen/go-httpbin` (Go,
+  multi-arch, listens on 8080 → Service maps 80→8080). Vet any new image for an
+  arm64 variant (`docker manifest inspect <img> | grep arm64`).
 - **nftables rules are ephemeral** — they vanish on Docker Desktop restart. Flat
   multi-cluster networking must be re-applied.
 - **Certs must exist before Istio installs.** `stack.sh` and `mesh.sh` order

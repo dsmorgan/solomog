@@ -23,9 +23,12 @@ spec:
       serviceAccountName: httpbin
       containers:
         - name: httpbin
-          image: docker.io/kennethreitz/httpbin:latest
+          # go reimplementation — multi-arch (incl. arm64/Apple Silicon).
+          # The original kennethreitz/httpbin is amd64-only and crashes on arm64
+          # nodes with "exec format error". go-httpbin listens on 8080.
+          image: docker.io/mccutchen/go-httpbin:2.23.1
           ports:
-            - containerPort: 80
+            - containerPort: 8080
           resources:
             requests:
               cpu: 10m
@@ -42,4 +45,4 @@ spec:
   ports:
     - name: http
       port: 80
-      targetPort: 80
+      targetPort: 8080
