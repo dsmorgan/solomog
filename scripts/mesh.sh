@@ -22,6 +22,7 @@ set -euo pipefail
 #   e.g. mesh.sh flat cluster-one cluster-two
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$REPO_DIR/scripts/lib/ui.sh"
 EDITION="${EDITION:-enterprise}"
 ISTIO_MODE="${ISTIO_MODE:-ambient}"
 
@@ -33,22 +34,26 @@ fi
 TOPOLOGY="$1"; shift
 CLUSTERS=("$@")
 
-echo "==> Mesh: topology=${TOPOLOGY} edition=${EDITION} mode=${ISTIO_MODE} clusters=[${CLUSTERS[*]}]"
+solomog_clock_reset
 
 # 1. Create all clusters
+solomog_step "Create clusters: ${CLUSTERS[*]}  (topology=${TOPOLOGY}, edition=${EDITION}, mode=${ISTIO_MODE})"
 bash "$REPO_DIR/scripts/vind-create.sh" "${CLUSTERS[@]}"
 
 # 2. Flat topology needs host-level pod routing between cluster bridges
 if [[ "$TOPOLOGY" == "flat" ]]; then
+  solomog_step "Wire flat-network routing between: ${CLUSTERS[*]}"
   bash "$REPO_DIR/scripts/networking.sh" flat "${CLUSTERS[@]}"
 fi
 
 # 3. Shared root CA + per-cluster cacerts (one root CA reused across all clusters)
+solomog_step "Generate one shared root CA + per-cluster cacerts"
 bash "$REPO_DIR/scripts/gen-certs.sh" "${CLUSTERS[@]}"
 
 # 4. Install Istio onto each cluster via the istio product module.
 # Per-cluster Istio version overrides (ISTIO_VERSION_CLUSTER_TWO, _THREE, ...)
 # enable mixed-version meshes; otherwise the shared ISTIO_VERSION is used.
+SUMMARY_LINES=()
 for cluster in "${CLUSTERS[@]}"; do
   ctx="vcluster-docker_${cluster}"
   if [[ "$TOPOLOGY" == "flat" ]]; then
@@ -62,18 +67,20 @@ for cluster in "${CLUSTERS[@]}"; do
   override_var="ISTIO_VERSION_${suffix}"
   cluster_version="${!override_var:-${ISTIO_VERSION:-}}"
 
-  echo ""
-  echo "==> Installing Istio onto ${cluster} (network=${network}, version=${cluster_version:-default})"
+  solomog_step "Install Istio onto ${cluster}  (network=${network}, version=${cluster_version:-default}, mode=${ISTIO_MODE})"
   SOLO_CONTEXT="$ctx" SOLO_CLUSTER="$cluster" SOLO_NETWORK="$network" ISTIO_MODE="$ISTIO_MODE" \
   ${cluster_version:+ISTIO_VERSION="$cluster_version"} \
     helmfile sync \
       -f "$REPO_DIR/helmfiles/products/istio.yaml.gotmpl" \
       -e "$EDITION" \
       --kube-context "$ctx"
+  SUMMARY_LINES+=("${cluster}  →  context vcluster-docker_${cluster} (network ${network})")
 done
 
-echo ""
-echo "==> Mesh ready across: ${CLUSTERS[*]}"
-if [[ "$TOPOLOGY" == "gateway" ]]; then
-  echo "    NOTE: multi-network east-west gateway wiring is not yet automated (TODO)."
-fi
+EXTRA=""
+[[ "$TOPOLOGY" == "gateway" ]] && EXTRA="NOTE: east-west gateway wiring not yet automated (TODO)"
+solomog_summary \
+  "Mesh ready: ${#CLUSTERS[@]} clusters, ${TOPOLOGY} topology (${EDITION}, ${ISTIO_MODE})" \
+  "${SUMMARY_LINES[@]}" \
+  "shared root CA across all clusters (certs/)" \
+  ${EXTRA:+"$EXTRA"}

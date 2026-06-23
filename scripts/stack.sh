@@ -18,8 +18,21 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRODUCTS_DIR="$REPO_DIR/helmfiles/products"
+source "$REPO_DIR/scripts/lib/ui.sh"
 
 EDITION="${EDITION:-enterprise}"
+
+# Namespace each product lands in (for the final summary).
+ns_for() {
+  case "$1" in
+    istio)        echo "istio-system" ;;
+    gloo-mesh)    echo "gloo-mesh" ;;
+    kgateway)     echo "kgateway-system" ;;
+    gloo-gateway) echo "gloo-system" ;;
+    agentgateway) echo "agentgateway-system" ;;
+    *)            echo "?" ;;
+  esac
+}
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: stack.sh <cluster-name> <product> [<product> ...]" >&2
@@ -49,13 +62,15 @@ requested() {
   return 1
 }
 
-echo "==> Stack: cluster=${CLUSTER} edition=${EDITION} products=[${REQUESTED[*]}]"
+solomog_clock_reset
 
 # 1. Create the cluster
+solomog_step "Create cluster: ${CLUSTER}  (edition=${EDITION}, products=[${REQUESTED[*]}])"
 bash "$REPO_DIR/scripts/vind-create.sh" "$CLUSTER"
 
 # 2. Generate shared Istio certs if any mesh product is in the stack
 if requested istio || requested gloo-mesh; then
+  solomog_step "Generate shared root CA + cacerts for ${CLUSTER}"
   bash "$REPO_DIR/scripts/gen-certs.sh" "$CLUSTER"
 fi
 
@@ -64,16 +79,19 @@ fi
 export SOLO_CONTEXT="$CTX"
 export SOLO_CLUSTER="$CLUSTER"
 export SOLO_NETWORK="$CLUSTER"
+SUMMARY_LINES=()
 for product in "${CANONICAL_ORDER[@]}"; do
   requested "$product" || continue
-  echo ""
-  echo "==> Installing '${product}' onto ${CTX} (edition=${EDITION})"
+  solomog_step "Install ${product} onto ${CTX}  (edition=${EDITION})"
   helmfile sync \
     -f "$PRODUCTS_DIR/${product}.yaml.gotmpl" \
     -e "$EDITION" \
     --kube-context "$CTX"
+  SUMMARY_LINES+=("${product}  →  namespace $(ns_for "$product")")
 done
 
-echo ""
-echo "==> Stack ready on ${CLUSTER}."
-echo "    kubectl --context ${CTX} get pods -A"
+solomog_summary \
+  "Stack ready: cluster '${CLUSTER}' (${EDITION})" \
+  "context:  ${CTX}" \
+  "${SUMMARY_LINES[@]}" \
+  "inspect:  kubectl --context ${CTX} get pods -A"
