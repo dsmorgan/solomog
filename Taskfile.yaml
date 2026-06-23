@@ -218,6 +218,13 @@ tasks:
     cmds:
       - bash scripts/run.sh "Deploy utils (httpbin, curl, netshoot) → {{.CLUSTER}}" helmfile sync -f helmfiles/apps/utils.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
+  apps:mock-openai:
+    desc: "Deploy mock OpenAI server (vLLM sim) + agentgateway route to CLUSTER (needs enterprise agentgateway)"
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+    cmds:
+      - bash scripts/run.sh "Deploy mock OpenAI (vLLM sim) → {{.CLUSTER}}" bash scripts/apps/install-mock-openai.sh vcluster-docker_{{.CLUSTER}}
+
   # ─── Teardown ─────────────────────────────────────────────────────────────
 
   teardown:

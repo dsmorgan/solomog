@@ -153,6 +153,8 @@ each cluster with one shared root CA. Per-cluster Istio version overrides
 solomog apps:bookinfo CLUSTER=cluster-one
 solomog apps:online-boutique
 solomog apps:utils                       # httpbin, curl, netshoot
+solomog apps:mock-openai                 # OpenAI-compatible mock LLM + agentgateway route
+                                         #   (needs enterprise agentgateway installed)
 ```
 
 ### Versions & teardown
