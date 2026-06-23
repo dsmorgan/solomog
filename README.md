@@ -155,6 +155,8 @@ solomog apps:online-boutique
 solomog apps:utils                       # httpbin, curl, netshoot
 solomog apps:mock-openai                 # OpenAI-compatible mock LLM + agentgateway route
                                          #   (needs enterprise agentgateway installed)
+solomog apps:mcp-stripe                  # stripe-mock exposed as MCP tools via OpenAPI
+                                         #   (needs enterprise agentgateway; route handled separately)
 ```
 
 ### Versions & teardown
