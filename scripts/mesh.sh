@@ -35,6 +35,7 @@ TOPOLOGY="$1"; shift
 CLUSTERS=("$@")
 
 solomog_clock_reset
+solomog_intro
 
 # 1. Create all clusters
 solomog_step "Create clusters: ${CLUSTERS[*]}  (topology=${TOPOLOGY}, edition=${EDITION}, mode=${ISTIO_MODE})"
