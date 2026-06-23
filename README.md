@@ -170,7 +170,9 @@ solomog apps:mock-openai CLUSTER=a1 ROUTE=true ROUTE_PATH=/llm
 Without `ROUTE=true`, apps deploy their backend only (no route). `PRODUCT` seeds the
 gateway defaults — `agentgateway` → `agw`/`agentgateway-system`/`enterprise-agentgateway`,
 `kgateway` → `kgw`/`kgateway-system`/`enterprise-kgateway` — and `NAME`/`NAMESPACE`/`CLASS`/`HOST`/`SECRET`
-are still individually overridable.
+are still individually overridable. **`PRODUCT` is auto-detected** from the cluster's
+GatewayClasses when not set, so `solomog expose CLUSTER=cluster-one` on a kgateway
+cluster picks `kgw` automatically (falls back to agentgateway if both/neither are present).
 
 The hostname defaults to **`<NAME>.<CLUSTER>.test`** (e.g. `agw.a1.test`, `kgw.a1.test`) —
 `.test` is the RFC 6761 name reserved for testing (`.local` is avoided: it collides with

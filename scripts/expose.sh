@@ -17,7 +17,9 @@ set -euo pipefail
 #
 # Env:
 #   CLUSTER     cluster name (context vcluster-docker_<CLUSTER>); default cluster-one
-#   PRODUCT     agentgateway (default) | kgateway — seeds the defaults below
+#   PRODUCT     agentgateway | kgateway — seeds the defaults below. When unset it is
+#               auto-detected from the cluster's GatewayClasses (one product per
+#               cluster is the common case); falls back to agentgateway if ambiguous.
 #   NAME        Gateway name;        default per PRODUCT (agw / kgw)
 #   NAMESPACE   namespace;           default per PRODUCT
 #   CLASS       gatewayClassName;    default per PRODUCT
@@ -29,7 +31,27 @@ set -euo pipefail
 #   HTTP_PORT   HTTP listener port;  default 8080
 
 CLUSTER="${CLUSTER:-cluster-one}"
-PRODUCT="${PRODUCT:-agentgateway}"
+CTX="vcluster-docker_${CLUSTER}"
+PRODUCT="${PRODUCT:-}"
+
+# Auto-detect PRODUCT from the cluster's GatewayClasses when not set explicitly.
+# (enterprise-kgateway / enterprise-agentgateway are distinct substrings, so the
+# *-waypoint classes don't cause false matches.)
+if [[ -z "$PRODUCT" ]]; then
+  classes="$(kubectl --context "$CTX" get gatewayclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
+  has_agw=false; has_kgw=false
+  [[ "$classes" == *enterprise-agentgateway* ]] && has_agw=true
+  [[ "$classes" == *enterprise-kgateway* ]]     && has_kgw=true
+  if   $has_kgw && ! $has_agw; then PRODUCT=kgateway
+    echo "==> Auto-detected PRODUCT=kgateway (enterprise-kgateway GatewayClass present)"
+  elif $has_agw && ! $has_kgw; then PRODUCT=agentgateway
+    echo "==> Auto-detected PRODUCT=agentgateway (enterprise-agentgateway GatewayClass present)"
+  elif $has_agw && $has_kgw; then PRODUCT=agentgateway
+    echo "==> Both gateway products detected — defaulting PRODUCT=agentgateway (pass PRODUCT=kgateway to override)"
+  else PRODUCT=agentgateway
+    echo "==> No known GatewayClass detected — defaulting PRODUCT=agentgateway (pass PRODUCT explicitly if wrong)"
+  fi
+fi
 
 case "$PRODUCT" in
   agentgateway) _NAME=agw; _NS=agentgateway-system; _CLASS=enterprise-agentgateway ;;
@@ -43,7 +65,6 @@ CLASS="${CLASS:-$_CLASS}"
 HOST="${HOST:-${NAME}.${CLUSTER}.test}"
 SECRET="${SECRET:-${NAME}-tls}"
 HTTP_PORT="${HTTP_PORT:-8080}"
-CTX="vcluster-docker_${CLUSTER}"
 
 if [[ -z "$NAME" || -z "$NAMESPACE" || -z "$CLASS" ]]; then
   echo "Error: unknown PRODUCT '$PRODUCT'. Either use PRODUCT=agentgateway|kgateway," >&2

@@ -121,8 +121,11 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   `status.addresses[0].value` is the reachable IP. `PRODUCT` seeds the defaults:
   `agentgateway` → gw `agw` / ns `agentgateway-system` / class `enterprise-agentgateway`;
   `kgateway` → gw `kgw` / ns `kgateway-system` / class `enterprise-kgateway`.
-  NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY` default is `agw`
-  (the agentgateway apps route there) — keep it in sync with the agentgateway gw name.
+  When `PRODUCT` is unset, expose.sh **auto-detects** it from the cluster's GatewayClasses
+  (`enterprise-kgateway` → kgateway, `enterprise-agentgateway` → agentgateway; both/neither
+  → agentgateway). The Taskfile must therefore pass `PRODUCT` empty (not a default) so the
+  script can detect. NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY`
+  default is `agw` (the agentgateway apps route there) — keep it in sync with the gw name.
   Hostname defaults to `<NAME>.<CLUSTER>.test` — always use **`.test`** (RFC 6761), never
   `.local` (mDNS/Bonjour collision → slow resolution); the cluster component keeps the host
   unique across clusters.
