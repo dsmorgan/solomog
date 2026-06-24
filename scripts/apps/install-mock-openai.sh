@@ -20,7 +20,12 @@ set -euo pipefail
 # Usage: install-mock-openai.sh <kube-context>
 
 CONTEXT="${1:?Usage: install-mock-openai.sh <kube-context>}"
-NS=agentgateway-system
+# The mock LLM workload gets its OWN namespace (not the gateway's). The gateway-config
+# objects (the EnterpriseAgentgatewayBackend + HTTPRoute) stay in agentgateway-system
+# with the gateway, so the route→backend ref is same-namespace (no ReferenceGrant) —
+# matching how apps:mcp-stripe already splits workload (stripe-mock ns) from config.
+NS=agentgateway-system            # gateway + backend/route (config) namespace
+APP_NS="${APP_NS:-mock-openai}"   # the mock-gpt-4o workload namespace
 
 # Routing is opt-in (ROUTE=true). When set, an HTTPRoute attaches this backend to
 # the gateway at ROUTE_PATH. The backend itself is always created.
@@ -38,13 +43,17 @@ if ! kubectl --context "$CONTEXT" get crd \
   exit 1
 fi
 
-echo "==> Deploying mock vLLM server (mock-gpt-4o) into ${NS}"
-kubectl --context "$CONTEXT" apply -f - <<'EOF'
+echo "==> Creating namespace ${APP_NS} for the mock LLM workload"
+kubectl --context "$CONTEXT" create namespace "$APP_NS" --dry-run=client -o yaml \
+  | kubectl --context "$CONTEXT" apply -f -
+
+echo "==> Deploying mock vLLM server (mock-gpt-4o) into ${APP_NS}"
+kubectl --context "$CONTEXT" apply -f - <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mock-gpt-4o
-  namespace: agentgateway-system
+  namespace: ${APP_NS}
 spec:
   replicas: 1
   selector:
@@ -88,7 +97,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: mock-gpt-4o-svc
-  namespace: agentgateway-system
+  namespace: ${APP_NS}
   labels:
     app: mock-gpt-4o
 spec:
@@ -102,22 +111,26 @@ spec:
   type: ClusterIP
 EOF
 
-echo "==> Creating EnterpriseAgentgatewayBackend (mock-openai)"
-kubectl --context "$CONTEXT" apply -f - <<'EOF'
+echo "==> Creating EnterpriseAgentgatewayBackend (mock-openai) in ${NS}"
+kubectl --context "$CONTEXT" apply -f - <<EOF
 apiVersion: enterpriseagentgateway.solo.io/v1alpha1
 kind: EnterpriseAgentgatewayBackend
 metadata:
   name: mock-openai
-  namespace: agentgateway-system
+  namespace: ${NS}
 spec:
   ai:
     provider:
       openai:
         model: "mock-gpt-4o"
-      host: mock-gpt-4o-svc.agentgateway-system.svc.cluster.local
+      host: mock-gpt-4o-svc.${APP_NS}.svc.cluster.local
       port: 8000
       path: "/v1/chat/completions"
 EOF
+
+echo "==> Waiting for mock-gpt-4o to be ready..."
+kubectl --context "$CONTEXT" wait --for=condition=available \
+  deployment/mock-gpt-4o -n "$APP_NS" --timeout=90s || true
 
 if [[ "$ROUTE" == "true" ]]; then
   echo "==> Routing: HTTPRoute mock-openai → ${GATEWAY} at ${ROUTE_PATH}"
