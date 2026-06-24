@@ -10,13 +10,19 @@ if ! command -v task &>/dev/null; then
   exit 127
 fi
 
-# 🗿 mog bookends: one opening message before the run, one closing message after —
-# regardless of how many tasks are chained. Per-task framing lives in the scripts.
-# Skipped for a bare `solomog` (no args = just the task list).
+# 🗿 mog bookends + per-task timing. The wrapper runs each requested task in turn,
+# times it, and prints ONE summary at the end listing each task's run time plus the
+# grand total — so a chained run (`solomog a b c`) shows a clean per-task breakdown
+# instead of scattered mini-summaries. Per-task progress framing (step delimiters)
+# still lives in the scripts.
 source "$SCRIPT_DIR/scripts/lib/ui.sh"
 
-# Pick removal-themed banter when a teardown is in the run, so the bookends talk
-# about deleting things rather than spinning them up.
+# Bare `solomog` (no args) → just the task list, no framing.
+if [ $# -eq 0 ]; then
+  exec task
+fi
+
+# Pick removal-themed banter when a teardown is in the run.
 MOG_MODE=""
 for arg in "$@"; do
   case "$arg" in
@@ -24,10 +30,42 @@ for arg in "$@"; do
   esac
 done
 
-[ $# -gt 0 ] && solomog_intro "$MOG_MODE"
+# Split args into task names and KEY=VALUE globals. The globals apply to every task;
+# task names use ':' not '=', so '=' is a safe delimiter to partition on.
+TASKS=(); VARS=()
+for a in "$@"; do
+  case "$a" in
+    *=*) VARS+=("$a") ;;
+    *)   TASKS+=("$a") ;;
+  esac
+done
 
-task "$@"
-rc=$?
+solomog_intro "$MOG_MODE"
+solomog_clock_reset   # grand-total clock (this process; task subprocesses don't touch it)
 
-[ $# -gt 0 ] && solomog_outro "$rc" "$MOG_MODE"
+# Only globals, no task names → defer to task unchanged (e.g. it picks the default).
+if [ ${#TASKS[@]} -eq 0 ]; then
+  task "$@"; rc=$?
+  solomog_outro "$rc" "$MOG_MODE"
+  exit $rc
+fi
+
+rc=0
+TASK_TIMES=()
+for t in "${TASKS[@]}"; do
+  t_start=$SECONDS
+  if [ ${#VARS[@]} -gt 0 ]; then task "$t" "${VARS[@]}"; else task "$t"; fi
+  trc=$?
+  t_dur=$((SECONDS - t_start))
+  if [ "$trc" -eq 0 ]; then
+    TASK_TIMES+=("$t  —  ${t_dur}s")
+  else
+    TASK_TIMES+=("$t  —  ${t_dur}s  (FAILED, exit $trc)")
+    rc=$trc
+    break   # stop the chain on first failure
+  fi
+done
+
+solomog_summary "Run complete — ${#TASK_TIMES[@]} task(s)" "${TASK_TIMES[@]}"
+solomog_outro "$rc" "$MOG_MODE"
 exit $rc
