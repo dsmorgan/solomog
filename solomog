@@ -15,10 +15,19 @@ fi
 # Skipped for a bare `solomog` (no args = just the task list).
 source "$SCRIPT_DIR/scripts/lib/ui.sh"
 
-[ $# -gt 0 ] && solomog_intro
+# Pick removal-themed banter when a teardown is in the run, so the bookends talk
+# about deleting things rather than spinning them up.
+MOG_MODE=""
+for arg in "$@"; do
+  case "$arg" in
+    teardown|teardown:*) MOG_MODE=destroy; break ;;
+  esac
+done
+
+[ $# -gt 0 ] && solomog_intro "$MOG_MODE"
 
 task "$@"
 rc=$?
 
-[ $# -gt 0 ] && solomog_outro "$rc"
+[ $# -gt 0 ] && solomog_outro "$rc" "$MOG_MODE"
 exit $rc

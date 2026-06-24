@@ -48,27 +48,66 @@ _SM_LOSS_QUIPS=(
   "L + ratio. it's over (for now)"
 )
 
+# Destroy-themed banter — used for teardown so the bookends talk about removal,
+# not creation. Selected by passing mode "destroy" to solomog_intro / solomog_outro.
+_SM_DESTROY_START_QUIPS=(
+  "cleanup arc. sending these clusters to the shadow realm"
+  "it's unmogging time"
+  "entering the lab to delete your problems"
+  "demolition grindset: engaged"
+  "tearing it all down. unprovisioning greatness"
+  "about to absolutely un-mog this deployment"
+)
+_SM_DESTROY_WIN_QUIPS=(
+  "clusters deleted. mogged out of existence"
+  "infra wiped. squeaky clean, king"
+  "teardown complete. RAM freed, grass touched"
+  "nuked. the clusters returned to the void"
+  "deleted with zero mercy. W cleanup"
+  "gone without a trace. not even a CRD left behind"
+)
+_SM_DESTROY_LOSS_QUIPS=(
+  "the cluster refused to die. it's clinging on"
+  "teardown got ratio'd. something's still standing"
+  "couldn't finish the wipe. check the logs, king"
+  "L cleanup. the infra resisted deletion"
+)
+
 # Reset the run timer (uses the bash SECONDS builtin).
 solomog_clock_reset() { SECONDS=0; }
 
-# solomog_intro — 🗿 start banner with a random quip (muted by SOLOMOG_SERIOUS=1).
+# solomog_intro [mode] — 🗿 start banner with a random quip (muted by SOLOMOG_SERIOUS=1).
 # Called once per session by the `solomog` wrapper, not per task.
+# mode "destroy" → removal-themed pool (teardown); anything else → the build pool.
 solomog_intro() {
   [ -n "${SOLOMOG_SERIOUS:-}" ] && return 0
-  local q="${_SM_START_QUIPS[$((RANDOM % ${#_SM_START_QUIPS[@]}))]}"
+  local q
+  if [ "${1:-}" = "destroy" ]; then
+    q="${_SM_DESTROY_START_QUIPS[$((RANDOM % ${#_SM_DESTROY_START_QUIPS[@]}))]}"
+  else
+    q="${_SM_START_QUIPS[$((RANDOM % ${#_SM_START_QUIPS[@]}))]}"
+  fi
   printf '\n%s%s🗿  solomog — %s%s\n' "$_SM_P" "$_SM_B" "$q" "$_SM_R"
 }
 
-# solomog_outro <exit-code> — 🗿 closing banner; "we're so back" on success,
-# "it's so over" on failure. Called once per session by the wrapper.
+# solomog_outro <exit-code> [mode] — 🗿 closing banner; win quip on success, loss on
+# failure. Called once per session by the wrapper. mode "destroy" uses the removal pools.
 solomog_outro() {
   [ -n "${SOLOMOG_SERIOUS:-}" ] && return 0
-  local rc="${1:-0}" q
+  local rc="${1:-0}" mode="${2:-}" q
   if [ "$rc" = "0" ]; then
-    q="${_SM_WIN_QUIPS[$((RANDOM % ${#_SM_WIN_QUIPS[@]}))]}"
+    if [ "$mode" = "destroy" ]; then
+      q="${_SM_DESTROY_WIN_QUIPS[$((RANDOM % ${#_SM_DESTROY_WIN_QUIPS[@]}))]}"
+    else
+      q="${_SM_WIN_QUIPS[$((RANDOM % ${#_SM_WIN_QUIPS[@]}))]}"
+    fi
     printf '\n%s%s🗿  solomog — %s%s\n' "$_SM_P" "$_SM_B" "$q" "$_SM_R"
   else
-    q="${_SM_LOSS_QUIPS[$((RANDOM % ${#_SM_LOSS_QUIPS[@]}))]}"
+    if [ "$mode" = "destroy" ]; then
+      q="${_SM_DESTROY_LOSS_QUIPS[$((RANDOM % ${#_SM_DESTROY_LOSS_QUIPS[@]}))]}"
+    else
+      q="${_SM_LOSS_QUIPS[$((RANDOM % ${#_SM_LOSS_QUIPS[@]}))]}"
+    fi
     printf '\n%s%s🗿  solomog — %s (exit %s)%s\n' "$_SM_P" "$_SM_B" "$q" "$rc" "$_SM_R"
   fi
 }
