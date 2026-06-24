@@ -1,0 +1,7 @@
+# Applied first (01-). Plain manifest — no templating, applied verbatim.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: solomog-example
+  labels:
+    app.kubernetes.io/managed-by: solomog-bundle

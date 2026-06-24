@@ -1,3 +1,7 @@
 .env
 certs/
 .solomog/
+
+# Private customer bundles (sensitive manifests live here, never committed).
+# Shareable bundles go in bundles/<name>/ and ARE committed.
+bundles/private/

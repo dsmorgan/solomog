@@ -241,6 +241,32 @@ tasks:
       ROUTE: '{{.ROUTE | default "false"}}'
       GATEWAY: '{{.GATEWAY | default "agw"}}'
 
+  # ─── Custom config bundles ────────────────────────────────────────────────
+  # Apply a directory of bespoke manifests (customer repros) to a cluster, in
+  # order. The escape hatch for config not worth generalizing into a product/app.
+
+  apply:
+    desc: "Apply a custom bundle (bundles/<BUNDLE>) to CLUSTER in order. DRY_RUN=true to validate. See bundles:list."
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+    cmds:
+      - bash scripts/run.sh "Apply bundle {{.BUNDLE}} → {{.CLUSTER}}" bash scripts/apply-bundle.sh vcluster-docker_{{.CLUSTER}}
+    env:
+      BUNDLE: '{{.BUNDLE}}'
+      DRY_RUN: '{{.DRY_RUN | default "false"}}'
+      GATEWAY: '{{.GATEWAY | default "agw"}}'
+      HOST: '{{.HOST | default ""}}'
+
+  bundles:list:
+    desc: "List available custom-config bundles (bundles/ and bundles/private/)."
+    cmds:
+      - bash scripts/bundles.sh list
+
+  bundles:show:
+    desc: "Show a bundle's manifests in apply order: BUNDLE=<name>."
+    cmds:
+      - bash scripts/bundles.sh show {{.BUNDLE}}
+
   # ─── Sample apps ─────────────────────────────────────────────────────────
   # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.
 

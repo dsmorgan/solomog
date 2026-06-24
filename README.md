@@ -226,6 +226,29 @@ solomog apps:mcp-stripe                  # stripe-mock exposed as MCP tools via 
 Both AI/MCP apps need a gateway to be reachable — run `solomog expose` (above) first
 or in the same CLI call.
 
+### Custom config bundles (customer repros)
+
+When you need to apply bespoke config that isn't worth generalizing into a product or
+app — e.g. recreating a specific customer's routes/policies — drop manifests in a
+**bundle** directory and apply them in order:
+
+```bash
+solomog bundles:list                                   # what's available
+solomog bundles:show BUNDLE=acme                       # files in apply order
+solomog apply BUNDLE=acme CLUSTER=aaa                   # apply, in order
+solomog apply BUNDLE=acme CLUSTER=aaa DRY_RUN=true      # validate only (server-side)
+
+# recreate a whole customer env in one chained call:
+solomog agentgateway:ui expose apply BUNDLE=acme ROUTE=true CLUSTER=aaa
+```
+
+A bundle is `bundles/<name>/` (committed) or `bundles/private/<name>/` (gitignored, for
+anything sensitive). Files apply in `LC_ALL=C` sorted order, so prefix them with a
+zero-padded number (`01-`, `10-`, `20-`) to sequence. Files ending `.yaml.tmpl` are
+rendered with `%%CLUSTER%%` / `%%GATEWAY%% `/ `%%HOST%%` placeholders before apply
+(plain `.yaml` is applied verbatim). `kubectl apply` is idempotent (safe to re-run) and
+nothing is pruned. See [bundles/README.md](bundles/README.md) for the full convention.
+
 ### Versions & teardown
 
 ```bash
@@ -277,9 +300,12 @@ solomog
 │   ├── route-host.sh           # route a Service on its own sub-host under expose's wildcard
 │   ├── install-agentgateway-ui.sh  # Solo UI (management chart) + tracing + route
 │   ├── install-monitoring.sh   # Prometheus/Grafana + product dashboards + route
+│   ├── apply-bundle.sh         # apply a custom-config bundle to a cluster, in order
+│   ├── bundles.sh              # list / show available bundles
 │   ├── versions-update.sh      # fetch latest versions from GitHub
 │   └── apps/install-bookinfo.sh
 ├── clusters/                   # vcluster configs (single, multi, multi-3)
+├── bundles/                    # custom-config bundles (bundles/private/ is gitignored)
 ├── dashboards/                 # vendored Grafana dashboards (agentgateway-overview.json)
 ├── helmfiles/
 │   ├── commons.yaml            # shared environment definitions (bases)

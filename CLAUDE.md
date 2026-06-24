@@ -185,6 +185,28 @@ prefix-stripping rewrite breaks their assets — give each its own host instead.
 - The HTTPRoute lives in the **Service's** namespace (same-namespace backendRef → no ReferenceGrant),
   while its `parentRef` points at the gateway in `agentgateway-system`.
 
+### Custom config bundles (the escape hatch)
+For bespoke / customer-repro config not worth generalizing into a product or app, use a
+**bundle**: a directory of manifests under `bundles/<name>/` applied in order by
+[scripts/apply-bundle.sh](scripts/apply-bundle.sh) via `solomog apply BUNDLE=<name> CLUSTER=…`.
+- **Hybrid git layout**: `bundles/<name>/` is committed; `bundles/private/<name>/` is
+  gitignored (sensitive config) and **overrides** a committed bundle of the same name.
+- **Ordering**: `LC_ALL=C` byte sort. Zero-pad numeric prefixes (`01-`, `10-`, `20-`) —
+  byte sort puts `2` after `10`, so padding (not `sort -V`, which BSD/macOS sort lacks)
+  is what guarantees sequence. Leave gaps to insert later.
+- **Templating**: files ending `.yaml.tmpl` are rendered with a `sed` allow-list of
+  `%%TOKEN%%` placeholders (`%%CLUSTER%%`, `%%GATEWAY%%`, `%%HOST%%`); plain `.yaml` is
+  applied verbatim. The `%%TOKEN%%` syntax (NOT `$VAR`/envsubst) is deliberate — it can't
+  clash with `$` in manifests and needs no gettext dep. Add new vars to `render()` in
+  apply-bundle.sh. A leftover `%%FOO%%` after rendering is a hard error — and the check
+  scans the whole file *including comments*, so never write a literal `%%WORD%%` in a
+  `.tmpl` unless it's a real token (this bit the example bundle once).
+- **No prune, idempotent**: `kubectl apply` only; removing a file never deletes a resource.
+  `DRY_RUN=true` → `--dry-run=server` (real validation; needs a live cluster, and a CR that
+  depends on an earlier file's namespace/CRD will fail under dry-run since nothing's written).
+- `bundles:list` / `bundles:show` (via [scripts/bundles.sh](scripts/bundles.sh)) are
+  cluster-free discovery; `apply` is framed through `run.sh` like other leaf tasks.
+
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.

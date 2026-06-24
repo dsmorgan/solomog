@@ -1,0 +1,12 @@
+# Applied second (10-). The .tmpl suffix means placeholders (see the data values
+# below) are rendered before apply. Depends on the namespace from 01- existing.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: demo-config
+  namespace: solomog-example
+data:
+  cluster: "%%CLUSTER%%"
+  gateway: "%%GATEWAY%%"
+  gateway-host: "%%HOST%%"
+  note: "Rendered by solomog apply — proves ordering + token templating."
