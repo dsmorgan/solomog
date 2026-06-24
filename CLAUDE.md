@@ -285,6 +285,16 @@ chained runs (`solomog a b c`) should show clean framing for each task.
     community 2.3.x (`cr.kgateway.dev/kgateway-dev/charts`).
   - `agentgateway` — enterprise 2.3.x (`.../enterprise-agentgateway`); community
     1.3.x (`cr.agentgateway.dev/charts`). Both editions ship a `-crds` chart.
+    **Enterprise pin is deliberate: v2.3.x is the latest STABLE quarterly release
+    (production-recommended). Do NOT bump to the newer CalVer builds (v2026.x) — those
+    are NON-STABLE (test/dev). Solo is mid-transition SemVer→CalVer; solomog mirrors
+    customer PRODUCTION envs, so it tracks the stable line even though CalVer is
+    numerically newer.** ([docs](https://docs.solo.io/agentgateway/2.3.x/reference/versions/#supported-versions))
+    Consequence: the `EnterpriseAgentgatewayBackend` CEL rules differ by line — v2026.x
+    lets a `policies` block hold just `auth`, but on 2.3.x `policies` must also include a
+    non-empty `policies.ai`. Solo workshops are written for the CalVer builds, so their
+    AI-backend manifests need a `policies.ai` added to validate on 2.3.x (this is why the
+    `bundles/llmroute` backends carry `modelAliases`/`promptCaching`). See versions.env.
   - `gloo-gateway` — 1.21.x (classic Helm repos).
   - `management` (Solo UI add-on) — 0.4.5, `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts`
     (verified: docs.solo.io/agentgateway/2.3.x/install/ui/setup/). `kube-prometheus-stack` 80.4.2
