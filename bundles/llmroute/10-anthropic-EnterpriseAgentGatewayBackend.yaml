@@ -1,0 +1,22 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: anthropic
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      anthropic:
+        model: "claude-3-5-haiku-latest"
+  policies:
+    # `policies.auth` is upstream provider auth (injects the API key from the
+    # secret). But the CRD requires any `policies` block on an AI backend to ALSO
+    # carry at least one AI policy (CEL: "[ai mcp] must be set", and policies.ai
+    # must be non-empty). modelAliases is the lightest real AI policy — here it
+    # lets a client call model "claude" and routes it to the configured model.
+    ai:
+      modelAliases:
+        claude: "claude-3-5-haiku-latest"
+    auth:
+      secretRef:
+        name: anthropic-secret

@@ -1,0 +1,21 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: openai-all-models
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      openai: {}
+        #--- Uncomment to configure model override ---
+        #model: ""
+  policies:
+    # `policies.auth` is the upstream provider key. The CRD requires any `policies`
+    # block on an AI backend to ALSO carry a non-empty `policies.ai`. modelAliases
+    # would pin a model — wrong for an all-models passthrough — so use promptCaching
+    # ({} = sensible defaults): model-agnostic and a real policy, not a filler.
+    ai:
+      promptCaching: {}
+    auth:
+      secretRef:
+        name: openai-secret
