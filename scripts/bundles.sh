@@ -41,12 +41,20 @@ case "$MODE" in
       exit 0
     fi
     printf '%sApply a bundle:%s solomog apply BUNDLE=<name> CLUSTER=<cluster> [DRY_RUN=true]\n\n' "$B" "$R"
+    # Note: end the loop body with statements that return 0 even when the
+    # README/desc is absent — otherwise a trailing `[ -n "$desc" ] && printf`
+    # returns 1 for the LAST bundle, failing the pipeline under set -e/pipefail.
     _each_bundle | while IFS=$'\t' read -r name dir priv; do
       desc=""
-      [ -f "$dir/README.md" ] && desc="$(grep -m1 -v '^[[:space:]]*$' "$dir/README.md" | sed 's/^#\{1,\} *//')"
-      tag=""; [ "$priv" = "yes" ] && tag=" ${D}(private)${R}"
+      if [ -f "$dir/README.md" ]; then
+        desc="$(grep -m1 -v '^[[:space:]]*$' "$dir/README.md" | sed 's/^#\{1,\} *//')"
+      fi
+      tag=""
+      [ "$priv" = "yes" ] && tag=" ${D}(private)${R}"
       printf '  %s%s%s%s\n' "$G$B" "$name" "$R" "$tag"
-      [ -n "$desc" ] && printf '    %s%s%s\n' "$D" "$desc" "$R"
+      if [ -n "$desc" ]; then
+        printf '    %s%s%s\n' "$D" "$desc" "$R"
+      fi
     done
     ;;
 
