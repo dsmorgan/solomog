@@ -194,6 +194,18 @@ tasks:
     env:
       EDITION: '{{.EDITION}}'
 
+  agentgateway:ui:
+    desc: "1 cluster · agentgateway + Solo UI (management chart) · enterprise only. Route the UI with expose ROUTE=true."
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+    cmds:
+      - bash scripts/stack.sh {{.CLUSTER}} agentgateway
+      - bash scripts/run.sh "Install agentgateway UI → {{.CLUSTER}}" bash scripts/install-agentgateway-ui.sh vcluster-docker_{{.CLUSTER}}
+    env:
+      EDITION: '{{.EDITION}}'
+      ROUTE: '{{.ROUTE | default "false"}}'
+      GATEWAY: '{{.GATEWAY | default "agw"}}'
+
   # ─── Gateway exposure (Gateway + TLS + DNS) ───────────────────────────────
   # Creates the Gateway and makes it reachable locally. Product-agnostic; defaults
   # target enterprise agentgateway. Override NAME/NAMESPACE/CLASS/HOST as needed.
@@ -212,6 +224,22 @@ tasks:
       CLASS: '{{.CLASS | default ""}}'
       HOST: '{{.HOST | default ""}}'
       SECRET: '{{.SECRET | default ""}}'
+
+  # ─── Monitoring (cross-cutting add-on) ────────────────────────────────────
+  # Prometheus + Grafana for any product. Auto-detects product dashboards (like
+  # `expose` auto-detects the gateway). Route Grafana via expose ROUTE=true.
+
+  monitoring:
+    desc: "Install Prometheus + Grafana on CLUSTER; auto-detects product dashboards (DASHBOARDS=agentgateway|none). Route Grafana with expose ROUTE=true."
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+    cmds:
+      - bash scripts/run.sh "Install monitoring → {{.CLUSTER}}" bash scripts/install-monitoring.sh vcluster-docker_{{.CLUSTER}}
+    env:
+      EDITION: '{{.EDITION}}'
+      DASHBOARDS: '{{.DASHBOARDS | default "auto"}}'
+      ROUTE: '{{.ROUTE | default "false"}}'
+      GATEWAY: '{{.GATEWAY | default "agw"}}'
 
   # ─── Sample apps ─────────────────────────────────────────────────────────
   # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.

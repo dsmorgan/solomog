@@ -143,6 +143,26 @@ echo "==> Updating /etc/hosts (sudo)"
 sudo sed -i '' "/[[:space:]]${HOST}\$/d;/[[:space:]]${HOST}[[:space:]]/d" /etc/hosts 2>/dev/null || true
 echo "${LB_IP} ${HOST} *.${HOST}" | sudo tee -a /etc/hosts >/dev/null
 
+# Backfill explicit entries for any sub-host routes already attached to this gateway
+# (e.g. ui.${HOST}, grafana.${HOST} from agentgateway:ui / monitoring with ROUTE=true).
+# /etc/hosts has no wildcard support, so the "*.${HOST}" line above does NOT cover
+# them — each needs its own line. This makes ordering not matter: route-host.sh adds
+# the entry when the gateway already exists, and expose backfills it when the route
+# was created first. Requires jq (already a solomog dependency).
+if command -v jq &>/dev/null; then
+  SUBHOSTS="$(kubectl --context "$CTX" get httproute -A -o json 2>/dev/null \
+    | jq -r --arg gw "$NAME" --arg suffix ".$HOST" '
+        .items[]
+        | select([.spec.parentRefs[]?.name] | index($gw))
+        | .spec.hostnames[]?
+        | select(endswith($suffix))' 2>/dev/null | sort -u || true)"
+  for h in $SUBHOSTS; do
+    sudo sed -i '' "/[[:space:]]${h}\$/d;/[[:space:]]${h}[[:space:]]/d" /etc/hosts 2>/dev/null || true
+    echo "${LB_IP} ${h}" | sudo tee -a /etc/hosts >/dev/null
+    echo "    + sub-host ${h} → ${LB_IP}"
+  done
+fi
+
 echo ""
 echo "✓ Gateway '${NAME}' reachable as ${HOST} → ${LB_IP}"
 echo "  http://${HOST}:${HTTP_PORT}/   and   https://${HOST}/   (mkcert CA trusted)"

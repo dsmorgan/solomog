@@ -1,0 +1,56 @@
+# Add-on: monitoring stack (Prometheus + Grafana via kube-prometheus-stack).
+#
+# Product-agnostic — this is the base half of `solomog monitoring`, deployed to the
+# `monitoring` namespace. install-monitoring.sh layers product-specific pieces on top
+# (e.g. the agentgateway PodMonitor + Grafana dashboard) by auto-detecting installed
+# products, the same way `expose` auto-detects the gateway.
+#
+# Edition-agnostic: kube-prometheus-stack is OSS and works under EDITION=enterprise
+# or community alike, so this add-on does not gate on edition.
+#
+# Values mirror workshop 002:
+#   - alertmanager + nodeExporter off (noise we don't need locally)
+#   - Grafana on ClusterIP:3000, dashboard sidecar watching the monitoring namespace
+#   - selector *NilUsesHelmValues=false so PodMonitors/ServiceMonitors without the
+#     release's Helm labels (e.g. our agentgateway PodMonitor) are still scraped
+#
+# Verified against workshop 002 (set-up-ui-and-monitoring-tools).
+
+bases:
+  - ../commons.yaml
+
+---
+
+repositories:
+  - name: prometheus-community
+    url: "{{ .Values.helm_repo_prometheus_community }}"
+
+releases:
+  - name: grafana-prometheus
+    namespace: monitoring
+    chart: prometheus-community/kube-prometheus-stack
+    version: "{{ .Values.kube_prom_stack_version }}"
+    wait: true
+    values:
+      - alertmanager:
+          enabled: false
+        nodeExporter:
+          enabled: false
+        grafana:
+          adminPassword: "{{ env "GRAFANA_ADMIN_PASSWORD" | default "prom-operator" }}"
+          service:
+            type: ClusterIP
+            port: 3000
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              labelValue: "1"
+              searchNamespace: monitoring
+        prometheus:
+          service:
+            type: ClusterIP
+          prometheusSpec:
+            ruleSelectorNilUsesHelmValues: false
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false

@@ -27,3 +27,8 @@ helm_repo_gloo_gateway: "https://storage.googleapis.com/gloo-ee-helm"
 # Charts: enterprise-agentgateway-crds, enterprise-agentgateway. Namespace: agentgateway-system.
 # Verified: https://docs.solo.io/agentgateway/2.3.x/install/helm/
 helm_repo_agentgateway: "us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts"
+
+# Solo UI / management plane (the `management` chart) — OCI registry. Enterprise only.
+# Chart: management (CRDs bundled as a subchart, enabled by default). Namespace: agentgateway-system.
+# Drives the <product>:ui add-ons. Verified: https://docs.solo.io/agentgateway/2.3.x/install/ui/setup/
+helm_repo_solo_enterprise: "us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts"

@@ -179,6 +179,36 @@ The hostname defaults to **`<NAME>.<CLUSTER>.test`** (e.g. `agw.a1.test`, `kgw.a
 mDNS/Bonjour and resolves slowly), and including the cluster keeps hostnames unique when
 multiple clusters are up.
 
+### UI & monitoring add-ons
+
+The Solo UI and the metrics stack are **add-ons**, routed onto their own sub-hosts
+nested under `expose`'s wildcard cert (so no extra certs, just `/etc/hosts` lines):
+
+```bash
+# agentgateway + its Solo UI in one shot (enterprise only), then route the UI
+solomog agentgateway:ui expose ROUTE=true CLUSTER=a1
+#   → UI at  https://ui.agw.a1.test/age/   (Solo UI serves under /age/)
+
+# Prometheus + Grafana — product-agnostic; auto-installs the agentgateway
+# PodMonitor + dashboard when agentgateway is detected on the cluster
+solomog monitoring expose ROUTE=true CLUSTER=a1
+#   → Grafana at  https://grafana.agw.a1.test/   (admin / prom-operator)
+```
+
+- **`<product>:ui`** is the same compound pattern as `kgateway:with-istio` — it installs
+  the product *and* its UI. The Solo UI is one `management` chart with per-product
+  toggles, so `agentgateway:ui` enables only the agentgateway product. CRDs are bundled
+  in the chart (no separate `management-crds` step). **Enterprise only.**
+- **`monitoring`** is cross-cutting (not under a product) because one Prometheus/Grafana
+  serves every product. It auto-detects installed products and loads their dashboards —
+  override with `DASHBOARDS="agentgateway"` or `DASHBOARDS=none`. Set a Grafana password
+  with `GRAFANA_ADMIN_PASSWORD=…`.
+- **Routing vs port-forward.** Both default to a port-forward (printed after install).
+  Adding `ROUTE=true` (with `expose`) routes them host-based at `/` — the UIs each get
+  their own host because the Solo UI (`/age/`) and Grafana both assume they own their
+  base path, so a path-prefix rewrite would break their assets. Order doesn't matter:
+  `expose` backfills the `/etc/hosts` entry for any sub-host route already on the gateway.
+
 ### Sample apps
 
 ```bash
@@ -243,13 +273,19 @@ solomog
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order
 │   ├── mesh.sh                 # multi-cluster Istio (istio module per cluster, shared CA)
+│   ├── expose.sh               # Gateway + TLS + DNS (backfills sub-host /etc/hosts)
+│   ├── route-host.sh           # route a Service on its own sub-host under expose's wildcard
+│   ├── install-agentgateway-ui.sh  # Solo UI (management chart) + tracing + route
+│   ├── install-monitoring.sh   # Prometheus/Grafana + product dashboards + route
 │   ├── versions-update.sh      # fetch latest versions from GitHub
 │   └── apps/install-bookinfo.sh
 ├── clusters/                   # vcluster configs (single, multi, multi-3)
+├── dashboards/                 # vendored Grafana dashboards (agentgateway-overview.json)
 ├── helmfiles/
 │   ├── commons.yaml            # shared environment definitions (bases)
 │   ├── environments/           # default + enterprise/community + ambient/sidecar
 │   ├── products/               # one module per product (composable)
+│   ├── addons/                 # UI (management chart) + monitoring stack
 │   └── apps/                   # sample app helmfiles
 ├── values/                     # per-product Helm values
 └── charts/

@@ -136,10 +136,54 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   collisions, since each app owns its default path. **Never name the path var `PATH`** — it
   clobbers the shell `$PATH`; use `ROUTE_PATH`.
 - **`mock-openai`/`mcp-stripe` are agentgateway-only** (route to an `EnterpriseAgentgatewayBackend`,
-  so `GATEWAY` defaults to `agw`). **`apps:utils` routes httpbin as a plain Service backend**,
+  so `GATEWAY` defaults to `agw`). **Workloads live in their own namespace** (`mock-openai`,
+  `stripe-mock` — overridable via `APP_NS`), NOT in `agentgateway-system`. The gateway-*config*
+  objects (the `EnterpriseAgentgatewayBackend`, schema/secret ConfigMaps, and HTTPRoute) stay in
+  `agentgateway-system` with the gateway, so the route→backend ref is same-namespace (no
+  ReferenceGrant); the backend reaches the workload by FQDN (`<svc>.<APP_NS>.svc.cluster.local`)
+  cross-namespace. Keep new AI/MCP apps on this split. **`apps:utils` routes httpbin as a plain Service backend**,
   so it works on *any* gateway — it auto-detects the gateway name/ns (agw/kgw) like expose,
   and uses a `URLRewrite` filter (ReplacePrefixMatch `/`) so `/httpbin/get` → httpbin's `/get`.
   httpbin is the gateway-agnostic routing smoke test (the only routable sample for kgateway).
+
+### Add-ons (UI & monitoring)
+Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modules in
+[helmfiles/addons/](helmfiles/addons/), installed by their own scripts (not `stack.sh`'s
+product loop). Two exist:
+- **`<product>:ui`** — the Solo UI. It's the **same compound pattern as `kgateway:with-istio`**:
+  the task installs the product (`stack.sh`) *then* the UI ([scripts/install-agentgateway-ui.sh](scripts/install-agentgateway-ui.sh)).
+  The UI is **one `management` chart** (`helm_repo_solo_enterprise`, ns `agentgateway-system`)
+  with per-product toggles — `agentgateway:ui` enables only `products.agentgateway`. A future
+  `gloo-mesh:ui` flips `products.mesh` on the *same* chart. **CRDs are bundled** in the chart
+  (its `management-crds` subchart, enabled by default) — do NOT add a separate `management-crds`
+  release; the workshop's split + `enabled=false` is a long-lived-cluster CRD-lifecycle pattern
+  that buys nothing for ephemeral vclusters. **Enterprise only** (no community UI; the script
+  rejects `EDITION=community`). The tracing CR (`EnterpriseAgentgatewayPolicy`) is applied by the
+  script after sync, targeting the gateway by name (default `agw`) so it attaches once `expose` runs.
+- **`monitoring`** — Prometheus + Grafana (kube-prometheus-stack, OSS, **edition-agnostic**),
+  ns `monitoring`. Cross-cutting (not under a product) because one stack serves all products.
+  [scripts/install-monitoring.sh](scripts/install-monitoring.sh) **auto-detects products** from
+  GatewayClasses (like `expose`) and layers on their PodMonitor + Grafana dashboard; override with
+  `DASHBOARDS="agentgateway"` / `none`. Dashboards are vendored in [dashboards/](dashboards/) and
+  loaded as labeled ConfigMaps the Grafana sidecar picks up. New product dashboards: drop the JSON
+  in `dashboards/`, add an `install_<product>_dashboards` branch.
+
+### Host-based routing for UIs (vs path-based for apps)
+Apps route **by path** on the shared gateway host (`/openai`, `/httpbin`) — covered by expose's
+`*.HOST` wildcard line, no per-app `/etc/hosts` entry. UIs route **by sub-host** at `/`
+([scripts/route-host.sh](scripts/route-host.sh)): `ui.agw.<cluster>.test`, `grafana.agw.<cluster>.test`.
+Reason: the Solo UI (served under `/age/`) and Grafana both assume they own their base path, so a
+prefix-stripping rewrite breaks their assets — give each its own host instead.
+- The sub-host is **nested under expose's wildcard cert** (`*.agw.<cluster>.test`), so TLS is free —
+  no new cert. The expose Gateway sets no listener `hostname` and allows routes from all namespaces,
+  so it accepts any sub-host.
+- **`/etc/hosts` has no wildcard support**, so each sub-host needs its own explicit line. Ordering is
+  handled both ways: `route-host.sh` adds the line immediately if the gateway already exists, and
+  `expose.sh` **backfills** entries for any sub-host HTTPRoute already attached to its gateway (jq over
+  `httproute -A`, matching hostnames ending in `.$HOST`). So `agentgateway:ui expose ROUTE=true` works
+  regardless of which runs first.
+- The HTTPRoute lives in the **Service's** namespace (same-namespace backendRef → no ReferenceGrant),
+  while its `parentRef` points at the gateway in `agentgateway-system`.
 
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
@@ -211,6 +255,9 @@ chained runs (`solomog a b c`) should show clean framing for each task.
   - `agentgateway` — enterprise 2.3.x (`.../enterprise-agentgateway`); community
     1.3.x (`cr.agentgateway.dev/charts`). Both editions ship a `-crds` chart.
   - `gloo-gateway` — 1.21.x (classic Helm repos).
+  - `management` (Solo UI add-on) — 0.4.5, `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts`
+    (verified: docs.solo.io/agentgateway/2.3.x/install/ui/setup/). `kube-prometheus-stack` 80.4.2
+    (prometheus-community) for the monitoring add-on.
   Only the `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
 - Enterprise and community are on **different version lines** for kgateway and
   agentgateway. `community.yaml` overrides `kgateway_version`/`agentgateway_version`

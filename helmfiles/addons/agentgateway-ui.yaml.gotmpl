@@ -1,0 +1,61 @@
+# Add-on: Solo UI / management plane for agentgateway (the `management` chart).
+#
+# This is the UI half of the `solomog agentgateway:ui` scenario. The Solo UI is a
+# single `management` chart with per-product toggles — here we enable only the
+# agentgateway product, so the same chart can later serve other products' UIs
+# (e.g. mesh) via their own <product>:ui add-ons.
+#
+#   ENTERPRISE ONLY. The Solo UI is an enterprise feature; there is no community
+#   equivalent. The install script guards EDITION=community before reaching here.
+#
+# CRDs: the `management-crds` subchart is bundled inside `management` and enabled
+# by default — we let the chart own them (the official 2.3.x install path). The
+# workshop's separate management-crds release + `enabled=false` is the Helm CRD-
+# lifecycle pattern for long-lived mgmt clusters; it buys nothing for ephemeral
+# vclusters, so we skip it.
+#
+# License: agentgateway_license_key (AGENTGATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
+# Tracing wiring (EnterpriseAgentgatewayPolicy) is applied by install-agentgateway-ui.sh
+# after this sync, since it targets the Gateway created by `solomog expose`.
+#
+# Verified: https://docs.solo.io/agentgateway/2.3.x/install/ui/setup/
+
+bases:
+  - ../commons.yaml
+
+---
+
+repositories:
+  - name: solo-enterprise
+    url: "{{ .Values.helm_repo_solo_enterprise }}"
+    oci: true
+
+releases:
+  - name: management
+    namespace: agentgateway-system
+    chart: solo-enterprise/management
+    version: "{{ .Values.agw_ui_version }}"
+    wait: true
+    values:
+      - cluster: "{{ env "SOLO_CLUSTER" | default "mgmt-cluster" }}"
+        licensing:
+          licenseKey: "{{ .Values.agentgateway_license_key }}"
+        global:
+          imagePullPolicy: IfNotPresent
+        service:
+          type: ClusterIP
+        products:
+          # Enable only the agentgateway UI. Other products get their own <product>:ui.
+          agentgateway:
+            enabled: true
+            namespace: agentgateway-system
+          kagent:
+            enabled: false
+          mesh:
+            enabled: false
+          agentregistry:
+            enabled: false
+        clickhouse:
+          enabled: true
+        tracing:
+          verbose: true

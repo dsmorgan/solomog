@@ -9,6 +9,10 @@ agentgateway_version: "{{ env "AGENTGATEWAY_VERSION" }}"
 istio_version: "{{ env "ISTIO_VERSION" }}"
 gateway_api_version: "{{ env "GATEWAY_API_VERSION" | default "1.5.0" }}"
 
+# Add-ons: Solo UI / management plane, and the monitoring stack.
+agw_ui_version:         "{{ env "AGW_UI_VERSION" }}"
+kube_prom_stack_version: "{{ env "KUBE_PROM_STACK_VERSION" }}"
+
 # Cluster-specific Istio version overrides (used by multi-3 scenarios).
 # Fall back to istio_version when the env var is not set.
 istio_version_cluster_two:   "{{ env "ISTIO_VERSION_CLUSTER_TWO"   | default (env "ISTIO_VERSION") }}"
@@ -20,6 +24,8 @@ istio_mode: "{{ env "ISTIO_MODE" | default "ambient" }}"
 # Edition-agnostic chart repos
 helm_repo_istio:        "https://istio-release.storage.googleapis.com/charts"
 helm_repo_cert_manager: "https://charts.jetstack.io"
+# Monitoring stack is OSS and edition-agnostic (used by `solomog monitoring`).
+helm_repo_prometheus_community: "https://prometheus-community.github.io/helm-charts"
 
 # Per-product license keys. A product-specific key wins; otherwise it falls
 # back to SOLO_LICENSE_KEY so a single key can cover every product.
@@ -36,3 +42,4 @@ helm_repo_gloo_mesh:      ""
 helm_repo_kgateway:       ""
 helm_repo_gloo_gateway:   ""
 helm_repo_agentgateway:   ""
+helm_repo_solo_enterprise: ""   # `management` chart (Solo UI) — enterprise only
