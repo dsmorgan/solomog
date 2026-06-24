@@ -90,6 +90,22 @@ Hooks inherit the full environment (so `.env` values are present) plus `CONTEXT`
 the right cluster. Hooks are **skipped under `DRY_RUN=true`** (an arbitrary script can't be
 assumed side-effect free). They stop the bundle on non-zero exit, like any other step.
 
+## Copying manifests from Solo docs/workshops
+
+Solo docs present manifests wrapped in a shell heredoc:
+
+```bash
+kubectl apply -f - <<EOF
+apiVersion: ...
+EOF
+```
+
+A bundle `.yaml` is applied directly (`kubectl apply -f <file>`), so paste **only the
+manifest** — strip the `kubectl apply -f - <<EOF` opener and the closing `EOF`. Leaving
+the wrapper in produces `error converting YAML to JSON: ... mapping values are not
+allowed in this context` (the parser treats the `kubectl …` line as YAML). The heredoc
+form belongs in a `.sh` hook, not a `.yaml`.
+
 ## Notes
 
 - **Idempotent.** `kubectl apply` is declarative — re-running a bundle is safe.
