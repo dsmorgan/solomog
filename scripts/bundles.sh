@@ -62,9 +62,13 @@ case "$MODE" in
     printf '%s%s%s  %s%s%s\n' "$B" "$NAME" "$R" "$D" "$DIR" "$R"
     [ -f "$DIR/README.md" ] && { echo; sed 's/^/  /' "$DIR/README.md"; echo; }
     printf '%sapply order:%s\n' "$B" "$R"
-    (cd "$DIR" && LC_ALL=C ls 2>/dev/null | grep -E '\.(yaml|yml)(\.tmpl)?$' | LC_ALL=C sort) \
+    (cd "$DIR" && LC_ALL=C ls 2>/dev/null | grep -E '\.(yaml|yml)(\.tmpl)?$|\.sh$' | LC_ALL=C sort) \
       | while IFS= read -r f; do
-          case "$f" in *.tmpl) printf '  %s  %s[tmpl]%s\n' "$f" "$D" "$R" ;; *) printf '  %s\n' "$f" ;; esac
+          case "$f" in
+            *.tmpl) printf '  %s  %s[tmpl]%s\n' "$f" "$D" "$R" ;;
+            *.sh)   printf '  %s  %s[exec]%s\n' "$f" "$D" "$R" ;;
+            *)      printf '  %s\n' "$f" ;;
+          esac
         done
     ;;
 

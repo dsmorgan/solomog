@@ -10,6 +10,18 @@ set -euo pipefail
 # so you can wedge files in later. Sorting is byte-stable (LC_ALL=C), so padding —
 # not natural sort — is what guarantees 02 before 10.
 #
+# Executable hooks: a file ending in `.sh` is RUN (not applied) at its place in the
+# sorted order — the escape hatch for imperative steps that don't fit declarative YAML,
+# e.g. creating a Secret from a credential in .env:
+#     # bundles/<name>/05-anthropic-secret.sh
+#     kubectl --context "$CONTEXT" create secret generic anthropic-secret -n agentgateway-system \
+#       --from-literal="Authorization=$CLAUDE_API_KEY" --dry-run=client -o yaml \
+#       | kubectl --context "$CONTEXT" apply -f -
+# Hooks inherit the environment (so .env values like $CLAUDE_API_KEY are present) plus
+# CONTEXT / CLUSTER / GATEWAY / HOST, and run with cwd = the bundle dir. Because the
+# secret VALUE stays in .env, the hook script carries no secret and is safe to commit.
+# Hooks are SKIPPED under DRY_RUN (we can't assume an arbitrary script is side-effect free).
+#
 # Templating (opt-in, per file): a file ending in `.yaml.tmpl` is rendered with a
 # small fixed set of %%TOKEN%% substitutions before apply; plain `.yaml` is applied
 # verbatim. The %%TOKEN%% syntax (not $VAR) is deliberate — it can't clash with `$`
@@ -57,7 +69,7 @@ else
 fi
 
 # Collect manifests in deterministic order (.yaml, .yml, and their .tmpl variants).
-FILES="$(cd "$DIR" && LC_ALL=C ls 2>/dev/null | grep -E '\.(yaml|yml)(\.tmpl)?$' | LC_ALL=C sort || true)"
+FILES="$(cd "$DIR" && LC_ALL=C ls 2>/dev/null | grep -E '\.(yaml|yml)(\.tmpl)?$|\.sh$' | LC_ALL=C sort || true)"
 if [[ -z "$FILES" ]]; then
   echo "Error: bundle '$BUNDLE' ($DIR) has no .yaml/.yml manifests." >&2
   exit 1
@@ -74,7 +86,7 @@ render() {
 APPLY_ARGS=(apply)
 [[ "$DRY_RUN" == "true" ]] && APPLY_ARGS+=(--dry-run=server)
 
-echo "==> Applying bundle '$BUNDLE' to ${CONTEXT}${DRY_RUN:+}"
+echo "==> Applying bundle '$BUNDLE' to ${CONTEXT}"
 [[ "$DRY_RUN" == "true" ]] && echo "    DRY RUN (server-side) — nothing will be written"
 echo "    dir: ${DIR}"
 echo "    vars: CLUSTER=${CLUSTER} GATEWAY=${GATEWAY} HOST=${HOST}"
@@ -83,6 +95,15 @@ while IFS= read -r name; do
   [[ -z "$name" ]] && continue
   f="$DIR/$name"
   case "$name" in
+    *.sh)
+      if [[ "$DRY_RUN" == "true" ]]; then
+        echo "==> [skip in dry-run] ${name}"
+      else
+        echo "==> [exec] ${name}"
+        # Hook inherits the env (.env values) + the targeting vars; cwd = bundle dir.
+        ( cd "$DIR" && CONTEXT="$CONTEXT" CLUSTER="$CLUSTER" GATEWAY="$GATEWAY" HOST="$HOST" \
+            bash "./$name" )
+      fi ;;
     *.tmpl)
       echo "==> [tmpl] ${name}"
       rendered="$(render "$f")"

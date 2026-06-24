@@ -67,6 +67,29 @@ check scans the whole rendered file **including comments**, so don't write a lit
 `%%WORD%%` in a `.tmpl` unless it's a real token. Need another variable? Add it to the
 `render()` allow-list in [../scripts/apply-bundle.sh](../scripts/apply-bundle.sh).
 
+## Executable hooks (`.sh`) — for secrets & imperative steps
+
+A file ending in **`.sh`** is *run* (not applied) at its place in the sorted order.
+This is the escape hatch for things that don't fit declarative YAML — most commonly a
+**Secret built from a credential in `.env`**:
+
+```bash
+# bundles/<name>/05-anthropic-secret.sh
+kubectl --context "$CONTEXT" create secret generic anthropic-secret -n agentgateway-system \
+  --from-literal="Authorization=$CLAUDE_API_KEY" \
+  --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
+```
+
+The pattern for secrets:
+1. Put the **value** in `.env` (`CLAUDE_API_KEY=…`) — gitignored, auto-sourced by Taskfile.
+2. Reference it as `$CLAUDE_API_KEY` in the hook. The hook carries **no secret**, so it's
+   safe to commit; only `.env` stays private.
+
+Hooks inherit the full environment (so `.env` values are present) plus `CONTEXT`,
+`CLUSTER`, `GATEWAY`, `HOST`, and run with cwd = the bundle dir. Use `$CONTEXT` to target
+the right cluster. Hooks are **skipped under `DRY_RUN=true`** (an arbitrary script can't be
+assumed side-effect free). They stop the bundle on non-zero exit, like any other step.
+
 ## Notes
 
 - **Idempotent.** `kubectl apply` is declarative — re-running a bundle is safe.

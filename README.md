@@ -246,8 +246,11 @@ A bundle is `bundles/<name>/` (committed) or `bundles/private/<name>/` (gitignor
 anything sensitive). Files apply in `LC_ALL=C` sorted order, so prefix them with a
 zero-padded number (`01-`, `10-`, `20-`) to sequence. Files ending `.yaml.tmpl` are
 rendered with `%%CLUSTER%%` / `%%GATEWAY%% `/ `%%HOST%%` placeholders before apply
-(plain `.yaml` is applied verbatim). `kubectl apply` is idempotent (safe to re-run) and
-nothing is pruned. See [bundles/README.md](bundles/README.md) for the full convention.
+(plain `.yaml` is applied verbatim). A `.sh` file is *run* at its place in the order —
+the escape hatch for imperative steps like creating a Secret from a key in `.env`
+(`--from-literal="…=$CLAUDE_API_KEY"`), so the value never lands in a committed file.
+`kubectl apply` is idempotent (safe to re-run) and nothing is pruned. See
+[bundles/README.md](bundles/README.md) for the full convention.
 
 ### Versions & teardown
 

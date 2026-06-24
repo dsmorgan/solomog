@@ -201,6 +201,15 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   apply-bundle.sh. A leftover `%%FOO%%` after rendering is a hard error — and the check
   scans the whole file *including comments*, so never write a literal `%%WORD%%` in a
   `.tmpl` unless it's a real token (this bit the example bundle once).
+- **Executable hooks**: a `.sh` file is *run* (not applied) at its sorted position —
+  the escape hatch for imperative steps, mainly **secrets from `.env`** (e.g.
+  `kubectl create secret … --from-literal="…=$CLAUDE_API_KEY" | kubectl apply -f -`). The
+  value stays in `.env` (gitignored, auto-sourced), so the hook carries no secret and is
+  committable. Hooks inherit the env + `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` (cwd = bundle
+  dir) and are **skipped under DRY_RUN** (can't assume a script is side-effect free).
+  This is why secrets are NOT done as declarative manifests — a Secret with a real value
+  can't be committed, and a bundle file would put it in plaintext on disk; the env-sourced
+  hook keeps the value only in `.env`.
 - **No prune, idempotent**: `kubectl apply` only; removing a file never deletes a resource.
   `DRY_RUN=true` → `--dry-run=server` (real validation; needs a live cluster, and a CR that
   depends on an earlier file's namespace/CRD will fail under dry-run since nothing's written).
