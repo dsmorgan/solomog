@@ -24,8 +24,9 @@ Refresh + apply (mirrors `gcp:refresh`):
 solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=<cluster>
 ```
 `aws:refresh` exports fresh creds into `.env` (running `aws sso login` first if the session
-is stale); re-applying the bundle pushes them into the `bedrock-secret`. When a route starts
-returning 401/403/ExpiredToken, run that again. Hands-off: `/loop 8h solomog aws:refresh`.
+is stale); re-applying the bundle pushes them into the `bedrock-secret`. The creds are
+short-lived (≤12h) — re-run the command above manually whenever a route starts returning
+401/403/ExpiredToken.
 
 ## Test
 ```bash
