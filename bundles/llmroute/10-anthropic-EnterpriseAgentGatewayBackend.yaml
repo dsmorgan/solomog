@@ -7,7 +7,7 @@ spec:
   ai:
     provider:
       anthropic:
-        model: "claude-3-5-haiku-latest"
+        model: "claude-haiku-4-5-20251001"
   policies:
     # `policies.auth` is upstream provider auth (injects the API key from the
     # secret). But the CRD requires any `policies` block on an AI backend to ALSO
