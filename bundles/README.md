@@ -154,8 +154,8 @@ solomog gcp:refresh apply BUNDLE=<vertex> CLUSTER=aaa  # refresh, then re-apply 
 
 `gcp:refresh` only updates `.env`; re-applying the bundle pushes it into the cluster secret.
 This sequencing works because solomog runs each task as its own `task` invocation, so `apply`
-re-reads `.env` after `gcp:refresh` rewrote it. For hands-off refresh, wrap it: `/loop 50m
-solomog gcp:refresh`.
+re-reads `.env` after `gcp:refresh` rewrote it. The token is short-lived (~1h) — re-run this
+manually when a GCP-backed backend starts returning 401.
 
 ## Notes
 

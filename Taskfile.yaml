@@ -286,7 +286,7 @@ tasks:
   # ─── Credentials ──────────────────────────────────────────────────────────
 
   gcp:refresh:
-    desc: "Refresh GCP_ACCESS_TOKEN in .env (gcloud auth print-access-token). Re-run your bundle to apply; pair with /loop for auto-refresh."
+    desc: "Refresh GCP_ACCESS_TOKEN in .env (gcloud auth print-access-token). Re-run your bundle to apply. Token is short-lived (~1h) — re-run manually when a backend 401s."
     cmds:
       - bash scripts/run.sh "Refresh GCP access token" bash scripts/gcp-refresh.sh
 
