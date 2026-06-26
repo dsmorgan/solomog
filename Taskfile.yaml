@@ -290,6 +290,11 @@ tasks:
     cmds:
       - bash scripts/run.sh "Refresh GCP access token" bash scripts/gcp-refresh.sh
 
+  aws:refresh:
+    desc: "Refresh AWS creds in .env (SSO export-credentials; sso-login if stale). Re-run your bundle to apply. AWS_PROFILE/AWS_SSO_SESSION overridable."
+    cmds:
+      - bash scripts/run.sh "Refresh AWS credentials" bash scripts/aws-refresh.sh
+
   # ─── Sample apps ─────────────────────────────────────────────────────────
   # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.
 
