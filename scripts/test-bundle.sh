@@ -13,7 +13,9 @@ set -euo pipefail
 #
 # Usage: test-bundle.sh <kube-context>
 # Env:
-#   BUNDLE    (required) bundle whose tests/ to run
+#   BUNDLE    (required) bundle name(s) whose tests/ to run. Space-separated for several
+#             bundles, run left-to-right (BUNDLE and BUNDLES are interchangeable, like
+#             CLUSTER/CLUSTERS — the Taskfile folds both into BUNDLE).
 #   GATEWAY   gateway name for $HOST default (default agw)
 #   HOST      base host for curls (default <GATEWAY>.<CLUSTER>.test)
 
@@ -27,62 +29,90 @@ BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List with: solomog bundles:list}"
 # cert expose minted. Override with GATEWAY=/HOST= for anything non-standard.
 GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
 HOST="${HOST:-${GATEWAY}.${CLUSTER}.test}"
-
-# Resolve the tests dir (private overrides committed) — mirrors apply-bundle resolution.
-DIR=""
-if   [[ -d "$REPO_DIR/bundles/private/$BUNDLE/tests" ]]; then DIR="$REPO_DIR/bundles/private/$BUNDLE/tests"
-elif [[ -d "$REPO_DIR/bundles/$BUNDLE/tests" ]];         then DIR="$REPO_DIR/bundles/$BUNDLE/tests"
-else
-  echo "Error: no tests for bundle '$BUNDLE' (looked for bundles[/private]/$BUNDLE/tests/)." >&2
-  exit 1
-fi
-
-FILES="$(cd "$DIR" && LC_ALL=C ls 2>/dev/null | grep -E '\.sh$' | LC_ALL=C sort || true)"
-if [[ -z "$FILES" ]]; then
-  echo "Error: no *.sh tests in $DIR" >&2
-  exit 1
-fi
-
 TS="$(date +%Y%m%d-%H%M%S)"
-RUN_DIR="$REPO_DIR/.solomog/test-runs/${BUNDLE}-${TS}"
-mkdir -p "$RUN_DIR"
 
-echo "==> Testing bundle '$BUNDLE' on ${CONTEXT}"
-echo "    host=${HOST}"
-echo "    results→ ${RUN_DIR}"
+# Run one bundle's tests, capturing to its own run dir. Echoes "<pass> <fail>" on stdout
+# (so the caller can tally) and prints progress/summary on stderr. Returns non-zero if any
+# test failed.
+test_one() {
+  local bundle="$1" dir="" name log rc pass=0 fail=0
+  local -a RESULTS=()
 
-pass=0; fail=0; RESULTS=()
-while IFS= read -r name; do
-  [[ -z "$name" ]] && continue
-  log="$RUN_DIR/${name%.sh}.log"
-  solomog_step "test: ${name}"
-  # Run the test with the targeting env; tee output to its log. PIPESTATUS[0] is the
-  # test's exit (tee is last in the pipe and ~always 0). The if-guard keeps set -e from
-  # aborting the whole run on a failing test — we want to run them all.
-  if CONTEXT="$CONTEXT" CLUSTER="$CLUSTER" GATEWAY="$GATEWAY" HOST="$HOST" \
-       bash "$DIR/$name" 2>&1 | tee "$log"; then
-    rc=0
+  # Resolve the tests dir (private overrides committed) — mirrors apply-bundle resolution.
+  if   [[ -d "$REPO_DIR/bundles/private/$bundle/tests" ]]; then dir="$REPO_DIR/bundles/private/$bundle/tests"
+  elif [[ -d "$REPO_DIR/bundles/$bundle/tests" ]];         then dir="$REPO_DIR/bundles/$bundle/tests"
   else
-    rc=${PIPESTATUS[0]}
+    echo "Error: no tests for bundle '$bundle' (looked for bundles[/private]/$bundle/tests/)." >&2
+    return 1
   fi
-  printf 'exit=%s\n' "$rc" >> "$log"
-  if [[ $rc -eq 0 ]]; then
-    echo "    ✓ PASS"; pass=$((pass + 1)); RESULTS+=("PASS  ${name}")
-  else
-    echo "    ✗ FAIL (exit ${rc})"; fail=$((fail + 1)); RESULTS+=("FAIL  ${name}  (exit ${rc})")
+
+  local files
+  files="$(cd "$dir" && LC_ALL=C ls 2>/dev/null | grep -E '\.sh$' | LC_ALL=C sort || true)"
+  if [[ -z "$files" ]]; then
+    echo "Error: no *.sh tests in $dir" >&2
+    return 1
   fi
-done <<EOF
-$FILES
+
+  local run_dir="$REPO_DIR/.solomog/test-runs/${bundle}-${TS}"
+  mkdir -p "$run_dir"
+
+  echo "==> Testing bundle '$bundle' on ${CONTEXT}" >&2
+  echo "    host=${HOST}" >&2
+  echo "    results→ ${run_dir}" >&2
+
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    log="$run_dir/${name%.sh}.log"
+    solomog_step "test: ${bundle}/${name}" >&2
+    # Run the test with the targeting env; tee output to its log. PIPESTATUS[0] is the
+    # test's exit (tee is last in the pipe and ~always 0). The if-guard keeps set -e from
+    # aborting the whole run on a failing test — we want to run them all.
+    if CONTEXT="$CONTEXT" CLUSTER="$CLUSTER" GATEWAY="$GATEWAY" HOST="$HOST" \
+         bash "$dir/$name" 2>&1 | tee "$log" >&2; then
+      rc=0
+    else
+      rc=${PIPESTATUS[0]}
+    fi
+    printf 'exit=%s\n' "$rc" >> "$log"
+    if [[ $rc -eq 0 ]]; then
+      echo "    ✓ PASS" >&2; pass=$((pass + 1)); RESULTS+=("PASS  ${name}")
+    else
+      echo "    ✗ FAIL (exit ${rc})" >&2; fail=$((fail + 1)); RESULTS+=("FAIL  ${name}  (exit ${rc})")
+    fi
+  done <<EOF
+$files
 EOF
 
-{
-  printf 'bundle=%s  context=%s  host=%s  when=%s\n' "$BUNDLE" "$CONTEXT" "$HOST" "$TS"
-  printf '%s\n' "${RESULTS[@]}"
-  printf 'passed=%s failed=%s\n' "$pass" "$fail"
-} > "$RUN_DIR/summary"
+  {
+    printf 'bundle=%s  context=%s  host=%s  when=%s\n' "$bundle" "$CONTEXT" "$HOST" "$TS"
+    printf '%s\n' "${RESULTS[@]}"
+    printf 'passed=%s failed=%s\n' "$pass" "$fail"
+  } > "$run_dir/summary"
 
-solomog_summary "Tests: ${BUNDLE} — ${pass} passed, ${fail} failed" \
-  "${RESULTS[@]}" \
-  "results: ${RUN_DIR}"
+  solomog_summary "Tests: ${bundle} — ${pass} passed, ${fail} failed" \
+    "${RESULTS[@]}" \
+    "results: ${run_dir}" >&2
 
-[[ $fail -eq 0 ]]   # non-zero exit if any test failed
+  echo "$pass $fail"
+  [[ $fail -eq 0 ]]
+}
+
+# BUNDLE may name several bundles (space-separated) — test each in order, tally across all.
+total_pass=0; total_fail=0; any_err=0
+for b in $BUNDLE; do
+  # Capture the "<pass> <fail>" line; the if-guard keeps set -e from aborting on a failing
+  # bundle so we run every bundle's tests and report a combined result.
+  if counts="$(test_one "$b")"; then :; else any_err=1; fi
+  # Last stdout line is the "<pass> <fail>" tally; default to 0 0 if the bundle errored
+  # out before running anything (errors already went to stderr).
+  counts="$(printf '%s\n' "$counts" | tail -n1)"
+  [[ "$counts" =~ ^[0-9]+\ [0-9]+$ ]] || counts="0 0"
+  total_pass=$((total_pass + ${counts%% *}))
+  total_fail=$((total_fail + ${counts##* }))
+done
+
+# Combined verdict across all bundles (each bundle also printed its own summary above).
+echo "" >&2
+echo "── all bundles: ${total_pass} passed, ${total_fail} failed ──" >&2
+
+[[ $total_fail -eq 0 && $any_err -eq 0 ]]   # non-zero exit if any test failed or a bundle errored

@@ -213,6 +213,12 @@ For bespoke / customer-repro config not worth generalizing into a product or app
 - **No prune, idempotent**: `kubectl apply` only; removing a file never deletes a resource.
   `DRY_RUN=true` → `--dry-run=server` (real validation; needs a live cluster, and a CR that
   depends on an earlier file's namespace/CRD will fail under dry-run since nothing's written).
+- **`BUNDLE` and `BUNDLES` are interchangeable** (like `CLUSTER`/`CLUSTERS`), and either
+  may name **several** bundles space-separated — `solomog apply BUNDLES="llmroute-vertex
+  llmroute-bbr" CLUSTER=…` applies them left-to-right (stop on first error), same for
+  `test`. The Taskfile folds both vars into the `BUNDLE` env (`{{.BUNDLES | default
+  .BUNDLE}}`); apply-bundle.sh / test-bundle.sh loop over the list (one run-dir per bundle
+  for tests, with a combined tally). `bundles:show` stays single-bundle (discovery).
 - `bundles:list` / `bundles:show` (via [scripts/bundles.sh](scripts/bundles.sh)) are
   cluster-free discovery; `apply` is framed through `run.sh` like other leaf tasks.
 - **Testing**: a bundle's `tests/` subdir holds `*.sh` tests run by `solomog test BUNDLE=…`
