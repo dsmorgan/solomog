@@ -106,6 +106,57 @@ the wrapper in produces `error converting YAML to JSON: ... mapping values are n
 allowed in this context` (the parser treats the `kubectl …` line as YAML). The heredoc
 form belongs in a `.sh` hook, not a `.yaml`.
 
+## Testing a bundle
+
+A bundle can carry tests in a `tests/` subdir — `*.sh` files run in `LC_ALL=C` order by
+`solomog test`. **A test is just the command(s) you'd run or hand a customer** — there's no
+required format or assertion scaffolding. The runner runs the file and judges pass/fail by
+its **exit code**, and it exports `CONTEXT` / `CLUSTER` / `GATEWAY` / `HOST` plus everything
+from `.env`, so you substitute with plain shell vars (the most portable form — a customer
+just `export HOST=…` and pastes the curl).
+
+A whole test file can be one curl:
+
+```bash
+# bundles/<name>/tests/10-anthropic.sh
+# --fail-with-body → HTTP >=400 exits non-zero (test fails) but still prints the body.
+curl --fail-with-body -sS https://$HOST/anthropic \
+  -H 'content-type: application/json' \
+  -d '{"model":"claude","messages":[{"role":"user","content":"Reply with: ok"}]}'
+```
+
+- **Pass/fail = exit code.** Add `curl --fail-with-body` (curl ≥7.76) when you want an HTTP
+  ≥400 to count as a failure; omit it and the curl is simply captured (always "ran").
+- **Substitution = shell vars.** `$HOST` (= `<GATEWAY>.<CLUSTER>.test`), `$CLUSTER`,
+  `$CONTEXT`, `$GATEWAY`, and any `.env` var. No custom `%%TOKEN%%` here — keeping the
+  commands verbatim-runnable is the point.
+- **kubectl checks** are fine too (see `01-routes-programmed.sh`); a local assertion just
+  needs a bit of shell logic. Curl smoke tests stay one-liners.
+
+```bash
+solomog test BUNDLE=<name> CLUSTER=aaa
+```
+
+The runner reports pass/fail per test plus totals, exits non-zero if any failed, and
+**captures every run** to `.solomog/test-runs/<name>-<timestamp>/` (gitignored): a `<test>.log`
+per test (output + exit code) and a `summary` — the record of what you validated, to attach
+to a ticket or diff over time. The `tests/` subdir is ignored by `apply` (it only globs files
+in the bundle root), so apply and test stay separate.
+
+## Short-lived credentials (GCP / Vertex)
+
+GCP access tokens expire (~1h), so a Vertex bundle's token goes stale. Refresh it with:
+
+```bash
+solomog gcp:refresh                                   # re-fetch GCP_ACCESS_TOKEN into .env
+solomog gcp:refresh apply BUNDLE=<vertex> CLUSTER=aaa  # refresh, then re-apply so the hook picks it up
+```
+
+`gcp:refresh` only updates `.env`; re-applying the bundle pushes it into the cluster secret.
+This sequencing works because solomog runs each task as its own `task` invocation, so `apply`
+re-reads `.env` after `gcp:refresh` rewrote it. For hands-off refresh, wrap it: `/loop 50m
+solomog gcp:refresh`.
+
 ## Notes
 
 - **Idempotent.** `kubectl apply` is declarative — re-running a bundle is safe.

@@ -17,7 +17,31 @@ fi
 # still lives in the scripts.
 source "$SCRIPT_DIR/scripts/lib/ui.sh"
 
-# Bare `solomog` (no args) → just the task list, no framing.
+# Audit log: one compact line per run, in a monthly-rotated file beside the test runs
+# (.solomog/audit/YYYY-MM.log — gitignored). Records timestamp, ok/FAIL, exit code, total
+# time, and the command with secret-looking var VALUES redacted. Best-effort: never fails
+# the run. Populated from TASKS/VARS/AUDIT_TASKS/SECONDS set below.
+AUDIT_TASKS=()
+_solomog_audit() {
+  local rc="$1" status dir month v name cmd line red=()
+  [ "$rc" = "0" ] && status=ok || status=FAIL
+  dir="$SCRIPT_DIR/.solomog/audit"
+  month="$(date +%Y-%m 2>/dev/null)" || return 0
+  mkdir -p "$dir" 2>/dev/null || return 0
+  for v in "${VARS[@]}"; do
+    name="${v%%=*}"
+    case "$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')" in
+      *KEY*|*TOKEN*|*SECRET*|*PASSWORD*|*PASS*) red+=("${name}=***") ;;
+      *) red+=("$v") ;;
+    esac
+  done
+  cmd="$(printf '%s ' "${TASKS[@]}" "${red[@]}")"; cmd="${cmd% }"
+  line="$(date +%Y-%m-%dT%H:%M:%S%z)  ${status}  rc=${rc}  dur=${SECONDS}s  ${cmd}"
+  [ "${#AUDIT_TASKS[@]}" -gt 1 ] && line="${line}  [${AUDIT_TASKS[*]}]"
+  printf '%s\n' "$line" >> "$dir/${month}.log" 2>/dev/null || true
+}
+
+# Bare `solomog` (no args) → just the task list, no framing (not audited).
 if [ $# -eq 0 ]; then
   exec task
 fi
@@ -46,6 +70,7 @@ solomog_clock_reset   # grand-total clock (this process; task subprocesses don't
 # Only globals, no task names → defer to task unchanged (e.g. it picks the default).
 if [ ${#TASKS[@]} -eq 0 ]; then
   task "$@"; rc=$?
+  _solomog_audit "$rc"
   solomog_outro "$rc" "$MOG_MODE"
   exit $rc
 fi
@@ -59,13 +84,16 @@ for t in "${TASKS[@]}"; do
   t_dur=$((SECONDS - t_start))
   if [ "$trc" -eq 0 ]; then
     TASK_TIMES+=("$t  —  ${t_dur}s")
+    AUDIT_TASKS+=("${t}=${t_dur}s")
   else
     TASK_TIMES+=("$t  —  ${t_dur}s  (FAILED, exit $trc)")
+    AUDIT_TASKS+=("${t}=${t_dur}s(rc${trc})")
     rc=$trc
     break   # stop the chain on first failure
   fi
 done
 
 solomog_summary "Run complete — ${#TASK_TIMES[@]} task(s)" "${TASK_TIMES[@]}"
+_solomog_audit "$rc"
 solomog_outro "$rc" "$MOG_MODE"
 exit $rc

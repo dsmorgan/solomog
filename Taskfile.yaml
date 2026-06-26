@@ -267,6 +267,24 @@ tasks:
     cmds:
       - bash scripts/bundles.sh show {{.BUNDLE}}
 
+  test:
+    desc: "Run a bundle's tests (bundles/<BUNDLE>/tests/*.sh) against CLUSTER; captures results to .solomog/test-runs/."
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+    cmds:
+      - bash scripts/run.sh "Test bundle {{.BUNDLE}} → {{.CLUSTER}}" bash scripts/test-bundle.sh vcluster-docker_{{.CLUSTER}}
+    env:
+      BUNDLE: '{{.BUNDLE}}'
+      GATEWAY: '{{.GATEWAY | default "agw"}}'
+      HOST: '{{.HOST | default ""}}'
+
+  # ─── Credentials ──────────────────────────────────────────────────────────
+
+  gcp:refresh:
+    desc: "Refresh GCP_ACCESS_TOKEN in .env (gcloud auth print-access-token). Re-run your bundle to apply; pair with /loop for auto-refresh."
+    cmds:
+      - bash scripts/run.sh "Refresh GCP access token" bash scripts/gcp-refresh.sh
+
   # ─── Sample apps ─────────────────────────────────────────────────────────
   # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.
 

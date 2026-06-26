@@ -215,17 +215,41 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   depends on an earlier file's namespace/CRD will fail under dry-run since nothing's written).
 - `bundles:list` / `bundles:show` (via [scripts/bundles.sh](scripts/bundles.sh)) are
   cluster-free discovery; `apply` is framed through `run.sh` like other leaf tasks.
+- **Testing**: a bundle's `tests/` subdir holds `*.sh` tests run by `solomog test BUNDLE=…`
+  ([scripts/test-bundle.sh](scripts/test-bundle.sh)) in sorted order. **A test is just the
+  command(s)** — no required format/scaffolding; the runner runs the file and judges pass/fail
+  by exit code. It exports `CONTEXT/CLUSTER/GATEWAY/HOST` + inherits `.env`, so tests substitute
+  with plain shell vars (`$HOST` etc.) — portable/copy-pasteable, no `%%TOKEN%%`. Assertion idiom
+  is `curl --fail-with-body` (HTTP ≥400 → non-zero exit). Keep curl tests as one-liners; kubectl
+  checks may need a little shell logic. Don't reintroduce response-parsing scaffolding in examples.
+  Runs are captured to `.solomog/test-runs/<bundle>-<ts>/` (gitignored). `apply` ignores the
+  `tests/` subdir (globs files only), so apply and test stay separate.
+- **Short-lived creds**: `solomog gcp:refresh` ([scripts/gcp-refresh.sh](scripts/gcp-refresh.sh))
+  re-fetches a GCP token (`gcloud auth print-access-token`) into `.env` as `GCP_ACCESS_TOKEN`
+  (general GCP token, not Vertex-specific) — ONLY updates `.env`; re-run the bundle to push it
+  into the cluster secret. `solomog gcp:refresh apply BUNDLE=… CLUSTER=…` works *because the
+  wrapper runs each task as its own `task` invocation* and go-task re-reads dotenv per
+  invocation, so `apply` sees the freshly written token. (A raw `task gcp:refresh apply` in one
+  process reads `.env` once — would miss it.) Wrap in `/loop 50m …` for auto-refresh.
 
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.
 
-**Every task must be framed in the purple delimiters.** `stack.sh` and `mesh.sh`
-frame themselves (intro + per-step + summary). Any *leaf* task that calls a tool
-directly (like the `apps:*` helmfile installs) must go through
-`scripts/run.sh "<title>" <command...>`, which adds the 🗿 intro, a step delimiter,
-and a finish summary with run time. Don't call `helmfile`/scripts bare from a task —
-chained runs (`solomog a b c`) should show clean framing for each task.
+**Framing + timing live at two levels.** The `solomog` wrapper owns the run: it splits
+the command line into task names vs `KEY=VALUE` globals, runs each task as its own `task`
+invocation (this is why dotenv re-reads between tasks — see gcp:refresh), times each, stops
+on first failure, and prints ONE grand-total summary plus start/end 🗿 banter. Leaf tasks
+must go through `scripts/run.sh "<title>" <command...>`, which prints a step delimiter only
+(timing/summary are the wrapper's job — don't add per-task summaries there). `stack.sh` /
+`mesh.sh` frame their own multi-step progress + a content summary (what was built). Don't
+call `helmfile`/scripts bare from a task.
+
+**Run audit log.** The wrapper appends one compact line per run to
+`.solomog/audit/YYYY-MM.log` (monthly rotation, gitignored, beside `test-runs/`):
+`<ISO-ts>  <ok|FAIL>  rc=<n>  dur=<n>s  <tasks + vars>  [per-task=Ns …]`. Secret-looking
+var VALUES (name matches KEY/TOKEN/SECRET/PASSWORD/PASS) are redacted to `***`. It's
+best-effort — never fails the run — and bare `solomog` (the task list) isn't audited.
 
 ## Gotchas (learned the hard way)
 
