@@ -246,13 +246,16 @@ tasks:
   # order. The escape hatch for config not worth generalizing into a product/app.
 
   apply:
-    desc: "Apply a custom bundle (bundles/<BUNDLE>) to CLUSTER in order. DRY_RUN=true to validate. See bundles:list."
+    desc: "Apply custom bundle(s) (BUNDLE=<name> or BUNDLES=\"a b\") to CLUSTER in order. DRY_RUN=true to validate. See bundles:list."
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      # BUNDLE and BUNDLES are interchangeable (like CLUSTER/CLUSTERS); either may name
+      # several bundles, applied left-to-right. apply-bundle.sh loops over the list.
+      BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
     cmds:
-      - bash scripts/run.sh "Apply bundle {{.BUNDLE}} → {{.CLUSTER}}" bash scripts/apply-bundle.sh vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Apply bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/apply-bundle.sh vcluster-docker_{{.CLUSTER}}
     env:
-      BUNDLE: '{{.BUNDLE}}'
+      BUNDLE: '{{.BUNDLES}}'
       DRY_RUN: '{{.DRY_RUN | default "false"}}'
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → apply-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
@@ -268,13 +271,15 @@ tasks:
       - bash scripts/bundles.sh show {{.BUNDLE}}
 
   test:
-    desc: "Run a bundle's tests (bundles/<BUNDLE>/tests/*.sh) against CLUSTER; captures results to .solomog/test-runs/."
+    desc: "Run bundle test(s) (BUNDLE=<name> or BUNDLES=\"a b\", tests/*.sh) against CLUSTER; captures results to .solomog/test-runs/."
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      # BUNDLE/BUNDLES interchangeable; either may name several bundles, tested in order.
+      BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
     cmds:
-      - bash scripts/run.sh "Test bundle {{.BUNDLE}} → {{.CLUSTER}}" bash scripts/test-bundle.sh vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Test bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/test-bundle.sh vcluster-docker_{{.CLUSTER}}
     env:
-      BUNDLE: '{{.BUNDLE}}'
+      BUNDLE: '{{.BUNDLES}}'
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → test-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
 

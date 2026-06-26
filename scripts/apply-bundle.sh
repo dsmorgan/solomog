@@ -42,7 +42,9 @@ set -euo pipefail
 #
 # Usage: apply-bundle.sh <kube-context>
 # Env:
-#   BUNDLE    (required) bundle name under bundles/ or bundles/private/
+#   BUNDLE    (required) bundle name(s) under bundles/ or bundles/private/. Space-separated
+#             for several bundles, applied left-to-right (BUNDLE and BUNDLES are interchangeable,
+#             like CLUSTER/CLUSTERS — the Taskfile folds both into BUNDLE).
 #   DRY_RUN   true|false (default false) — server-side dry-run, applies nothing
 #   GATEWAY   gateway name for %%GATEWAY%% (default: auto-detected agw/kgw from the cluster)
 #   HOST      host for %%HOST%% (default <GATEWAY>.<CLUSTER>.test)
@@ -57,26 +59,6 @@ DRY_RUN="${DRY_RUN:-false}"
 GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
 HOST="${HOST:-${GATEWAY}.${CLUSTER}.test}"
 
-# Resolve the bundle directory (private overrides committed).
-DIR=""
-if [[ -d "$REPO_DIR/bundles/private/$BUNDLE" ]]; then
-  DIR="$REPO_DIR/bundles/private/$BUNDLE"
-  [[ -d "$REPO_DIR/bundles/$BUNDLE" ]] && echo "    (note: both committed and private '$BUNDLE' exist — using private)"
-elif [[ -d "$REPO_DIR/bundles/$BUNDLE" ]]; then
-  DIR="$REPO_DIR/bundles/$BUNDLE"
-else
-  echo "Error: bundle '$BUNDLE' not found in bundles/ or bundles/private/." >&2
-  echo "       Available: $(bash "$REPO_DIR/scripts/bundles.sh" names 2>/dev/null | tr '\n' ' ')" >&2
-  exit 1
-fi
-
-# Collect manifests in deterministic order (.yaml, .yml, and their .tmpl variants).
-FILES="$(cd "$DIR" && LC_ALL=C ls 2>/dev/null | grep -E '\.(yaml|yml)(\.tmpl)?$|\.sh$' | LC_ALL=C sort || true)"
-if [[ -z "$FILES" ]]; then
-  echo "Error: bundle '$BUNDLE' ($DIR) has no .yaml/.yml manifests." >&2
-  exit 1
-fi
-
 # Render %%TOKEN%% placeholders. `|` delimiter is safe — none of the values contain it.
 render() {
   sed -e "s|%%CLUSTER%%|${CLUSTER}|g" \
@@ -88,41 +70,71 @@ render() {
 APPLY_ARGS=(apply)
 [[ "$DRY_RUN" == "true" ]] && APPLY_ARGS+=(--dry-run=server)
 
-echo "==> Applying bundle '$BUNDLE' to ${CONTEXT}"
-[[ "$DRY_RUN" == "true" ]] && echo "    DRY RUN (server-side) — nothing will be written"
-echo "    dir: ${DIR}"
-echo "    vars: CLUSTER=${CLUSTER} GATEWAY=${GATEWAY} HOST=${HOST}"
+# Apply a single bundle in order. Called once per name in BUNDLE (which may be a list).
+apply_one() {
+  local bundle="$1" dir="" name f rendered leftover
 
-while IFS= read -r name; do
-  [[ -z "$name" ]] && continue
-  f="$DIR/$name"
-  case "$name" in
-    *.sh)
-      if [[ "$DRY_RUN" == "true" ]]; then
-        echo "==> [skip in dry-run] ${name}"
-      else
-        echo "==> [exec] ${name}"
-        # Hook inherits the env (.env values) + the targeting vars; cwd = bundle dir.
-        ( cd "$DIR" && CONTEXT="$CONTEXT" CLUSTER="$CLUSTER" GATEWAY="$GATEWAY" HOST="$HOST" \
-            bash "./$name" )
-      fi ;;
-    *.tmpl)
-      echo "==> [tmpl] ${name}"
-      rendered="$(render "$f")"
-      leftover="$(printf '%s\n' "$rendered" | grep -oE '%%[A-Z0-9_]+%%' | LC_ALL=C sort -u || true)"
-      if [[ -n "$leftover" ]]; then
-        echo "Error: unsubstituted token(s) in ${name}: $(echo "$leftover" | tr '\n' ' ')" >&2
-        echo "       Supported tokens: %%CLUSTER%% %%GATEWAY%% %%HOST%%" >&2
-        exit 1
-      fi
-      printf '%s\n' "$rendered" | kubectl --context "$CONTEXT" "${APPLY_ARGS[@]}" -f - ;;
-    *)
-      echo "==> ${name}"
-      kubectl --context "$CONTEXT" "${APPLY_ARGS[@]}" -f "$f" ;;
-  esac
-done <<EOF
-$FILES
+  # Resolve the bundle directory (private overrides committed).
+  if [[ -d "$REPO_DIR/bundles/private/$bundle" ]]; then
+    dir="$REPO_DIR/bundles/private/$bundle"
+    [[ -d "$REPO_DIR/bundles/$bundle" ]] && echo "    (note: both committed and private '$bundle' exist — using private)"
+  elif [[ -d "$REPO_DIR/bundles/$bundle" ]]; then
+    dir="$REPO_DIR/bundles/$bundle"
+  else
+    echo "Error: bundle '$bundle' not found in bundles/ or bundles/private/." >&2
+    echo "       Available: $(bash "$REPO_DIR/scripts/bundles.sh" names 2>/dev/null | tr '\n' ' ')" >&2
+    return 1
+  fi
+
+  # Collect manifests in deterministic order (.yaml, .yml, and their .tmpl variants).
+  local files
+  files="$(cd "$dir" && LC_ALL=C ls 2>/dev/null | grep -E '\.(yaml|yml)(\.tmpl)?$|\.sh$' | LC_ALL=C sort || true)"
+  if [[ -z "$files" ]]; then
+    echo "Error: bundle '$bundle' ($dir) has no .yaml/.yml manifests." >&2
+    return 1
+  fi
+
+  echo "==> Applying bundle '$bundle' to ${CONTEXT}"
+  [[ "$DRY_RUN" == "true" ]] && echo "    DRY RUN (server-side) — nothing will be written"
+  echo "    dir: ${dir}"
+  echo "    vars: CLUSTER=${CLUSTER} GATEWAY=${GATEWAY} HOST=${HOST}"
+
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    f="$dir/$name"
+    case "$name" in
+      *.sh)
+        if [[ "$DRY_RUN" == "true" ]]; then
+          echo "==> [skip in dry-run] ${name}"
+        else
+          echo "==> [exec] ${name}"
+          # Hook inherits the env (.env values) + the targeting vars; cwd = bundle dir.
+          ( cd "$dir" && CONTEXT="$CONTEXT" CLUSTER="$CLUSTER" GATEWAY="$GATEWAY" HOST="$HOST" \
+              bash "./$name" )
+        fi ;;
+      *.tmpl)
+        echo "==> [tmpl] ${name}"
+        rendered="$(render "$f")"
+        leftover="$(printf '%s\n' "$rendered" | grep -oE '%%[A-Z0-9_]+%%' | LC_ALL=C sort -u || true)"
+        if [[ -n "$leftover" ]]; then
+          echo "Error: unsubstituted token(s) in ${name}: $(echo "$leftover" | tr '\n' ' ')" >&2
+          echo "       Supported tokens: %%CLUSTER%% %%GATEWAY%% %%HOST%%" >&2
+          return 1
+        fi
+        printf '%s\n' "$rendered" | kubectl --context "$CONTEXT" "${APPLY_ARGS[@]}" -f - ;;
+      *)
+        echo "==> ${name}"
+        kubectl --context "$CONTEXT" "${APPLY_ARGS[@]}" -f "$f" ;;
+    esac
+  done <<EOF
+$files
 EOF
 
-echo ""
-echo "✓ Bundle '$BUNDLE' applied to ${CLUSTER}$([[ "$DRY_RUN" == "true" ]] && echo ' (dry-run)')"
+  echo ""
+  echo "✓ Bundle '$bundle' applied to ${CLUSTER}$([[ "$DRY_RUN" == "true" ]] && echo ' (dry-run)')"
+}
+
+# BUNDLE may name several bundles (space-separated) — apply each in order, stop on first error.
+for b in $BUNDLE; do
+  apply_one "$b"
+done
