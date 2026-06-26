@@ -29,6 +29,7 @@ set -euo pipefail
 #                cluster keeps the host unique when several clusters are up at once.)
 #   SECRET      tls secret name;     default <NAME>-tls
 #   HTTP_PORT   HTTP listener port;  default 8080
+#   HTTPS_PORT  HTTPS listener port; default 443
 
 CLUSTER="${CLUSTER:-cluster-one}"
 CTX="vcluster-docker_${CLUSTER}"
@@ -65,6 +66,7 @@ CLASS="${CLASS:-$_CLASS}"
 HOST="${HOST:-${NAME}.${CLUSTER}.test}"
 SECRET="${SECRET:-${NAME}-tls}"
 HTTP_PORT="${HTTP_PORT:-8080}"
+HTTPS_PORT="${HTTPS_PORT:-443}"
 
 if [[ -z "$NAME" || -z "$NAMESPACE" || -z "$CLASS" ]]; then
   echo "Error: unknown PRODUCT '$PRODUCT'. Either use PRODUCT=agentgateway|kgateway," >&2
@@ -78,7 +80,7 @@ if ! command -v mkcert &>/dev/null; then
 fi
 
 echo "==> Exposing gateway '${NAME}' (class ${CLASS}) in ${NAMESPACE} on ${CTX}"
-echo "    host=${HOST}  secret=${SECRET}  http=${HTTP_PORT} https=443"
+echo "    host=${HOST}  secret=${SECRET}  http=${HTTP_PORT} https=${HTTPS_PORT}"
 
 # 1. TLS cert via mkcert → secret  (ported from my-stuff/01-tls-setup.sh)
 echo "==> Generating mkcert TLS cert for ${HOST}, *.${HOST}"
@@ -110,7 +112,7 @@ spec:
         namespaces:
           from: All
     - name: https
-      port: 443
+      port: ${HTTPS_PORT}
       protocol: HTTPS
       tls:
         mode: Terminate
@@ -165,5 +167,7 @@ fi
 
 echo ""
 echo "✓ Gateway '${NAME}' reachable as ${HOST} → ${LB_IP}"
-echo "  http://${HOST}:${HTTP_PORT}/   and   https://${HOST}/   (mkcert CA trusted)"
+# Show the https port only when it isn't the default 443 (so the common case stays clean).
+if [[ "$HTTPS_PORT" == "443" ]]; then HTTPS_URL="https://${HOST}/"; else HTTPS_URL="https://${HOST}:${HTTPS_PORT}/"; fi
+echo "  http://${HOST}:${HTTP_PORT}/   and   ${HTTPS_URL}   (mkcert CA trusted)"
 echo "  Attach routes with the per-app ROUTE flag, e.g.:  solomog apps:mcp-stripe ROUTE=true CLUSTER=${CLUSTER}"
