@@ -237,6 +237,14 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   wrapper runs each task as its own `task` invocation* and go-task re-reads dotenv per
   invocation, so `apply` sees the freshly written token. (A raw `task gcp:refresh apply` in one
   process reads `.env` once — would miss it.) Wrap in `/loop 50m …` for auto-refresh.
+  `solomog aws:refresh` ([scripts/aws-refresh.sh](scripts/aws-refresh.sh)) is the **same
+  pattern for AWS Bedrock**: SSO issues temporary creds (access key + secret + session token,
+  ≤12h), so it runs `aws configure export-credentials` (and `aws sso login` first if the
+  session is stale) and writes the three `AWS_*` vars into `.env`. `AWS_PROFILE` (set in
+  `.env`) picks the SSO profile; `AWS_SSO_SESSION` (default `SOlo`) names the session for the
+  login fallback. Bundle `bundles/llmroute-bedrock/` consumes them via a `policies.auth.aws.secretRef`
+  secret (keys `accessKey`/`secretKey`/`sessionToken`). `/loop 8h solomog aws:refresh` for
+  hands-off. Same dotenv-reread chaining: `solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=…`.
 
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
