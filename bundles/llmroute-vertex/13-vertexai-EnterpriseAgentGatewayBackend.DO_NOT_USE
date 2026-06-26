@@ -1,0 +1,16 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: vertex-ai
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      vertexai:
+        model: "google/gemini-2.5-flash-lite"
+        projectId: "customer-success-386314"
+        region: "us-central1"
+  policies:
+    auth:
+      secretRef:
+        name: vertex-ai-secret

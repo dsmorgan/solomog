@@ -1,0 +1,52 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: body-based-routing
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bbr
+          headers:
+            - type: Exact
+              name: x-gateway-model-name
+              value: gpt-4o-mini
+      backendRefs:
+        - name: mock-openai
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bbr
+          headers:
+            - type: Exact
+              name: x-gateway-model-name
+              value: mock-openai
+      backendRefs:
+        - name: mock-openai
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bbr
+          headers:
+            - type: Exact
+              name: x-gateway-model-status
+              value: unspecified
+      backendRefs:
+        - name: mock-openai
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
