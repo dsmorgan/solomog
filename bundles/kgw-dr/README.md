@@ -1,9 +1,9 @@
-# citizen's direct response sample for agentgateway
+# direct response sample for kgateway
 
 simple add on to enable /healthz endpoint that always returns status: ok
 
 ```bash
-solomog bundles:show BUNDLE=agw-dr
-solomog apply BUNDLE=agw-dr CLUSTER=<cluster>
-kubectl --context vcluster-docker_<cluster> get httproute,EnterpriseAgentgatewayPolicy -n agentgateway-system
+solomog bundles:show BUNDLE=kgw-dr
+solomog apply BUNDLE=kgw-dr CLUSTER=<cluster>
+kubectl --context vcluster-docker_<cluster> get httproute,directresponse -n kgateway-system
 ```
