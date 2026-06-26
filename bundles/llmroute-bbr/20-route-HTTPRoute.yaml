@@ -7,8 +7,12 @@ spec:
   parentRefs:
     - name: agw
       namespace: agentgateway-system
+  # /bbr routes by the model in the request body: the extract-model-from-body policy copies
+  # body.model → the x-gateway-model-name header, and these rules exact-match it to a backend.
+  # (RegularExpression header matches aren't honored by agentgateway, so we match real model
+  # ids exactly.) Any unmatched model — or no model — falls through to the path-only default.
   rules:
-    - matches:
+    - matches:                              # OpenAI
         - path:
             type: PathPrefix
             value: /bbr
@@ -17,33 +21,43 @@ spec:
               name: x-gateway-model-name
               value: gpt-4o-mini
       backendRefs:
-        - name: mock-openai
+        - name: openai-all-models
           group: enterpriseagentgateway.solo.io
           kind: EnterpriseAgentgatewayBackend
       timeouts:
         request: "120s"
-    - matches:
+    - matches:                              # Anthropic — Haiku 4.5
         - path:
             type: PathPrefix
             value: /bbr
           headers:
             - type: Exact
               name: x-gateway-model-name
-              value: mock-openai
+              value: claude-haiku-4-5-20251001
       backendRefs:
-        - name: mock-openai
+        - name: anthropic
           group: enterpriseagentgateway.solo.io
           kind: EnterpriseAgentgatewayBackend
       timeouts:
         request: "120s"
-    - matches:
+    - matches:                              # Vertex AI — Gemini 2.5 Flash-Lite
         - path:
             type: PathPrefix
             value: /bbr
           headers:
             - type: Exact
-              name: x-gateway-model-status
-              value: unspecified
+              name: x-gateway-model-name
+              value: google/gemini-2.5-flash-lite
+      backendRefs:
+        - name: vertex-ai
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
+    - matches:                              # Default (any other model, or none) → mock
+        - path:
+            type: PathPrefix
+            value: /bbr
       backendRefs:
         - name: mock-openai
           group: enterpriseagentgateway.solo.io
