@@ -1,0 +1,19 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: extract-model-from-body
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - name: agw
+      group: gateway.networking.k8s.io
+      kind: Gateway
+  traffic:
+    phase: PreRouting
+    transformation:
+      request:
+        set:
+          - name: x-gateway-model-name
+            value: "default(json(request.body).model, '')"
+          - name: x-gateway-model-status
+            value: "default(json(request.body).model, '') == '' ? 'unspecified' : 'specified'"
