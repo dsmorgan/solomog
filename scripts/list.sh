@@ -12,7 +12,8 @@ else
   G=''; B=''; R=''
 fi
 
-printf '%sRun a scenario:%s solomog <name> [CLUSTER=… EDITION=… ROUTE=true …]\n\n' "$B" "$R"
+printf '%sRun a scenario:%s solomog <name> [CLUSTER=… EDITION=… ROUTE=true …]\n' "$B" "$R"
+printf '%sTask details: %s solomog help <name>   (variables, defaults, examples)\n\n' "$B" "$R"
 
 task --list --json 2>/dev/null \
   | jq -r '.tasks[] | [.name, .desc] | @tsv' \

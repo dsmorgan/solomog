@@ -251,6 +251,23 @@ For bespoke / customer-repro config not worth generalizing into a product or app
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.
 
+**Task variables MUST be wired through the task's `env:` block.** A go-task CLI var
+(`solomog x FOO=bar`) is NOT exported to the command's environment unless the task lists
+`FOO: '{{.FOO | default ""}}'` in `env:` — so a script that reads `${FOO:-default}` without
+that wiring silently ignores the override (this is exactly how `HTTP_PORT`/`GATEWAY_NS` were
+dead despite being documented). When a script documents an `Env:` knob, the calling task must
+wire it. Use `default ""` and let the script supply the real default, so there's one source
+of truth for the default value.
+
+**Per-task help (`solomog help <task>`)** surfaces each task's variables/defaults/examples
+via go-task's `summary:` field (the wrapper runs `task --summary`). Keep the `summary:` in
+sync with the script's `Env:` header when you add/change a knob. ⚠️ **Never expose
+`task --summary` output raw** — go-task appends the task's *resolved* `vars:`/`env:` blocks,
+which include `.env` SECRET VALUES (license keys, tokens). The `solomog` wrapper strips that
+trailer with an awk filter (drops everything from a `^vars:`/`^env:` line until the next
+`^task:`); summaries therefore must not begin a line with a bare `vars:`/`env:` (use
+`Variables:`). If you change the help path, preserve that filter.
+
 **Framing + timing live at two levels.** The `solomog` wrapper owns the run: it splits
 the command line into task names vs `KEY=VALUE` globals, runs each task as its own `task`
 invocation (this is why dotenv re-reads between tasks — see gcp:refresh), times each, stops

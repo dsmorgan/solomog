@@ -46,6 +46,27 @@ if [ $# -eq 0 ]; then
   exec task
 fi
 
+# `solomog help [task...]` → detailed per-task help (variables/options + examples),
+# via go-task's --summary. Meta command: no mog framing, not audited. With no task it
+# points at the full list. Tasks without a summary fall back to their one-line desc.
+if [ "$1" = "help" ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+  shift
+  if [ $# -eq 0 ]; then
+    echo "Detailed task help:  solomog help <task>   (e.g. solomog help expose)"
+    echo "Full task list:      solomog"
+    exit 0
+  fi
+  # `task --summary` appends the task's resolved `vars:`/`env:` blocks — which include
+  # .env SECRET VALUES (license keys, tokens). Strip that trailer so help never leaks
+  # credentials; keep only the summary prose. Our summaries use "Variables:" (capital,
+  # plural), never a bare "vars:"/"env:" line, so this can't clip real help content.
+  task --summary "$@" 2>&1 | awk '
+    /^(vars|env):/ { skip=1; next }
+    /^task:/       { skip=0; print; next }
+    !skip          { print }'
+  exit ${PIPESTATUS[0]}
+fi
+
 # Pick removal-themed banter when a teardown is in the run.
 MOG_MODE=""
 for arg in "$@"; do
