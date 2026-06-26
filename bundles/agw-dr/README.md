@@ -1,4 +1,4 @@
-# citizen's direct response sample for agentgateway
+# direct response sample for agentgateway
 
 simple add on to enable /healthz endpoint that always returns status: ok
 
