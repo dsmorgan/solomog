@@ -254,7 +254,7 @@ tasks:
     env:
       BUNDLE: '{{.BUNDLE}}'
       DRY_RUN: '{{.DRY_RUN | default "false"}}'
-      GATEWAY: '{{.GATEWAY | default "agw"}}'
+      GATEWAY: '{{.GATEWAY | default ""}}'   # empty → apply-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
 
   bundles:list:
@@ -275,7 +275,7 @@ tasks:
       - bash scripts/run.sh "Test bundle {{.BUNDLE}} → {{.CLUSTER}}" bash scripts/test-bundle.sh vcluster-docker_{{.CLUSTER}}
     env:
       BUNDLE: '{{.BUNDLE}}'
-      GATEWAY: '{{.GATEWAY | default "agw"}}'
+      GATEWAY: '{{.GATEWAY | default ""}}'   # empty → test-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
 
   # ─── Credentials ──────────────────────────────────────────────────────────

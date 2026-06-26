@@ -19,10 +19,13 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/ui.sh"
+source "$REPO_DIR/scripts/lib/gateway.sh"
 CONTEXT="${1:?Usage: test-bundle.sh <kube-context>}"
 CLUSTER="${CONTEXT#vcluster-docker_}"
 BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List with: solomog bundles:list}"
-GATEWAY="${GATEWAY:-agw}"
+# Auto-detect the gateway (agw/kgw) from the cluster, like expose — so $HOST matches the
+# cert expose minted. Override with GATEWAY=/HOST= for anything non-standard.
+GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
 HOST="${HOST:-${GATEWAY}.${CLUSTER}.test}"
 
 # Resolve the tests dir (private overrides committed) — mirrors apply-bundle resolution.

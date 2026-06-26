@@ -44,15 +44,17 @@ set -euo pipefail
 # Env:
 #   BUNDLE    (required) bundle name under bundles/ or bundles/private/
 #   DRY_RUN   true|false (default false) — server-side dry-run, applies nothing
-#   GATEWAY   gateway name for %%GATEWAY%% (default agw)
+#   GATEWAY   gateway name for %%GATEWAY%% (default: auto-detected agw/kgw from the cluster)
 #   HOST      host for %%HOST%% (default <GATEWAY>.<CLUSTER>.test)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$REPO_DIR/scripts/lib/gateway.sh"
 CONTEXT="${1:?Usage: apply-bundle.sh <kube-context>}"
 CLUSTER="${CONTEXT#vcluster-docker_}"
 BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List options with: solomog bundles:list}"
 DRY_RUN="${DRY_RUN:-false}"
-GATEWAY="${GATEWAY:-agw}"
+# Auto-detect the gateway (agw/kgw) so %%GATEWAY%%/%%HOST%% render correctly per cluster.
+GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
 HOST="${HOST:-${GATEWAY}.${CLUSTER}.test}"
 
 # Resolve the bundle directory (private overrides committed).
