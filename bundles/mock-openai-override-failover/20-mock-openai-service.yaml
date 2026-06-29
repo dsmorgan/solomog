@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-gpt-4o-svc
+  namespace: mock-openai
+  labels:
+    app: mock-gpt-4o
+spec:
+  selector:
+    app: mock-gpt-4o
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+      name: http
+  type: ClusterIP
