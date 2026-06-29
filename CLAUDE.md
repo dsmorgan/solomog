@@ -230,6 +230,13 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   checks may need a little shell logic. Don't reintroduce response-parsing scaffolding in examples.
   Runs are captured to `.solomog/test-runs/<bundle>-<ts>/` (gitignored). `apply` ignores the
   `tests/` subdir (globs files only), so apply and test stay separate.
+  - **Python-based tests**: the runner only globs/execs `*.sh`, so a Python test is a `.sh`
+    that shells out. Don't `pip install` (system Python is PEP 668 externally-managed) — run
+    via **`uv run --with <dep> --python 3.x`** (ephemeral, cached, isolated deps; `uv` is a
+    setup.sh prerequisite). **Gotcha:** uv-managed Python uses certifi, NOT the macOS keychain,
+    so HTTPS to the mkcert gateway fails with `CERTIFICATE_VERIFY_FAILED`. Add `--with truststore`
+    and `import truststore; truststore.inject_into_ssl()` so TLS uses the OS trust store (where
+    `mkcert -install`, run by `expose`, put the CA). See `bundles/mcp-in-cluster/tests/`.
 - **Short-lived creds**: `solomog gcp:refresh` ([scripts/gcp-refresh.sh](scripts/gcp-refresh.sh))
   re-fetches a GCP token (`gcloud auth print-access-token`) into `.env` as `GCP_ACCESS_TOKEN`
   (general GCP token, not Vertex-specific) — ONLY updates `.env`; re-run the bundle to push it

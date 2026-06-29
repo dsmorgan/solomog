@@ -46,6 +46,7 @@ check_brew "helm"
 check_brew "jq"
 check_brew "step"
 check_brew "mkcert"
+check_brew "uv"          # runs Python-based bundle tests (e.g. mcp) with isolated, on-the-fly deps
 
 echo ""
 echo "==> Creating solomog symlink..."
