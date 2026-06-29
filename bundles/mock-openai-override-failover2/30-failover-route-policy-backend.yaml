@@ -1,0 +1,93 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mock-ratelimit-failover
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /llmfailover
+      backendRefs:
+        - name: mock-ratelimit-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mock-ratelimit-backend
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      # Priority Group 1: Mock Server (always returns rate limit errors)
+      - providers:
+          - name: mock-ratelimit-provider
+            openai:
+              model: "mock-gpt-4o"
+            host: mock-gpt-4o-svc.mock-openai.svc.cluster.local
+            port: 8000
+            path: "/v1/chat/completions"
+      # Priority Group 2: OpenAI (failover when group 1 is evicted)
+      - providers:
+          - name: openai-provider
+            openai:
+              model: "gpt-4o-mini"
+---
+# Per-provider auth: passthrough for the mock (no upstream API key needed),
+# OpenAI secretRef for the failover provider. Each policy uses
+# targetRefs[].sectionName to attach to a single provider by name.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mock-ratelimit-auth-mock
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayBackend
+    name: mock-ratelimit-backend
+    sectionName: mock-ratelimit-provider
+  backend:
+    auth:
+      passthrough: {}
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mock-ratelimit-auth-openai
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayBackend
+    name: mock-ratelimit-backend
+    sectionName: openai-provider
+  backend:
+    auth:
+      secretRef:
+        name: openai-secret
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mock-ratelimit-health
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayBackend
+    name: mock-ratelimit-backend
+  backend:
+    health:
+      unhealthyCondition: "response.code >= 500 || response.code == 429"
+      eviction:
+        duration: 10s
+        consecutiveFailures: 1
