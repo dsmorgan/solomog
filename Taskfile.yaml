@@ -71,6 +71,16 @@ tasks:
 
   istio:ambient:single:
     desc: "1 cluster · Istio ambient mode · EDITION={{.EDITION}}"
+    summary: |
+      Install Istio in ambient mode on one cluster. Shortcut for:
+      stack PRODUCTS="istio" ISTIO_MODE=ambient (mode is fixed by this task —
+      use istio:sidecar:single for sidecar).
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION   enterprise | community                            default enterprise
+
+      See `solomog help stack` for the full product-install reference.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -81,6 +91,16 @@ tasks:
 
   istio:sidecar:single:
     desc: "1 cluster · Istio sidecar mode · EDITION={{.EDITION}}"
+    summary: |
+      Install Istio in sidecar mode on one cluster. Shortcut for:
+      stack PRODUCTS="istio" ISTIO_MODE=sidecar (mode is fixed by this task —
+      use istio:ambient:single for ambient).
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION   enterprise | community                            default enterprise
+
+      See `solomog help stack` for the full product-install reference.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -91,6 +111,16 @@ tasks:
 
   gloo-mesh:single:
     desc: "1 cluster · Istio + Gloo Mesh Enterprise mgmt plane · EDITION={{.EDITION}}"
+    summary: |
+      Install Istio + the Gloo Mesh Enterprise management plane on one cluster.
+      Shortcut for: stack PRODUCTS="istio gloo-mesh".
+
+      Variables:
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION      enterprise | community                            default enterprise
+        ISTIO_MODE   ambient | sidecar                                 default ambient
+
+      See `solomog help stack` for the full product-install reference.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -108,6 +138,15 @@ tasks:
 
   istio:ambient:multi-flat:
     desc: "2 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    summary: |
+      Build a 2-cluster ambient Istio mesh on a flat (shared) network — one root CA,
+      flat pod routing (networking.sh) so clusters reach each other directly.
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (ambient) and topology (flat) are fixed by this task.
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
@@ -118,6 +157,15 @@ tasks:
 
   istio:sidecar:multi-flat:
     desc: "2 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    summary: |
+      Build a 2-cluster sidecar Istio mesh on a flat (shared) network — one root CA,
+      flat pod routing (networking.sh) so clusters reach each other directly.
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (sidecar) and topology (flat) are fixed by this task.
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
@@ -128,6 +176,17 @@ tasks:
 
   istio:ambient:multi-gateway:
     desc: "2 clusters · ambient · multi-network (east-west) · EDITION={{.EDITION}}"
+    summary: |
+      Build a 2-cluster ambient Istio mesh on separate networks (east-west gateway
+      topology). NOTE: east-west gateway + endpoint discovery wiring is NOT yet
+      automated — this sets per-cluster networks but you finish the cross-network
+      wiring manually (see CLAUDE.md / the multi-network docs).
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (ambient) and topology (gateway) are fixed by this task.
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
@@ -138,6 +197,17 @@ tasks:
 
   istio:sidecar:multi-gateway:
     desc: "2 clusters · sidecar · multi-network (east-west) · EDITION={{.EDITION}}"
+    summary: |
+      Build a 2-cluster sidecar Istio mesh on separate networks (east-west gateway
+      topology). NOTE: east-west gateway + endpoint discovery wiring is NOT yet
+      automated — this sets per-cluster networks but you finish the cross-network
+      wiring manually (see CLAUDE.md / the multi-network docs).
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (sidecar) and topology (gateway) are fixed by this task.
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two"}}'
     cmds:
@@ -148,6 +218,16 @@ tasks:
 
   istio:ambient:multi-3:
     desc: "3 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    summary: |
+      Build a 3-cluster ambient Istio mesh on a flat (shared) network — one root CA
+      across all three, flat pod routing. Per-cluster Istio version overrides
+      (ISTIO_VERSION_CLUSTER_TWO/THREE in versions.env) enable mixed-version meshes.
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two cluster-three"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (ambient) and topology (flat) are fixed by this task.
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two cluster-three"}}'
     cmds:
@@ -158,6 +238,16 @@ tasks:
 
   istio:sidecar:multi-3:
     desc: "3 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    summary: |
+      Build a 3-cluster sidecar Istio mesh on a flat (shared) network — one root CA
+      across all three, flat pod routing. Per-cluster Istio version overrides
+      (ISTIO_VERSION_CLUSTER_TWO/THREE in versions.env) enable mixed-version meshes.
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two cluster-three"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (sidecar) and topology (flat) are fixed by this task.
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two cluster-three"}}'
     cmds:
@@ -170,6 +260,14 @@ tasks:
 
   kgateway:
     desc: "1 cluster · kgateway standalone · EDITION={{.EDITION}}"
+    summary: |
+      Install kgateway on one cluster. Shortcut for: stack PRODUCTS="kgateway".
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION   enterprise | community                            default enterprise
+
+      See `solomog help stack` for the full product-install reference.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -179,6 +277,15 @@ tasks:
 
   kgateway:with-istio:
     desc: "1 cluster · kgateway + Istio sidecar · EDITION={{.EDITION}}"
+    summary: |
+      Install Istio (sidecar) + kgateway on one cluster. Shortcut for:
+      stack PRODUCTS="istio kgateway" ISTIO_MODE=sidecar (mode fixed by this task).
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION   enterprise | community                            default enterprise
+
+      See `solomog help stack` for the full product-install reference.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -191,6 +298,15 @@ tasks:
 
   gloo-gateway:
     desc: "1 cluster · Gloo Gateway 1.21.x · EDITION={{.EDITION}}"
+    summary: |
+      Install Gloo Gateway (gloo-ee 1.21.x) on one cluster. Shortcut for:
+      stack PRODUCTS="gloo-gateway". A distinct product from kgateway.
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION   enterprise | community                            default enterprise
+
+      See `solomog help stack` for the full product-install reference.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -202,6 +318,14 @@ tasks:
 
   agentgateway:
     desc: "1 cluster · agentgateway · EDITION={{.EDITION}}"
+    summary: |
+      Install agentgateway on one cluster. Shortcut for: stack PRODUCTS="agentgateway".
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION   enterprise | community                            default enterprise
+
+      Related: `agentgateway:ui` adds the Solo UI. See `solomog help stack`.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -352,6 +476,12 @@ tasks:
 
   bundles:show:
     desc: "Show a bundle's manifests in apply order: BUNDLE=<name>."
+    summary: |
+      Show a bundle's manifests in apply order, with [tmpl]/[exec] markers. Cluster-free
+      (discovery only — does not apply anything).
+
+      Variables:
+        BUNDLE   bundle name to inspect (REQUIRED)   see: solomog bundles:list
     cmds:
       - bash scripts/bundles.sh show {{.BUNDLE}}
 
@@ -419,6 +549,11 @@ tasks:
 
   apps:bookinfo:
     desc: "Deploy Bookinfo sample app to CLUSTER (default cluster-one)"
+    summary: |
+      Deploy the Istio Bookinfo sample app to a cluster.
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -426,6 +561,11 @@ tasks:
 
   apps:online-boutique:
     desc: "Deploy Online Boutique sample app to CLUSTER (default cluster-one)"
+    summary: |
+      Deploy the Online Boutique sample app to a cluster.
+
+      Variables:
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -433,6 +573,19 @@ tasks:
 
   apps:utils:
     desc: "Deploy utils (httpbin, curl, netshoot). Route httpbin with ROUTE=true [ROUTE_PATH=/httpbin]."
+    summary: |
+      Deploy utility workloads (httpbin, curl, netshoot). httpbin is a plain Service
+      backend, so it works on ANY gateway (agw/kgw, auto-detected). With ROUTE=true, adds
+      an HTTPRoute for httpbin at ROUTE_PATH (URLRewrite strips the prefix).
+
+      Variables:
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        ROUTE        true | false — route httpbin                       default false
+        ROUTE_PATH   path to route httpbin on                           default /httpbin
+        GATEWAY      gateway name                                       auto-detected agw/kgw
+        GATEWAY_NS   gateway namespace                                  auto-detected
+
+      Run `solomog expose` so routes program. See `solomog help expose`.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -445,6 +598,19 @@ tasks:
 
   apps:mock-openai:
     desc: "Deploy mock OpenAI server (vLLM sim) to CLUSTER. Add route with ROUTE=true [ROUTE_PATH=/openai]."
+    summary: |
+      Deploy a mock OpenAI server (vLLM simulator) in its own namespace, with an
+      EnterpriseAgentgatewayBackend. agentgateway-only. With ROUTE=true, also adds an
+      HTTPRoute at ROUTE_PATH on the gateway.
+
+      Variables:
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        ROUTE        true | false — add the HTTPRoute                   default false
+        ROUTE_PATH   path to route on                                   default /openai
+        GATEWAY      gateway to route through                          default agw
+        APP_NS       workload namespace                                default mock-openai
+
+      Run `solomog expose` so routes program. See `solomog help expose`.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -452,9 +618,23 @@ tasks:
     env:
       ROUTE: '{{.ROUTE | default "false"}}'
       ROUTE_PATH: '{{.ROUTE_PATH | default "/openai"}}'
+      GATEWAY: '{{.GATEWAY | default ""}}'   # empty → script default agw
+      APP_NS: '{{.APP_NS | default ""}}'     # empty → script default mock-openai
 
   apps:mcp-stripe:
     desc: "Deploy stripe-mock as MCP tools via OpenAPI to CLUSTER. Add route with ROUTE=true [ROUTE_PATH=/mcp]."
+    summary: |
+      Deploy stripe-mock exposed as MCP tools (via OpenAPI) in the stripe-mock namespace,
+      with an EnterpriseAgentgatewayBackend. agentgateway-only. With ROUTE=true, also adds
+      an HTTPRoute at ROUTE_PATH on the gateway.
+
+      Variables:
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        ROUTE        true | false — add the HTTPRoute                   default false
+        ROUTE_PATH   path to route on                                   default /mcp
+        GATEWAY      gateway to route through                          default agw
+
+      Run `solomog expose` so routes program. See `solomog help expose`.
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
@@ -462,11 +642,25 @@ tasks:
     env:
       ROUTE: '{{.ROUTE | default "false"}}'
       ROUTE_PATH: '{{.ROUTE_PATH | default "/mcp"}}'
+      GATEWAY: '{{.GATEWAY | default ""}}'   # empty → script default agw
 
   # ─── Teardown ─────────────────────────────────────────────────────────────
 
   teardown:
     desc: "Destroy solomog-created clusters: all, or some via CLUSTER=<name> / CLUSTERS=\"a b\". Prompts first."
+    summary: |
+      Destroy clusters and clean up. Prompts for confirmation first. With no CLUSTER(S),
+      targets only the clusters solomog created (tracked in .solomog/clusters) that still
+      exist — hand-made clusters are never touched. An explicit name overrides that.
+
+      Variables:
+        CLUSTER    single cluster to destroy
+        CLUSTERS   space-separated clusters to destroy (alias of CLUSTER)
+                   (omit both → all solomog-created clusters)
+
+      Examples:
+        solomog teardown
+        solomog teardown CLUSTER=aaa
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default ""}}'
     cmds:
