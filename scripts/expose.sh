@@ -143,7 +143,7 @@ echo "    address: ${LB_IP}"
 # 4. /etc/hosts  (needs sudo)
 echo "==> Updating /etc/hosts (sudo)"
 sudo sed -i '' "/[[:space:]]${HOST}\$/d;/[[:space:]]${HOST}[[:space:]]/d" /etc/hosts 2>/dev/null || true
-echo "${LB_IP} ${HOST} *.${HOST}" | sudo tee -a /etc/hosts >/dev/null
+echo "${LB_IP} ${HOST}" | sudo tee -a /etc/hosts >/dev/null
 
 # Backfill explicit entries for any sub-host routes already attached to this gateway
 # (e.g. ui.${HOST}, grafana.${HOST} from agentgateway:ui / monitoring with ROUTE=true).
