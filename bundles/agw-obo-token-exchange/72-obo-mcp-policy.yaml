@@ -1,0 +1,28 @@
+# JWT policy protecting the MCP route (/obo/mcp → mcpx-website-fetcher).
+# Identical to the OpenAI policy (70) — both routes demand an STS-issued OBO token, so a
+# raw Keycloak user JWT is rejected 401 and only a delegated token (sub=user, act=agent)
+# is accepted. Without this, the MCP route would be wide open — the LLM side would be
+# secured while the tool side wasn't, which defeats the OBO story.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: obo-mcp-jwt-policy
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: mcpx
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+          jwks:
+            remote:
+              backendRef:
+                name: sts-jwks
+                namespace: agentgateway-system
+                kind: AgentgatewayBackend
+                group: agentgateway.dev
+              jwksPath: .well-known/jwks.json
