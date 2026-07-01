@@ -1,0 +1,16 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mock-openai
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      openai:
+        model: "mock-gpt-4o"
+      host: mock-gpt-4o-svc.agentgateway-system.svc.cluster.local
+      port: 8000
+      path: "/v1/chat/completions"
+  policies:
+    auth:
+      passthrough: {}

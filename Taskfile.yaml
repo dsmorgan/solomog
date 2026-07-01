@@ -49,11 +49,15 @@ tasks:
         CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)  default cluster-one
         EDITION      enterprise | community                           default enterprise
         ISTIO_MODE   ambient | sidecar (only affects istio)           default ambient
+        TOKEN_EXCHANGE   true to enable the agentgateway STS (only if PRODUCTS includes
+                         agentgateway); also restarts the agw proxy. CLI-only, default false.
+        TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
 
       Examples:
         solomog stack PRODUCTS="agentgateway" CLUSTER=aaa
         solomog stack PRODUCTS="istio kgateway" CLUSTER=aaa ISTIO_MODE=sidecar
         solomog stack PRODUCTS="kgateway" EDITION=community CLUSTER=aaa
+        solomog stack PRODUCTS="agentgateway" CLUSTER=aaa TOKEN_EXCHANGE=true
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
       PRODUCTS: '{{.PRODUCTS}}'
@@ -63,6 +67,11 @@ tasks:
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: '{{.ISTIO_MODE}}'
+      # TOKEN_EXCHANGE is CLI-only — no .env fallback — so it can never silently leak
+      # into an unrelated cluster's install. See .env.example for why.
+      TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
+      TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
+      TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
     preconditions:
       - sh: '[ -n "{{.PRODUCTS}}" ]'
         msg: 'Specify products, e.g. PRODUCTS="istio kgateway agentgateway"'
@@ -322,16 +331,26 @@ tasks:
       Install agentgateway on one cluster. Shortcut for: stack PRODUCTS="agentgateway".
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
-        EDITION   enterprise | community                            default enterprise
+        CLUSTER          cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        EDITION          enterprise | community                            default enterprise
+        TOKEN_EXCHANGE   true to enable the OBO token-exchange STS (and restart the agw
+                         proxy). CLI-only — no .env fallback. default false.
+        TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
 
       Related: `agentgateway:ui` adds the Solo UI. See `solomog help stack`.
+
+      Examples:
+        solomog agentgateway CLUSTER=aaa
+        solomog agentgateway CLUSTER=aaa TOKEN_EXCHANGE=true
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} agentgateway
     env:
       EDITION: '{{.EDITION}}'
+      TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
+      TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
+      TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
 
   agentgateway:ui:
     desc: "1 cluster · agentgateway + Solo UI (management chart) · enterprise only. Route the UI with expose ROUTE=true."
@@ -345,6 +364,9 @@ tasks:
         GATEWAY      gateway to target for tracing + routing            default agw
         GATEWAY_NS   gateway namespace                                  default agentgateway-system
         EDITION      enterprise (community is rejected — no community UI)
+        TOKEN_EXCHANGE   true to enable the OBO token-exchange STS (and restart the agw
+                         proxy). CLI-only — no .env fallback. default false.
+        TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
 
       Examples:
         solomog agentgateway:ui CLUSTER=aaa
@@ -358,6 +380,9 @@ tasks:
       EDITION: '{{.EDITION}}'
       ROUTE: '{{.ROUTE | default "false"}}'
       GATEWAY: '{{.GATEWAY | default "agw"}}'
+      TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
+      TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
+      TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'  # empty → script default agentgateway-system
 
   # ─── Gateway exposure (Gateway + TLS + DNS) ───────────────────────────────
@@ -365,7 +390,7 @@ tasks:
   # target enterprise agentgateway. Override NAME/NAMESPACE/CLASS/HOST as needed.
 
   expose:
-    desc: "Create + expose a Gateway (TLS + /etc/hosts). PRODUCT auto-detected (agentgateway|kgateway); NAME/NAMESPACE/CLASS/HOST/SECRET/HTTP_PORT/HTTPS_PORT overridable."
+    desc: "Create + expose a Gateway (TLS + /etc/hosts). Run 'solomog help expose' for options."
     summary: |
       Create a Gateway and make it reachable locally: mkcert TLS cert (HOST + *.HOST),
       the Gateway resource (HTTP + HTTPS listeners), and an /etc/hosts entry (needs sudo).
@@ -516,7 +541,7 @@ tasks:
   # ─── Credentials ──────────────────────────────────────────────────────────
 
   gcp:refresh:
-    desc: "Refresh GCP_ACCESS_TOKEN in .env (gcloud auth print-access-token). Re-run your bundle to apply. Token is short-lived (~1h) — re-run manually when a backend 401s."
+    desc: "Refresh GCP_ACCESS_TOKEN in .env (~1h), then re-run your bundle. Run 'solomog help gcp:refresh' for details."
     summary: |
       Re-fetch a GCP access token (gcloud auth print-access-token) into .env as
       GCP_ACCESS_TOKEN. ONLY updates .env — re-run your bundle to push it into the cluster

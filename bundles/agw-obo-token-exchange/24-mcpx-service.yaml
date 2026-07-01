@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcpx-website-fetcher
+  namespace: mcpx
+  labels:
+    app: mcpx-website-fetcher
+spec:
+  selector:
+    app: mcpx-website-fetcher
+  ports:
+  - port: 80
+    targetPort: 8000
+    appProtocol: agentgateway.dev/mcp

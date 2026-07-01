@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcpx-website-fetcher
+  namespace: mcpx
+spec:
+  selector:
+    matchLabels:
+      app: mcpx-website-fetcher
+  template:
+    metadata:
+      labels:
+        app: mcpx-website-fetcher
+    spec:
+      containers:
+      - name: mcpx-website-fetcher
+        image: ghcr.io/peterj/mcp-website-fetcher:main
+        imagePullPolicy: Always

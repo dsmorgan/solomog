@@ -1,0 +1,9 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: sts-jwks
+  namespace: agentgateway-system
+spec:
+  static:
+    host: enterprise-agentgateway.agentgateway-system.svc.cluster.local
+    port: 7777

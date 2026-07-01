@@ -78,6 +78,14 @@ case "$MODE" in
             *)      printf '  %s\n' "$f" ;;
           esac
         done
+    # Tests run by `solomog test` (tests/*.sh, sorted) — mirrors test-bundle.sh's glob/order.
+    if [ -d "$DIR/tests" ]; then
+      tests="$(cd "$DIR/tests" && LC_ALL=C ls 2>/dev/null | grep -E '\.sh$' | LC_ALL=C sort)"
+      if [ -n "$tests" ]; then
+        printf '\n%stests:%s %s(solomog test BUNDLE=%s)%s\n' "$B" "$R" "$D" "$NAME" "$R"
+        printf '%s\n' "$tests" | while IFS= read -r t; do printf '  %s\n' "$t"; done
+      fi
+    fi
     ;;
 
   *)

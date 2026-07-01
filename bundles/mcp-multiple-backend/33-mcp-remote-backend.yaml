@@ -1,0 +1,15 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: soloio-docs-mcp-backend
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+    - name: soloio-docs-mcp-target
+      static:
+        host: search.solo.io
+        port: 443
+        protocol: StreamableHTTP
+        policies:
+          tls: {}

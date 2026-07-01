@@ -266,6 +266,18 @@ dead despite being documented). When a script documents an `Env:` knob, the call
 wire it. Use `default ""` and let the script supply the real default, so there's one source
 of truth for the default value.
 
+**A task's `env:` default CANNOT override a value already sitting in `.env`.** go-task
+resolves the template var `.FOO` from dotenv *before* the task's own `default "..."`
+expression ever runs — so if `.env` sets `FOO=true`, then `FOO: '{{.FOO | default "false"}}'`
+still yields `true` when no CLI arg is passed (verified empirically). There is no template
+trick to make a task "CLI-only" while the same var is also dotenv-sourced. For a setting
+that must never silently persist across clusters/sessions (e.g. `TOKEN_EXCHANGE` — enabling
+it globally would crash-loop the controller on any *other* cluster lacking Keycloak), the
+**only** fix is to not define it in `.env`/`.env.example` at all, and give the task's `env:`
+entry a hardcoded default (`default "false"`, no `env "..."` fallback). Settings that are
+inert without that master flag (`TOKEN_EXCHANGE_JWKS_URL`, `_API_VALIDATOR`) can still safely
+use the `default (env "...")` fallback pattern and persist in `.env`.
+
 **Per-task help (`solomog help <task>`)** surfaces each task's variables/defaults/examples
 via go-task's `summary:` field (the wrapper runs `task --summary`). Keep the `summary:` in
 sync with the script's `Env:` header when you add/change a knob. ⚠️ **Never expose
@@ -292,6 +304,15 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 
 ## Gotchas (learned the hard way)
 
+- **`.env` inline comments after an EMPTY value are not comments — they become the literal
+  value.** go-task's dotenv parser strips a trailing `# comment` only when a real value
+  precedes it (`FOO=true    # comment` → `true`, confirmed). But `FOO=    # comment` (empty
+  value) yields the literal string `"# comment"` as `$FOO` — this crash-looped the
+  agentgateway controller once (`TOKEN_EXCHANGE_JWKS_URL=            # default: http://...`
+  became the JWKS URL, producing `unsupported protocol scheme ""`). Fix: quote genuinely-empty
+  defaults — `FOO=""    # comment` parses to a true empty string with the comment intact
+  (verified). Every `VAR=<empty> # comment` line in `.env.example` uses this `=""` form; keep
+  new ones consistent.
 - **Scripts must stay bash 3.2 compatible.** macOS ships bash 3.2.57, and Taskfile
   runs scripts via `bash scripts/...` which resolves to it. Avoid bash 4+ features:
   no `mapfile`/`readarray` (use `while IFS= read -r`), no `${var,,}`/`${var^^}`
