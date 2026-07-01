@@ -1,0 +1,24 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: stripe-mock-openapi
+  namespace: agentgateway-system
+spec:
+  entMcp:
+    targets:
+      - name: stripe-mock
+        static:
+          host: stripe-mock.stripe-mock.svc.cluster.local
+          port: 12111
+          protocol: OpenAPI
+          openAPI:
+            schemaRef:
+              name: stripe-mock-schema
+          # Per-target auth, NOT top-level spec.policies: on enterprise 2.3.x a top-level
+          # `spec.policies` must include `ai` or `mcp` (CEL: "[ai mcp] must be set"), so an
+          # auth-only policies block there is rejected. Nesting it under the target's static
+          # config attaches the credential without tripping that rule.
+          policies:
+            auth:
+              secretRef:
+                name: stripe-mock-token

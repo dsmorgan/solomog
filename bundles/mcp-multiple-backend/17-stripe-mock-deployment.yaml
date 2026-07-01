@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stripe-mock
+  namespace: stripe-mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stripe-mock
+  template:
+    metadata:
+      labels:
+        app: stripe-mock
+    spec:
+      containers:
+        - name: stripe-mock
+          image: stripe/stripe-mock:latest
+          ports:
+            - containerPort: 12111
+              name: http

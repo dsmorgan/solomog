@@ -1,0 +1,17 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openapi-mcp-stripe
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /stripe
+      backendRefs:
+        - name: stripe-mock-openapi
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend

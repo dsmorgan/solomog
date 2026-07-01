@@ -1,0 +1,13 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mcp-backend
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+    - name: mcp-target
+      static:
+        host: mcp-website-fetcher.mcp.svc.cluster.local
+        port: 80
+        protocol: SSE

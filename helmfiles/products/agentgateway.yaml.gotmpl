@@ -54,3 +54,31 @@ releases:
       - licensing:
           licenseKey: "{{ .Values.agentgateway_license_key }}"
 {{ end }}
+{{- /* OBO token-exchange STS (enterprise-only). Opt-in via TOKEN_EXCHANGE=true; off otherwise
+       so the normal install is untouched. Shape follows the 2.3.x OBO docs. The chart passes
+       this whole block to the controller as JSON (KGW_AGENTGATEWAY_TOKEN_EXCHANGE_CONFIG) and
+       gates the :7777 STS port on `enabled`. JWKS URL defaults to the in-cluster Keycloak; set
+       TOKEN_EXCHANGE_JWKS_URL for another IdP. apiValidator defaults to k8s (basic OBO); set
+       TOKEN_EXCHANGE_API_VALIDATOR=remote when you want the Solo UI's elicitation API to work
+       (k8s rejects the UI's Keycloak JWTs with 401). */ -}}
+{{- if and (eq .Environment.Name "enterprise") (eq (env "TOKEN_EXCHANGE") "true") }}
+{{- $jwks := env "TOKEN_EXCHANGE_JWKS_URL" | default "http://keycloak.keycloak.svc.cluster.local:8080/realms/obo-realm/protocol/openid-connect/certs" }}
+      - tokenExchange:
+          enabled: true
+          issuer: "enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777"
+          tokenExpiration: 24h
+          subjectValidator:
+            validatorType: remote
+            remoteConfig:
+              url: "{{ $jwks }}"
+          actorValidator:
+            validatorType: k8s
+          apiValidator:
+{{- if eq (env "TOKEN_EXCHANGE_API_VALIDATOR" | default "k8s") "remote" }}
+            validatorType: remote
+            remoteConfig:
+              url: "{{ $jwks }}"
+{{- else }}
+            validatorType: k8s
+{{- end }}
+{{- end }}

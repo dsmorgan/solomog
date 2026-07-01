@@ -1,0 +1,14 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mcpx-backend
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+    - name: mcpx-target
+      static:
+        host: mcpx-website-fetcher.mcpx.svc.cluster.local
+        port: 80
+        protocol: SSE
+

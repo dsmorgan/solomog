@@ -1,0 +1,23 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: obo-jwt-policy
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: obo-openai
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+          jwks:
+            remote:
+              backendRef:
+                name: sts-jwks
+                namespace: agentgateway-system
+                kind: AgentgatewayBackend
+                group: agentgateway.dev
+              jwksPath: .well-known/jwks.json

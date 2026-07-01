@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stripe-mock-schema
+  namespace: agentgateway-system
+data:
+  schema: |
+    {
+      "openapi": "3.0.0",
+      "info": {
+        "title": "Stripe Mock API (subset)",
+        "version": "1.0.0",
+        "description": "Curated subset of the Stripe API served by stripe-mock."
+      },
+      "servers": [
+        { "url": "/" }
+      ],
+      "paths": {
+        "/v1/products": {
+          "get": {
+            "operationId": "listProducts",
+            "summary": "List products",
+            "description": "Returns the product catalog. stripe-mock returns hardcoded sample products (e.g. a 'T-shirt'), each with a name, description, and default price.",
+            "parameters": [
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "description": "Maximum number of products to return (1-100).",
+                "schema": { "type": "integer" }
+              }
+            ],
+            "responses": {
+              "200": { "description": "A list of products" }
+            }
+          }
+        },
+        "/v1/prices": {
+          "get": {
+            "operationId": "listPrices",
+            "summary": "List prices",
+            "description": "Returns prices for products in the catalog. Monetary amounts are in the smallest currency unit, so unit_amount 2000 means $20.00 USD. stripe-mock returns hardcoded sample data.",
+            "parameters": [
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "description": "Maximum number of prices to return (1-100).",
+                "schema": { "type": "integer" }
+              }
+            ],
+            "responses": {
+              "200": { "description": "A list of prices" }
+            }
+          }
+        },
+        "/v1/customers": {
+          "get": {
+            "operationId": "listCustomers",
+            "summary": "List customers",
+            "description": "Returns a list of customers. stripe-mock returns hardcoded sample data.",
+            "parameters": [
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "description": "Maximum number of customers to return (1-100).",
+                "schema": { "type": "integer" }
+              },
+              {
+                "name": "email",
+                "in": "query",
+                "required": false,
+                "description": "Filter customers by exact email match.",
+                "schema": { "type": "string" }
+              }
+            ],
+            "responses": {
+              "200": { "description": "A list of customers" }
+            }
+          }
+        },
+        "/v1/charges": {
+          "get": {
+            "operationId": "listCharges",
+            "summary": "List charges",
+            "description": "Returns a list of charges. Monetary amounts (e.g. amount) are in the smallest currency unit, so 100 means $1.00 USD. stripe-mock returns hardcoded sample data.",
+            "parameters": [
+              {
+                "name": "limit",
+                "in": "query",
+                "required": false,
+                "description": "Maximum number of charges to return (1-100).",
+                "schema": { "type": "integer" }
+              }
+            ],
+            "responses": {
+              "200": { "description": "A list of charges" }
+            }
+          }
+        }
+      }
+    }
