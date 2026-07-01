@@ -1,5 +1,15 @@
 # Agentgateway MCP and LLM OBO demo
 
+Mirrors the `obo-crewai-agent-with-mcp` workshop lab: one delegated (OBO) token,
+issued by the agentgateway STS, unlocks **both** an LLM route and an MCP tool
+route. A raw Keycloak user JWT is rejected 401 on either — only an STS-issued
+token whose `sub` is the user and `act` is the agent service account is accepted.
+
+| Route | Backend | JWT policy |
+|-------|---------|------------|
+| `/obo/openai` | mock-openai (`mock-gpt-4o`) | `obo-openai` → `obo-jwt-policy` (70) |
+| `/obo/mcp` | in-cluster `mcpx-website-fetcher` (MCP) | `mcpx` → `obo-mcp-jwt-policy` (72) |
+
 The install for this requires Keycloak to be operational before enabling the
 agentgateway STS (token exchange) — the STS validates JWKS against Keycloak
 *at controller startup*, so Keycloak must already exist.
@@ -37,3 +47,9 @@ solomog agentgateway TOKEN_EXCHANGE=true  CLUSTER=<cluster>
 ```
 solomog test BUNDLE=agw-obo-token-exchange CLUSTER=<cluster>
 ```
+
+Key tests:
+- `10-obo-openai-401` / `12-obo-mcp-401` — both routes reject unauthenticated requests.
+- `50-test-impersonation` — LLM route accepts an OBO token, rejects the raw user JWT.
+- `52-test-mcp-obo` — lighter standalone MCP check: impersonation token, MCP handshake through `/obo/mcp` (lists tools).
+- `85-del-delegation-flow` — the workshop's core flow: one pod-based delegated token (`sub`=user, `act`=agent) used against **both** `/obo/openai` and `/obo/mcp`.
