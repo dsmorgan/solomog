@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: obo-agent-test
+  namespace: agentgateway-system
+  labels:
+    app: obo-agent-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: obo-agent-test
+  template:
+    metadata:
+      labels:
+        app: obo-agent-test
+    spec:
+      serviceAccountName: obo-agent
+      containers:
+        - name: curl
+          image: curlimages/curl:latest
+          command: ["tail", "-f", "/dev/null"]

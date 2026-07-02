@@ -1,0 +1,25 @@
+# JWT policy protecting the /obo/anthropic route — identical to 70/72. Requires an STS-issued
+# OBO token; a raw Keycloak user JWT is rejected 401. Same STS issuer + sts-jwks backend.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: obo-anthropic-jwt-policy
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: obo-anthropic
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+          jwks:
+            remote:
+              backendRef:
+                name: sts-jwks
+                namespace: agentgateway-system
+                kind: AgentgatewayBackend
+                group: agentgateway.dev
+              jwksPath: .well-known/jwks.json

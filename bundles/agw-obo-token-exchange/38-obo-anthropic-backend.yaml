@@ -1,0 +1,24 @@
+# Real Anthropic backend for the OBO demo. Copied from bundles/llmroute/10-anthropic-*.yaml.
+# policies.auth.secretRef injects the real Claude key (from anthropic-secret) upstream — the
+# gateway strips whatever the client sent (the OBO token) first, so Anthropic never sees it.
+# modelAliases is the lightest AI policy that satisfies the CRD's "[ai mcp] must be set" rule.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: obo-anthropic
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      anthropic:
+        model: "claude-haiku-4-5-20251001"
+  policies:
+    ai:
+      # Alias points at the SAME model the provider declares, so a client request for
+      # "claude" resolves to the advertised model (not a different one). modelAliases is
+      # also the lightest AI policy that satisfies the CRD's "[ai mcp] must be set" rule.
+      modelAliases:
+        claude: "claude-haiku-4-5-20251001"
+    auth:
+      secretRef:
+        name: anthropic-secret
