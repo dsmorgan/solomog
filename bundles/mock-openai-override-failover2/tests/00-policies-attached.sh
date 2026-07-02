@@ -14,7 +14,7 @@ fi
 
 rows="$(kubectl --context "$CONTEXT" get eagpol -n "$NS" -o json | jq -r --arg b "$BACKEND" '
   .items[]
-  | select(.metadata.name | test("combo|5xx"))
+  | select(.metadata.name | test("mock-combo"))
   | [ .metadata.name,
       (.spec.targetRefs[0].name // "-"),
       (.spec.targetRefs[0].sectionName // "-"),

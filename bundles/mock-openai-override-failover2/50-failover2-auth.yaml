@@ -1,0 +1,50 @@
+# Per-provider upstream auth. Each policy attaches to ONE provider in mock-combo-backend via
+# targetRefs[].sectionName (the provider's name). The two mocks need no upstream key
+# (passthrough); the OpenAI failover provider injects a real key from the openai-secret
+# Secret (created by 01-api-keys.sh). A sectionName that doesn't match a provider name leaves
+# that provider with no auth — 01-providers-have-auth.sh guards against exactly that.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mock-combo-auth-ratelimit
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayBackend
+    name: mock-combo-backend
+    sectionName: mock-ratelimit-provider
+  backend:
+    auth:
+      passthrough: {}
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mock-combo-auth-5xx
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayBackend
+    name: mock-combo-backend
+    sectionName: mock-5xx-provider
+  backend:
+    auth:
+      passthrough: {}
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mock-combo-auth-openai
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayBackend
+    name: mock-combo-backend
+    sectionName: openai-provider
+  backend:
+    auth:
+      secretRef:
+        name: openai-secret

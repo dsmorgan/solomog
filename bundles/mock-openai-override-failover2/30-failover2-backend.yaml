@@ -1,0 +1,32 @@
+# The failover topology: what fails over to what. Two priority groups on one AI backend.
+# Group 1 is tried first; when its providers are evicted (see 60-failover2-health.yaml),
+# traffic falls over to group 2. Auth for each provider lives in 50-failover2-auth.yaml;
+# the route that exposes this backend is 40-failover2-route.yaml.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mock-combo-backend
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      # Priority Group 1: two mock providers — one returns 429 (rate_limit), one returns
+      # 503 (server_error). Both get evicted (health policy) before failover to group 2.
+      - providers:
+          - name: mock-ratelimit-provider
+            openai:
+              model: "mock-gpt-4o"
+            host: mock-gpt-4o-svc.mock-openai.svc.cluster.local       # 429 (rate_limit) mock
+            port: 8000
+            path: "/v1/chat/completions"
+          - name: mock-5xx-provider
+            openai:
+              model: "mock-gpt-4o-500"
+            host: mock-gpt-4o-500-svc.mock-openai.svc.cluster.local   # 503 (server_error) mock
+            port: 8000
+            path: "/v1/chat/completions"
+      # Priority Group 2: OpenAI (failover when group 1 is evicted)
+      - providers:
+          - name: openai-provider
+            openai:
+              model: "gpt-4o-mini"
