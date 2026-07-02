@@ -32,7 +32,8 @@ echo "✓ may_act present in user JWT: $MAY_ACT"
 # --- Delegation token exchange from inside the agent pod ---------------------------------
 # The pod's mounted service account token is the actor_token. No port-forward to the STS
 # is needed — the pod reaches it directly via in-cluster DNS.
-STS_RESPONSE=$(kubectl --context "$CONTEXT" exec obo-agent-test -n "$NAMESPACE" -- /bin/sh -c "
+#STS_RESPONSE=$(kubectl --context "$CONTEXT" exec obo-agent-test -n "$NAMESPACE" -- /bin/sh -c "
+STS_RESPONSE=$(kubectl --context "$CONTEXT" exec deploy/obo-agent-test -n "$NAMESPACE" -- /bin/sh -c "
   K8S_SA_TOKEN=\$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
   curl -s -X POST http://enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777/token \
     -H 'Content-Type: application/x-www-form-urlencoded' \
