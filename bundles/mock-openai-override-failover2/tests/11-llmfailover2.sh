@@ -20,7 +20,7 @@ for i in 1 2 3 4 5; do
   resp="$(curl -sS -w $'\n%{http_code}' "$URL" -H 'content-type: application/json' -d "$DATA")"
   code="${resp##*$'\n'}"          # last line = HTTP status
   body="${resp%$'\n'*}"           # everything before it = response body
-  echo "attempt $i → HTTP $code"
+  echo "attempt $i ($URL) → HTTP $code"
   case "$code" in
     200)     break ;;                 # failed over (or group 1 already evicted) — success
     429|503) sleep 1; continue ;;     # priming: a group-1 mock failed + got evicted, retry to fail over

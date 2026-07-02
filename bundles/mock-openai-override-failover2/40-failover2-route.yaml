@@ -1,0 +1,21 @@
+# Exposes the failover backend at /llmfailover2 on the agw gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mock-combo-failover
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /llmfailover2
+      backendRefs:
+        - name: mock-combo-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"

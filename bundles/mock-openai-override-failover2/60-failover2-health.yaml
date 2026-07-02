@@ -1,0 +1,21 @@
+# The failover MECHANISM. This is eviction-based failover, not in-request retry: when a
+# group-1 provider returns an unhealthy response it is evicted for `duration`, and subsequent
+# requests fall through to the next priority group. The request that triggers the eviction
+# still returns its own error to the client — so the failover test primes with a 429/503
+# before it sees a 200 from group 2. Applies to the whole backend (no sectionName).
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mock-combo-health
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+  - group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayBackend
+    name: mock-combo-backend
+  backend:
+    health:
+      unhealthyCondition: "response.code >= 500 || response.code == 429"
+      eviction:
+        duration: 30s
+        consecutiveFailures: 1
