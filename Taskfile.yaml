@@ -75,6 +75,8 @@ tasks:
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
+      OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
+      OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
     preconditions:
       - sh: '[ -n "{{.PRODUCTS}}" ]'
         msg: 'Specify products, e.g. PRODUCTS="istio kgateway agentgateway"'
@@ -339,6 +341,11 @@ tasks:
         TOKEN_EXCHANGE   true to enable the OBO token-exchange STS (and restart the agw
                          proxy). CLI-only — no .env fallback. default false.
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
+        OAUTH_ISSUER     true to enable the eager-auth OAuth issuer (gateway acts as the
+                         OAuth AS at /oauth-issuer, brokers to Okta). Needs TOKEN_EXCHANGE=true
+                         + OKTA_* in .env. CLI-only. default false.
+        OAUTH_ISSUER_HOST   public gateway host for the issuer base_url.
+                            default agw.<cluster>.test
 
       Related: `agentgateway:ui` adds the Solo UI. See `solomog help stack`.
 
@@ -357,6 +364,8 @@ tasks:
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
+      OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
+      OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
 
   agentgateway:ui:
     desc: "1 cluster · agentgateway + Solo UI (management chart) · enterprise only. Route the UI with expose ROUTE=true."
@@ -373,6 +382,11 @@ tasks:
         TOKEN_EXCHANGE   true to enable the OBO token-exchange STS (and restart the agw
                          proxy). CLI-only — no .env fallback. default false.
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
+        OAUTH_ISSUER     true to enable the eager-auth OAuth issuer (gateway acts as the
+                         OAuth AS at /oauth-issuer, brokers to Okta). Needs TOKEN_EXCHANGE=true
+                         + OKTA_* in .env. CLI-only. default false.
+        OAUTH_ISSUER_HOST   public gateway host for the issuer base_url.
+                            default agw.<cluster>.test
 
       Examples:
         solomog agentgateway:ui CLUSTER=aaa
@@ -392,6 +406,8 @@ tasks:
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
+      OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
+      OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
       GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'  # empty → script default agentgateway-system
 
   # ─── Gateway exposure (Gateway + TLS + DNS) ───────────────────────────────

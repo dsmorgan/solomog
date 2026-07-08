@@ -81,7 +81,9 @@ releases:
           # mode and is the reason elicited tokens landed under the wrong identity. Defaults to the
           # IdP JWKS ($jwks); override with TOKEN_EXCHANGE_API_VALIDATOR_URL only if it differs.
           apiValidator:
-{{- if eq (env "TOKEN_EXCHANGE_API_VALIDATOR" | default "k8s") "remote" }}
+{{- /* eager-auth (OAUTH_ISSUER=true) matches the lab and defaults apiValidator to remote→IdP JWKS;
+       otherwise k8s. Always overridable via TOKEN_EXCHANGE_API_VALIDATOR. */ -}}
+{{- if eq (env "TOKEN_EXCHANGE_API_VALIDATOR" | default (ternary "remote" "k8s" (eq (env "OAUTH_ISSUER") "true"))) "remote" }}
             validatorType: remote
             remoteConfig:
               url: "{{ env "TOKEN_EXCHANGE_API_VALIDATOR_URL" | default $jwks }}"
@@ -102,5 +104,44 @@ releases:
       - controller:
           extraEnv:
             CALLBACK_URL: "{{ env "TOKEN_EXCHANGE_CALLBACK_URL" }}"
+{{- end }}
+{{- /* Eager-auth OAuth issuer (opt-in via OAUTH_ISSUER=true; requires TOKEN_EXCHANGE=true, so it
+       lives inside that guard). The controller becomes the OAuth Authorization Server MCP clients
+       see (@ /oauth-issuer): it serves its own AS metadata, does "fake DCR" returning a
+       pre-registered Okta client_id, and brokers the auth-code flow to Okta. Without this env the
+       controller logs "KGW_OAUTH_ISSUER_CONFIG is not set, OAuth issuer handler will not be
+       registered" and discovery/DCR elicitation (e.g. Atlassian) can't build a consent URL.
+       State store: no tokenExchange.database block above → SQLite in-memory (fine for a PoV; state
+       is lost on controller restart → re-consent). Add a database block for Postgres-backed state.
+       Host + Okta creds come from .env via the bundle's run command (OAUTH_ISSUER_HOST defaults to
+       agw.<cluster>.test in the Taskfile). Ref: workshop labs/mcp/mcp-eager-auth-okta.md Step 5. */ -}}
+{{- if eq (env "OAUTH_ISSUER") "true" }}
+{{- $issuer := printf "https://%s/oauth2/%s" (env "OKTA_DOMAIN") (env "OKTA_AUTH_SERVER_ID" | default "default") }}
+{{- $host := env "OAUTH_ISSUER_HOST" }}
+{{- /* eager-auth client = a CONFIDENTIAL Authorization Code Okta app with the two
+       /oauth-issuer/callback/{downstream,upstream} redirect URIs. This is NOT the API-Services
+       (client-credentials) app OKTA_CLIENT_ID points at for the agw-okta-mcp tests. Use a dedicated
+       OAUTH_ISSUER_CLIENT_ID/SECRET (e.g. your Solo UI backend confidential app); falls back to
+       OKTA_CLIENT_ID/SECRET only for the simple single-app case. */ -}}
+{{- $cid := env "OAUTH_ISSUER_CLIENT_ID" | default (env "OKTA_CLIENT_ID") }}
+{{- $csec := env "OAUTH_ISSUER_CLIENT_SECRET" | default (env "OKTA_CLIENT_SECRET") }}
+      - controller:
+          extraEnv:
+            # The exact env var name the controller reads. JSON string; client_secret comes from
+            # .env (OKTA_CLIENT_SECRET) so nothing sensitive is committed.
+            KGW_OAUTH_ISSUER_CONFIG: |
+              {
+                "gateway_config": { "base_url": "https://{{ $host }}/oauth-issuer" },
+                "client_config": { "clients": { "{{ $cid }}": "{{ $csec }}" } },
+                "downstream_server": {
+                  "name": "okta",
+                  "client_id": "{{ $cid }}",
+                  "client_secret": "{{ $csec }}",
+                  "authorize_url": "{{ $issuer }}/v1/authorize",
+                  "token_url": "{{ $issuer }}/v1/token",
+                  "redirect_uri": "https://{{ $host }}/oauth-issuer/callback/downstream",
+                  "scopes": ["openid", "profile", "email"]
+                }
+              }
 {{- end }}
 {{- end }}
