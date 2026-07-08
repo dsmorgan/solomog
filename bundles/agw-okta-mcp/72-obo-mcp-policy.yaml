@@ -1,0 +1,31 @@
+# Protect /obo/mcp with the STS as issuer — NOT Okta. Only a token minted by the agentgateway
+# STS token-exchange (sub=user, and act=agent for delegation) is accepted here; a raw Okta
+# user token is rejected 401 (see tests/30). This is the on-behalf-of half of the story: the
+# user's Okta identity is validated ONCE by the STS (against Okta's JWKS, per TOKEN_EXCHANGE_JWKS_URL),
+# then re-minted as a downscoped STS token that the tool leg trusts.
+#
+# Requires the STS to be running (controller installed with TOKEN_EXCHANGE=true) and the
+# sts-jwks backend (60). The issuer/jwksPath match the STS config in the agentgateway helmfile.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: obo-mcp-jwt
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: obo-mcp
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+          jwks:
+            remote:
+              backendRef:
+                name: sts-jwks
+                namespace: agentgateway-system
+                kind: AgentgatewayBackend
+                group: agentgateway.dev
+              jwksPath: .well-known/jwks.json

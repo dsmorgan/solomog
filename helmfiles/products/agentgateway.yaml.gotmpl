@@ -73,12 +73,34 @@ releases:
               url: "{{ $jwks }}"
           actorValidator:
             validatorType: k8s
+          # apiValidator validates the SOLO UI's calls into the STS elicitation CRUD API. Per the
+          # Solo elicitation docs, this must be the SAME IdP JWKS as subjectValidator: once the UI
+          # is wired to the IdP (see agentgateway-ui.yaml.gotmpl OIDC block), the UI signs its STS
+          # calls with IdP-issued (e.g. Okta) tokens, so it validates against the IdP JWKS — NOT
+          # the UI's dev-autoauth keys (:5556/keys), which only apply while the UI runs in autoauth
+          # mode and is the reason elicited tokens landed under the wrong identity. Defaults to the
+          # IdP JWKS ($jwks); override with TOKEN_EXCHANGE_API_VALIDATOR_URL only if it differs.
           apiValidator:
 {{- if eq (env "TOKEN_EXCHANGE_API_VALIDATOR" | default "k8s") "remote" }}
             validatorType: remote
             remoteConfig:
-              url: "{{ $jwks }}"
+              url: "{{ env "TOKEN_EXCHANGE_API_VALIDATOR_URL" | default $jwks }}"
 {{- else }}
             validatorType: k8s
+{{- end }}
+{{- /* Elicitation (browser-consent OAuth to a SaaS, e.g. Snowflake). The STS needs a GLOBAL
+       fallback OAuth-provider secret (chart: tokenExchange.elicitation.secretName — "Required
+       unless mode is ExchangeOnly") even though the per-backend policy also names one; without
+       it the data plane returns "token exchange required but not configured". CALLBACK_URL is
+       the UI URL the browser returns to after consent — must match the secret's redirect_uri
+       AND the SaaS OAuth app's registered redirect. Both are inert unless TOKEN_EXCHANGE=true. */ -}}
+{{- if env "TOKEN_EXCHANGE_ELICITATION_SECRET" }}
+          elicitation:
+            secretName: "{{ env "TOKEN_EXCHANGE_ELICITATION_SECRET" }}"
+{{- end }}
+{{- if env "TOKEN_EXCHANGE_CALLBACK_URL" }}
+      - controller:
+          extraEnv:
+            CALLBACK_URL: "{{ env "TOKEN_EXCHANGE_CALLBACK_URL" }}"
 {{- end }}
 {{- end }}
