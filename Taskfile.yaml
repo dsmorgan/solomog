@@ -72,6 +72,9 @@ tasks:
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
+      TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
+      TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
     preconditions:
       - sh: '[ -n "{{.PRODUCTS}}" ]'
         msg: 'Specify products, e.g. PRODUCTS="istio kgateway agentgateway"'
@@ -351,6 +354,9 @@ tasks:
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
+      TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
+      TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
 
   agentgateway:ui:
     desc: "1 cluster · agentgateway + Solo UI (management chart) · enterprise only. Route the UI with expose ROUTE=true."
@@ -383,6 +389,9 @@ tasks:
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
+      TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
+      TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
       GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'  # empty → script default agentgateway-system
 
   # ─── Gateway exposure (Gateway + TLS + DNS) ───────────────────────────────

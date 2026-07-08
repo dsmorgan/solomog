@@ -59,3 +59,39 @@ releases:
           enabled: true
         tracing:
           verbose: true
+{{- /* OIDC: wire the UI to a real IdP (e.g. Okta) instead of the bundled dev "autoauth" IdP
+       (image solo-enterprise-autoauth). Opt-in — the block renders ONLY when SOLO_UI_OIDC_ISSUER
+       is set, so the default install stays in autoauth mode, untouched. The chart has no explicit
+       autoauth on/off toggle; setting oidc.issuer is what switches it to real OIDC.
+       WHY THIS MATTERS FOR ELICITATION: browser-consent (elicitation) stores the SaaS token keyed
+       by the user's `sub`. If the UI logs the user in via autoauth, that sub != the Okta sub on the
+       MCP-request JWT, so the elicited token is never found on replay. The UI must authenticate the
+       user as the SAME IdP identity as the MCP route — hence issuer = the same Okta default AS as
+       the route JWT + the STS apiValidator (see products/agentgateway.yaml.gotmpl). Two Okta apps:
+       a confidential Web app (backend) and a public SPA (frontend) — see bundles/agw-okta-mcp/OKTA-SETUP.md.
+       Client secret comes from .env (SOLO_UI_OIDC_BACKEND_CLIENT_SECRET), injected inline like the
+       license key — never committed. */ -}}
+{{- if env "SOLO_UI_OIDC_ISSUER" }}
+        oidc:
+          issuer: "{{ env "SOLO_UI_OIDC_ISSUER" }}"
+          additionalScopes: {{ env "SOLO_UI_OIDC_ADDITIONAL_SCOPES" | default "[\"profile\",\"email\"]" }}
+        rbac:
+          roleMapping:
+            # PoV default: grant every authenticated user global.Admin (a bare CEL list literal, so
+            # it ignores claims). For group-based roles instead, add a Groups claim in Okta + set
+            # SOLO_UI_OIDC_ROLE_MAPPER to the chart default "claims.Groups.transformList(...)".
+            roleMapper: '{{ env "SOLO_UI_OIDC_ROLE_MAPPER" | default "[\"global.Admin\"]" }}'
+        ui:
+          backend:
+            oidc:
+              clientId: "{{ env "SOLO_UI_OIDC_BACKEND_CLIENT_ID" }}"
+              # Inline secret from .env → the chart CREATES a Secret named `secretRef`
+              # (its default `ui-backend-oidc-secret`) holding it, and the ui-backend mounts
+              # that name. Do NOT set secretRef:"" — it's the mount NAME, not a toggle; empty
+              # makes the chart create/mount a Secret named "" (resource name may not be empty).
+              secret: "{{ env "SOLO_UI_OIDC_BACKEND_CLIENT_SECRET" }}"
+              secretKey: clientSecret
+          frontend:
+            oidc:
+              clientId: "{{ env "SOLO_UI_OIDC_FRONTEND_CLIENT_ID" }}"
+{{- end }}

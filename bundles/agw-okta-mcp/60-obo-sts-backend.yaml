@@ -1,0 +1,12 @@
+# The agentgateway STS's own JWKS, for validating the OBO tokens IT issues (issuer
+# enterprise-agentgateway...:7777). Used by the /obo/mcp policy (72). The STS only exists
+# when the controller is installed with TOKEN_EXCHANGE=true — see this bundle's README.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: sts-jwks
+  namespace: agentgateway-system
+spec:
+  static:
+    host: enterprise-agentgateway.agentgateway-system.svc.cluster.local
+    port: 7777

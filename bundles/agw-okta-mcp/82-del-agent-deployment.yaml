@@ -1,0 +1,26 @@
+# A stand-in "agent" workload running AS the obo-agent SA, so its projected SA token (mounted
+# at /var/run/secrets/.../token) can be used as the actor_token — the delegation test execs
+# into this pod and calls the STS from in-cluster (no port-forward needed). curlimages/curl is
+# multi-arch (arm64-safe for Apple Silicon vclusters).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: obo-agent-test
+  namespace: agentgateway-system
+  labels:
+    app: obo-agent-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: obo-agent-test
+  template:
+    metadata:
+      labels:
+        app: obo-agent-test
+    spec:
+      serviceAccountName: obo-agent
+      containers:
+        - name: curl
+          image: curlimages/curl:latest
+          command: ["tail", "-f", "/dev/null"]

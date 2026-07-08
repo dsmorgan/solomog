@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-website-fetcher
+  namespace: mcp
+spec:
+  selector:
+    matchLabels:
+      app: mcp-website-fetcher
+  template:
+    metadata:
+      labels:
+        app: mcp-website-fetcher
+    spec:
+      containers:
+      - name: mcp-website-fetcher
+        image: ghcr.io/peterj/mcp-website-fetcher:main
+        imagePullPolicy: Always
