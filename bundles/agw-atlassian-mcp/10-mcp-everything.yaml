@@ -1,0 +1,118 @@
+# Phase 1 test target: an in-cluster reference MCP server (@modelcontextprotocol/server-everything)
+# to PROVE the eager-auth OAuth issuer works in solomog before Phase 2 swaps the backend to
+# Atlassian's remote MCP. Mirrors workshop labs/mcp/mcp-eager-auth-okta.md Step 7 (server + backend
+# + route), adapted to the solomog `agw` gateway (no listener hostname → routes attach without one).
+#
+# Streamable HTTP is per-request stateless, so the multi-replica proxy is fine. node:20-alpine is
+# multi-arch (arm64) — it runs `npx server-everything` at start, so the pod needs egress to npm.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+  namespace: agentgateway-system
+spec:
+  selector:
+    matchLabels:
+      app: mcp-server
+  template:
+    metadata:
+      labels:
+        app: mcp-server
+    spec:
+      containers:
+        - name: mcp-server
+          image: node:20-alpine
+          command:
+            - sh
+            - -c
+            - |
+              export NODE_OPTIONS="--max-old-space-size=10240 --max-semi-space-size=64"
+              npx -y @modelcontextprotocol/server-everything streamableHttp
+          ports:
+            - name: mcp-http
+              containerPort: 3001
+          env:
+            - name: PORT
+              value: "3001"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: agentgateway-system
+spec:
+  selector:
+    app: mcp-server
+  ports:
+    - port: 80
+      targetPort: 3001
+      appProtocol: agentgateway.dev/mcp
+---
+# Wrap the in-cluster server as an MCP target.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mcp-backend
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+      - name: mcp-target
+        static:
+          host: mcp-server.agentgateway-system.svc.cluster.local
+          port: 80
+          protocol: StreamableHTTP
+---
+# /mcp + the two OAuth discovery paths. The .well-known rules carry a CORS filter allowing
+# `mcp-protocol-version` + `Authorization`: OAuth metadata discovery runs in the BROWSER (Inspector
+# UI), and agentgateway's internal handler otherwise hardcodes Allow-Headers: content-type and
+# rejects the preflight (Inspector then loops on connect). No listener hostname — expose's `agw`
+# gateway accepts any host on its wildcard cert.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-route
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - name: mcp-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /.well-known/oauth-protected-resource/mcp
+      filters:
+        - type: CORS
+          cors:
+            allowOrigins: ["*"]
+            allowMethods: ["GET", "OPTIONS"]
+            allowHeaders: ["Content-Type", "Authorization", "Accept", "mcp-protocol-version"]
+            maxAge: 86400
+      backendRefs:
+        - name: mcp-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /.well-known/oauth-authorization-server/mcp
+      filters:
+        - type: CORS
+          cors:
+            allowOrigins: ["*"]
+            allowMethods: ["GET", "OPTIONS"]
+            allowHeaders: ["Content-Type", "Authorization", "Accept", "mcp-protocol-version"]
+            maxAge: 86400
+      backendRefs:
+        - name: mcp-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
