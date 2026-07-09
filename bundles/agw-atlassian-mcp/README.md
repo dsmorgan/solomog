@@ -1,35 +1,63 @@
-# agw-atlassian-mcp — eager-auth OAuth issuer → per-user Atlassian MCP
+# agw-atlassian-mcp — eager-auth OAuth issuer + per-user Atlassian MCP elicitation (WIP)
 
-A **standalone** bundle (no dependency on `agw-okta-mcp`) that stands up agentgateway's
-**eager-auth OAuth issuer**: the gateway becomes the OAuth Authorization Server MCP clients see,
-does "fake DCR" (hands back a pre-registered Okta client), and brokers the auth-code flow to Okta.
-That issuer is the piece the earlier Atlassian attempt was missing — discovery/DCR elicitation to
-`mcp.atlassian.com` can't build a consent URL without it.
+A **standalone** bundle (no dependency on `agw-okta-mcp`) with two independent proofs on one
+cluster: agentgateway's **eager-auth OAuth issuer** (Phase 1 — the gateway becomes the OAuth
+Authorization Server MCP clients see, does "fake DCR", brokers the auth-code flow to Okta), and
+**per-user discovery/DCR elicitation** against Atlassian's remote MCP server (Phase 2 — a *separate*,
+simpler architecture; see below for why they don't share a frontend).
 
-Built from the workshop lab `~/code/fe-enterprise-agentgateway-workshop/labs/mcp/mcp-eager-auth-okta.md`.
+Phase 1 built from the workshop lab `~/code/fe-enterprise-agentgateway-workshop/labs/mcp/mcp-eager-auth-okta.md`.
+Phase 2 built from Solo's own **validated** reference,
+`agentgateway-enterprise/dev-docs/tokenexchange/elicitation/test-elicitation-guide-mcp.md`.
 
-## Two phases
+## Two phases (both apply to the same cluster — independent, not combined)
 
-**Phase 1 (this bundle, now) — prove the eager-auth issuer in solomog** against an in-cluster
-reference MCP server (`@modelcontextprotocol/server-everything`). No Atlassian, no Solo UI. When an
-MCP client connects to `/mcp` it discovers the gateway as its OAuth AS, DCRs against
-`/oauth-issuer/register`, and is redirected to Okta to log in. This de-risks the two unknowns before
-Atlassian: (a) does the issuer serve its own AS metadata correctly, and (b) does Okta login → JWT
-validation at the backend work end-to-end.
+**Phase 1 — ✅ PROVEN (a9, 2026-07-08) — the eager-auth issuer**, against an in-cluster reference MCP
+server (`@modelcontextprotocol/server-everything`). No Atlassian, no Solo UI. An MCP client connecting
+to `/mcp` discovers the gateway as its OAuth AS, DCRs against `/oauth-issuer/register`, and is
+redirected to Okta to log in. Verified: a real Okta user completed the full auth-code flow and
+`POST /mcp initialize` returned 200.
 
-**Phase 2 (next) — swap the backend to Atlassian** + add the per-backend discovery elicitation
-(`base_url: mcp.atlassian.com`, DCR, **omit `mode`**) so the gateway also elicits a per-user
-Atlassian token and replays it upstream. The Phase-1 draft is preserved under
-[`phase2/`](phase2/) (`atlassian-backend.sh` + `ATLASSIAN-SETUP.md`) — not applied (subdirs aren't).
+**Phase 2 — Atlassian elicitation**, as a SEPARATE backend/route/policy at `/atlassian/mcp`
+(matching Snowflake's `/snowflake/mcp` convention in `agw-okta-mcp`) — a **plain Strict Okta JWT
+frontend** (reusing Phase 1's `okta-jwks` backend) + `backend.tokenExchange.elicitation` against a
+discovery-mode secret (DCR against Atlassian). Additive — `/mcp` (Phase 1) keeps working unchanged.
+See [ATLASSIAN-SETUP.md](ATLASSIAN-SETUP.md) for the full runbook.
 
-## What it applies (Phase 1)
+> ⚠️ **Phase 2 deliberately does NOT use eager-auth as its frontend — corrected 2026-07-08 after
+> checking Solo's own validated reference.** An earlier version combined `backend.mcp.authentication`
+> (eager-auth) with `backend.tokenExchange.elicitation` on one policy, tested with Claude Code (which
+> got all the way to a real Atlassian consent screen — DCR genuinely worked). But every attempt then
+> hit the same failure: a real token got minted (`code exchange succeeded ... has_access_token:true`
+> in the controller logs), yet the very next token-*serve* check reused a **different**, stale DCR
+> client id and 400'd — reproducibly, even across a clean controller restart. Root cause, confirmed
+> in source (`ent-controller/internal/issuer/flow_upstream.go` line ~320, the code's own comment):
+> *"This codepath does not support multiple concurrent upstream clients for one resource."* Once
+> `backend.mcp.authentication` is set, the controller's "dual OAuth agent flow" machinery
+> (`flow_select.go`'s `mcpAuthResources` index) takes over the *entire* flow, including its own
+> DCR-caching path — which isn't safe against a real MCP client's automatic retries racing it.
+>
+> Checking against Solo's docs settled it: `test-elicitation-guide-mcp.md` ("Status: VALIDATED") is
+> the tested reference for exactly this scenario (per-user OAuth to a remote MCP API, GitHub in
+> their example) — and its elicitation trigger returns a URL to the **Solo UI**'s `/age/elicitations`
+> queue, not a direct provider authorize URL. Ours returned the latter — proof we were on the
+> untested eager-auth-agent-flow path instead of the validated, UI-mediated one. That doc's own
+> comparison table states plainly: *"Setup: Requires Keycloak + enterprise UI."* Fixed by dropping
+> `backend.mcp.authentication` from `50-atlassian.sh` entirely, matching Snowflake's `90-snowflake.sh`
+> shape in `agw-okta-mcp`. **Consequence:** this route gives no OAuth-discovery hints, so
+> Inspector/Claude Code's auto-login won't work against it — testing is curl (or Inspector with a
+> manually-pasted Bearer header) using a token from `../agw-okta-mcp/helpers/okta-pkce-login.sh`,
+> exactly as the validated doc itself tests (see ATLASSIAN-SETUP.md).
 
-| File | Kind | Purpose |
-|---|---|---|
-| `10-mcp-everything.yaml` | Deployment/Service/Backend/HTTPRoute | in-cluster test MCP server + `/mcp` + the two `.well-known/oauth-*/mcp` discovery paths (with a CORS filter for `mcp-protocol-version`) |
-| `20-oauth-issuer-route.yaml` | HTTPRoute | `/oauth-issuer` → controller `:7777` (the AS + STS endpoints) |
-| `30-proxy-sts.sh` | Params + GatewayClass | point the proxy at the in-cluster STS (`STS_URI`) |
-| `40-eager-auth.sh` | Backend/Secret/Policy | `okta-jwks`, the issuer's `elicitation-secret` (→ Okta), and the `mcp.authentication` + `issuer-proxy` policy |
+## What it applies
+
+| File | Kind | Phase | Purpose |
+|---|---|---|---|
+| `10-mcp-everything.yaml` | Deployment/Service/Backend/HTTPRoute | 1 | in-cluster test MCP server + `/mcp` + the two `.well-known/oauth-*/mcp` discovery paths (with a CORS filter for `mcp-protocol-version`) |
+| `20-oauth-issuer-route.yaml` | HTTPRoute | 1 | `/oauth-issuer` → controller `:7777` (the AS + STS endpoints) |
+| `30-proxy-sts.sh` | Params + GatewayClass | 1 | point the proxy at the in-cluster STS (`STS_URI`) |
+| `40-eager-auth.sh` | Backend/Secret/Policy | 1 | `okta-jwks`, the issuer's `elicitation-secret` (→ Okta), and the `mcp.authentication` + `issuer-proxy` policy |
+| `50-atlassian.sh` | Secret/Backend/HTTPRoute/Policy | 2 | `atlassian-elicitation` (discovery secret), `atlassian-mcp-backend`/route at `/atlassian/mcp`, and a policy pairing a plain Strict Okta JWT frontend (reusing `okta-jwks`) with `backend.tokenExchange.elicitation` |
 
 ## Okta prerequisite (one-time)
 
@@ -94,15 +122,50 @@ NODE_TLS_REJECT_UNAUTHORIZED=0 npx @modelcontextprotocol/inspector
 | Redirect lands on `${OKTA_DOMAIN}` | issuer brokered the auth-code flow to Okta |
 | Tools list without 401 | Okta JWT validated against Okta JWKS at the backend |
 
-## Troubleshooting (from the lab)
-- **`/oauth-issuer/register` 404** → `OAUTH_ISSUER=true` didn't take, or the `oauth-issuer` route is
-  missing. Check controller logs for `KGW_OAUTH_ISSUER_CONFIG is not set` and
+## Phase 2 bring-up (on top of a running Phase 1)
+
+`OAUTH_ISSUER=true` is still required at the controller level even though this route's frontend
+doesn't use eager-auth — discovery/DCR elicitation depends on the controller's issuer infra
+(`KGW_OAUTH_ISSUER_CONFIG`) regardless of frontend type. **Always keep `TOKEN_EXCHANGE=true
+OAUTH_ISSUER=true` on every command that touches the agentgateway install** — dropping either
+silently tears down Phase 1's config.
+
+Bring up the Solo UI too — per the validated doc, elicitation approval is mediated there
+(`/age/elicitations`), not by the MCP client itself:
+
+```bash
+solomog agentgateway:ui expose ROUTE=true CLUSTER=a9 \
+  TOKEN_EXCHANGE=true OAUTH_ISSUER=true TOKEN_EXCHANGE_API_VALIDATOR=remote
+solomog apply BUNDLE=agw-atlassian-mcp CLUSTER=a9   # picks up 50-atlassian.sh; Phase 1 files reapply as no-ops
+solomog test  BUNDLE=agw-atlassian-mcp CLUSTER=a9   # tests 10/20 (Phase 1) + 30/40 (Phase 2) all run
+```
+
+Test 40 needs a cached Okta user token — mint one first:
+```bash
+bash bundles/agw-okta-mcp/helpers/okta-pkce-login.sh
+```
+
+**⚠️ One Atlassian-side admin step, unrelated to solomog:** Atlassian enforces an org-level redirect-URL
+allowlist for OAuth apps (their DCR flow still needs the callback domain approved). If consent shows
+*"Your organization admin must authorize access from this redirect URL"*, go to
+**admin.atlassian.com → Apps → AI settings → Rovo MCP server** and add `agw.a9.test` to the domain
+allowlist (self-service; Atlassian only recently added this — previously a hard block).
+
+Full interactive walkthrough (Atlassian site setup, scopes, what each observation proves) is in
+[ATLASSIAN-SETUP.md](ATLASSIAN-SETUP.md).
+
+## Troubleshooting
+- **`/oauth-issuer/register` 404** (Phase 1) → `OAUTH_ISSUER=true` didn't take, or the `oauth-issuer`
+  route is missing. Check controller logs for `KGW_OAUTH_ISSUER_CONFIG is not set` and
   `kubectl get httproute -n agentgateway-system oauth-issuer`.
-- **`GET /mcp` returns 406 not 401** → the policy is `PartiallyValid`, almost always a leading slash
-  on `jwksPath`. `40-eager-auth.sh` uses `oauth2/<as-id>/v1/keys` (no leading slash).
+- **`GET /mcp` returns 406 not 401** (Phase 1) → the policy is `PartiallyValid`, almost always a
+  leading slash on `jwksPath`. `40-eager-auth.sh` uses `oauth2/<as-id>/v1/keys` (no leading slash).
 - **Controller CrashLoopBackOff `unsupported validator type`** → the tokenExchange block needs all
   three validators (subject/actor/api). The helmfile sets them; ensure `TOKEN_EXCHANGE=true`.
 - **`secret not found: agentgateway-system/elicitation-secret`** → `40-eager-auth.sh` didn't apply;
   re-run `solomog apply`.
+- **Atlassian elicitation returns a direct provider authorize URL instead of a Solo UI link** → the
+  policy has `backend.mcp.authentication` on it somewhere; `50-atlassian.sh` must NOT set that field
+  (see the README callout above for why).
 - Trace the proxy: `bash ../agw-okta-mcp/helpers/trace.sh on a9` (re-run after any `solomog apply`,
   since `30-proxy-sts.sh` rewrites the params CR and clears `RUST_LOG`).
