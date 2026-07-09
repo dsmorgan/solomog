@@ -30,9 +30,31 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
+# CRITICAL: drop any ambient STATIC creds before talking to AWS. solomog runs via go-task,
+# which loads .env into the environment — and .env holds BOTH AWS_PROFILE *and* the three
+# AWS_ACCESS_KEY_ID/SECRET/SESSION_TOKEN we wrote last time. The AWS CLI credential chain
+# prioritizes static env creds OVER the SSO profile, so `export-credentials` would just read
+# the (now-expired) static creds out of the environment and write them straight back to .env
+# — a stale loop where refreshing NEVER updates the creds (this is exactly the bug that made
+# the bundle 403 with "security token expired" no matter how many times aws:refresh ran).
+# Unsetting them forces resolution via AWS_PROFILE (the SSO profile), which mints fresh creds.
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+
 # Export creds in env format (KEY=VALUE lines). If the SSO session token is still valid the
 # CLI mints fresh role creds from cache; if it's expired this returns empty and we re-login.
 export_creds() { aws configure export-credentials --format env-no-export 2>/dev/null; }
+
+# `aws configure export-credentials` returns whatever SSO role creds are CACHED — it does NOT
+# force a refresh. If the cache holds expired role creds (but the SSO *session* is still
+# valid), export hands back the EXPIRED ones. An actual API call through the profile re-mints
+# role creds into the cache, so poke STS first (cheap, read-only) to force that refresh;
+# ignore its result (the export/sso-login path below handles a truly-expired session).
+echo "==> Refreshing AWS role credentials (sts get-caller-identity to force a re-mint)"
+if [[ -n "${AWS_PROFILE:-}" ]]; then
+  aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1 || true
+else
+  aws sts get-caller-identity >/dev/null 2>&1 || true
+fi
 
 echo "==> Exporting AWS credentials (aws configure export-credentials)"
 CREDS="$(export_creds || true)"
