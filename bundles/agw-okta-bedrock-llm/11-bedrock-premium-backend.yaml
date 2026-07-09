@@ -1,0 +1,27 @@
+# Premium tier — Claude Sonnet 5 (latest Sonnet; Sonnet 4.5 was deprecated Feb 2026).
+# Uses the clean CRIS profile ID `us.anthropic.claude-sonnet-5` — Anthropic dropped the dated
+# `-YYYYMMDD-vN:0` suffix starting with Sonnet 4.6 (confirmed against the AWS Bedrock model
+# card, 2026). us-east-1 is a valid source region for the US Geo inference profile.
+# See 10-bedrock-standard-backend.yaml for the policies.ai / region notes — same here.
+#
+# NOTE: reaching this (or any Anthropic model on the bedrock-runtime path) requires the
+# one-time Anthropic first-time-use form to have been submitted for the AWS account — see
+# README "Bedrock model access". Changing the model ID does NOT bypass that gate.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-premium
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        model: us.anthropic.claude-sonnet-5
+        region: us-east-1
+  policies:
+    ai:
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret

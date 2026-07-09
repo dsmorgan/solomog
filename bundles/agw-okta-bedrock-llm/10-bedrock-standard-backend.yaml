@@ -1,0 +1,32 @@
+# Standard tier — Claude Haiku 4.5. Same auth pattern as llmroute-bedrock (SSO creds via
+# policies.auth.aws.secretRef -> bedrock-secret, from 01-bedrock-secret.sh).
+#
+# policies.ai (promptCaching: {}) is carried over from llmroute-bedrock's finding that
+# stable agentgateway 2.3.x requires a non-empty policies.ai on any backend with a
+# policies block. Unconfirmed whether that CEL rule still applies on this cluster's
+# 2026.6.3 (CalVer) — harmless either way, so kept for consistency; if apply fails on
+# this field, that's the signal the rule was relaxed here (matches the CLAUDE.md note
+# that CalVer builds loosened it).
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-standard
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+        # us-east-1: broadest Bedrock model coverage + matches the workshop. Bedrock model
+        # access / the Anthropic use-case form is PER-REGION, so this is the source region the
+        # account must have Anthropic access approved in. (llmroute-bedrock used us-west-2, which
+        # worked 2026-06-26 but later returned a 404 "use case details not submitted" on this
+        # account — a us-west-2 model-access gate, not a config problem. See README.)
+        region: us-east-1
+  policies:
+    ai:
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret
