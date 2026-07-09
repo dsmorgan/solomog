@@ -1,0 +1,23 @@
+# Own HTTPRoute per tier (rather than two rules on one route) so 50-okta-jwt-authz.sh's
+# policies can targetRef each by name cleanly — no need to figure out per-rule policy
+# attachment (sectionName) semantics on this CRD.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bedrock-standard
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bedrock/standard
+      backendRefs:
+        - name: bedrock-standard
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
