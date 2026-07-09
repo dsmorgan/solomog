@@ -27,8 +27,8 @@ gateway/host with path-based routing, so the two tiers become two **paths**
 | 2b | Rate limiting (premium tier) | built (in `50-okta-jwt-authz.sh`, `rateLimit.local` 100k tokens/min) |
 | 3 | Token acquisition: device-authorization-grant helper script | built (`helpers/okta-device-login.sh`) — needs a live run to confirm |
 | 4 | Tests: 401 / standard / premium / rate-limit | built — see `tests/`; 30- proves the `action: Allow` gate, needs a temporary llm-premium removal to run for real |
-| 5 | Tool integration (Claude Code / Cursor / Copilot) | not yet built |
-| 6 | Scaling authorization patterns (CEL notes) | not yet built |
+| 5 | Tool integration (Claude Code / Cursor / Copilot) | built — see [`TOOL-INTEGRATION.md`](TOOL-INTEGRATION.md) + [`helpers/ag-token.sh`](helpers/ag-token.sh) (apiKeyHelper, silent refresh). Claude Code `/v1/messages` path needs a live confirm |
+| 6 | Scaling authorization patterns (CEL notes) | built — see [`AUTHZ-PATTERNS.md`](AUTHZ-PATTERNS.md) |
 
 ## Prerequisites
 
