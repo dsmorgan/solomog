@@ -1,0 +1,54 @@
+# Single user-facing path (/bedrock), tier chosen by the `x-llm-tier` header that the
+# PreRouting transformation (50-okta-tier-routing.sh) derives from the caller's Okta groups.
+# Because that transformation runs BEFORE route selection, Gateway API can match on the header
+# here. Two HTTPRoutes, same path, distinguished only by the header value — kept as separate
+# objects (not two rules of one route) so the premium one is independently targetable by the
+# rate-limit policy in 50-. A caller in neither group gets x-llm-tier: none (or no header) ->
+# NO route matches -> 404. That 404 is the "deny if neither"; no fallback route is defined.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bedrock-premium
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bedrock
+          headers:
+            - name: x-llm-tier
+              value: premium
+      backendRefs:
+        - name: bedrock-premium
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bedrock-standard
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bedrock
+          headers:
+            - name: x-llm-tier
+              value: standard
+      backendRefs:
+        - name: bedrock-standard
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"

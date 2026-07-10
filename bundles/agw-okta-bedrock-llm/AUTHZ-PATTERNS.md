@@ -34,7 +34,7 @@ and request (`request.*`):
    aliasing — but keep "which group reaches which route" as the single control point.
 3. **Quotas at fleet scale:**
    - **Tier-wide budget** → `rateLimit.local` (per gateway instance). This bundle uses it for the
-     premium tier (100k tokens/min).
+     premium tier — set to a deliberately small 1k tokens/min here so the limit is testable).
    - **Per-developer quota across replicas** → `rateLimit.remote` (a shared rate-limit service),
      with descriptors keyed on `jwt.sub` so the budget follows the user, not the pod.
 

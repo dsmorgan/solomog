@@ -76,10 +76,12 @@ spec:
         matchExpressions:
           - "'llm-standard' in jwt.groups"
 ---
-# Premium tier: valid Okta JWT + 'llm-premium' in groups, plus a 100k-tokens/min budget
-# (workshop's maxTokens:100000 / tokensPerFill:100000 / fillInterval:60s, expressed
-# natively via rateLimit.local[].tokens + unit: Minutes; burst == tokens gives the same
-# "up to 100k per window, no carryover" shape as the workshop's token-bucket).
+# Premium tier: valid Okta JWT + 'llm-premium' in groups, plus a DELIBERATELY SMALL token
+# budget so the rate limit is actually demonstrable/testable: 1,000 tokens/min (burst == tokens
+# → up to 1k per window, no carryover). At this size a "write a long paragraph" request
+# (~1k tokens) trips it in 1-2 calls (tests/40-ratelimit-premium.sh), while the single
+# ~300-token 21-premium-authenticated call stays comfortably under it. A real deployment would
+# set this far higher (the workshop used 100k) — it's low here purely so the demo can show a 429.
 apiVersion: enterpriseagentgateway.solo.io/v1alpha1
 kind: EnterpriseAgentgatewayPolicy
 metadata:
@@ -113,9 +115,9 @@ spec:
           - "'llm-premium' in jwt.groups"
     rateLimit:
       local:
-        - tokens: 100000
+        - tokens: 1000
           unit: Minutes
-          burst: 100000
+          burst: 1000
 EOF
 
 echo "✓ applied okta-jwks backend + tiered JWT/authorization(/rate-limit) policies"
