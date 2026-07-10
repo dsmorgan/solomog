@@ -1,30 +1,37 @@
 #!/usr/bin/env bash
-# Best-effort/manual: the premium tier's rateLimit.local budget is 100k tokens/min (see
-# 50-okta-jwt-authz.sh) — high enough that a quick loop may not trip it without burning real
-# Bedrock spend. This fires a modest burst of small requests and reports whether a 429 showed
-# up; it does NOT hard-fail if the limit wasn't hit (expected at this budget size for a
-# handful of calls) — treat it as a smoke check, not a strict assertion. To actually validate
-# the ceiling, temporarily lower tokens/burst in 50-okta-jwt-authz.sh, re-apply, run this,
-# then restore.
+# Assert the premium token rate limit returns 429. The premium budget is a deliberately small
+# 1,000 tokens/min (50-okta-jwt-authz.sh), so a handful of LARGE requests trips it — no config
+# mutation here, just enough real token spend to cross the budget. Each request asks for a long
+# answer (max_tokens 1024 ≈ ~1k tokens), so 1-2 of them exceed 1k and the gateway starts 429ing.
+#
+# Needs a cached PREMIUM token (llm-premium in groups — else /bedrock/premium rejects it and we
+# never reach the limiter). These are real Bedrock calls (a few thousand tokens total).
 set -euo pipefail
 CACHE="$(cd "$(dirname "$0")/../../.." && pwd)/.solomog/okta-device-token.json"
 [ -f "$CACHE" ] || { echo "✗ no cached device token — run the login helper first" >&2; exit 1; }
 TOKEN=$(jq -r '.access_token' "$CACHE")
+[ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { echo "✗ cached token unreadable — re-run the login helper" >&2; exit 1; }
 
+# Only a premium token reaches the premium tier where the limit lives.
+HAS_PREMIUM=$(TOKEN="$TOKEN" uv run --python 3.12 - <<'PY'
+import base64, json, os
+p = os.environ["TOKEN"].split(".")[1]; p += "=" * (-len(p) % 4)
+g = json.loads(base64.urlsafe_b64decode(p)).get("groups", [])
+print("true" if isinstance(g, list) and "llm-premium" in g else "false")
+PY
+)
+[ "$HAS_PREMIUM" = "true" ] || { echo "⊘ SKIP: cached token has no llm-premium group — can't reach the premium tier."; exit 0; }
+
+# Big-output requests (~1k tokens each) against the 1k/min budget → 429 within a few calls.
+BODY='{"max_tokens":1024,"messages":[{"role":"user","content":"Write a detailed explanation, at least 600 words, of why ocean water appears more blue in tropical locations. Cover optics, phytoplankton, and depth."}]}'
 TRIES="${RATELIMIT_TRIES:-10}"
 hit429=0
 for i in $(seq 1 "$TRIES"); do
   status=$(curl -sk -o /dev/null -w "%{http_code}" -X POST "https://${HOST}/bedrock/premium" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H 'Content-Type: application/json' \
-    -d '{"model":"","messages":[{"role":"user","content":"hi"}]}')
+    -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' -d "$BODY")
   echo "  request $i -> $status"
-  if [ "$status" = "429" ]; then hit429=1; break; fi
+  [ "$status" = "429" ] && { hit429=1; break; }
 done
 
-if [ "$hit429" = "1" ]; then
-  echo "✓ saw a 429 within $TRIES requests — rate limit is enforcing"
-else
-  echo "⊘ no 429 within $TRIES requests — inconclusive at a 100k-token budget (not a failure)."
-  echo "  To force it, temporarily lower tokens/burst in 50-okta-jwt-authz.sh, re-apply, rerun."
-fi
+[ "$hit429" = "1" ] || { echo "✗ no 429 within $TRIES large requests against a 1k-token/min budget — rate limit NOT enforcing" >&2; exit 1; }
+echo "✓ premium rate limit returned 429 — token budget enforcing"

@@ -1,0 +1,23 @@
+# Premium tier — Claude Sonnet 5 (Sonnet 4.5 deprecated Feb 2026; Sonnet 5 uses the suffix-less
+# CRIS ID). MUST use the `us.` inference profile — the bare `anthropic.claude-sonnet-5` ID 400s
+# with "on-demand throughput isn't supported". region us-west-2 matches the working
+# llmroute-bedrock. See 10-bedrock-standard-backend.yaml for the per-region model-access caveat
+# (grant Anthropic access in all `us.` destination regions to avoid intermittent 404s).
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-premium
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        model: us.anthropic.claude-sonnet-5
+        region: us-west-2
+  policies:
+    ai:
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret

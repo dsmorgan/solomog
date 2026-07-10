@@ -1,0 +1,36 @@
+# Standard tier — Claude Haiku 4.5. Same auth pattern as llmroute-bedrock (SSO creds via
+# policies.auth.aws.secretRef -> bedrock-secret, from 01-bedrock-secret.sh).
+#
+# policies.ai (promptCaching: {}) is carried over from llmroute-bedrock's finding that
+# stable agentgateway 2.3.x requires a non-empty policies.ai on any backend with a
+# policies block. Unconfirmed whether that CEL rule still applies on this cluster's
+# 2026.6.3 (CalVer) — harmless either way, so kept for consistency; if apply fails on
+# this field, that's the signal the rule was relaxed here (matches the CLAUDE.md note
+# that CalVer builds loosened it).
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-standard
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        # MUST use the `us.` cross-region inference profile: on-demand invocation of these
+        # Claude models with the bare foundation-model ID (anthropic.claude-...) returns HTTP
+        # 400 "on-demand throughput isn't supported; use an inference profile". region us-west-2
+        # matches the sibling llmroute-bedrock, which works on this account.
+        # CAVEAT: the `us.` profile can route to {us-east-1, us-east-2, us-west-2} and Anthropic
+        # model access is PER-REGION — so grant Anthropic access in ALL THREE to avoid the
+        # intermittent 404 "use case details not submitted" (a request routed to a region that
+        # lacks access). True single-region on-demand would require a user-created *application*
+        # inference profile pinned to one region (aws bedrock create-inference-profile).
+        model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+        region: us-west-2
+  policies:
+    ai:
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret
