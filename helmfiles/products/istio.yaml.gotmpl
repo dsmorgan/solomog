@@ -44,6 +44,21 @@ releases:
           - --server-side
           - -f
           - "https://github.com/kubernetes-sigs/gateway-api/releases/download/v{{ .Values.gateway_api_version }}/standard-install.yaml"
+      # Gateway API ≥v1.5 ships a `safe-upgrades` ValidatingAdmissionPolicy that forbids writing
+      # any Gateway API CRD older than v1.5.0. Solo's managed-istio operator installs its OWN
+      # (older, experimental) `tcproutes` CRD during reconcile, which that policy denies — the
+      # ServiceMeshController then hangs in PENDING and `helm --wait` times out. Removing the
+      # upgrade guard (an ephemeral-cluster non-concern) lets the operator finish. Idempotent:
+      # the apply above recreates the policy each sync, this deletes it again.
+      - events: ["presync"]
+        showlogs: true
+        command: kubectl
+        args:
+          - "--context={{ env "SOLO_CONTEXT" | default "vcluster-docker_cluster-one" }}"
+          - delete
+          - --ignore-not-found
+          - validatingadmissionpolicybinding.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io
+          - validatingadmissionpolicy.admissionregistration.k8s.io/safe-upgrades.gateway.networking.k8s.io
     values:
       - manager:
           env:

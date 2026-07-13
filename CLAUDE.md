@@ -70,9 +70,17 @@ Cross-cluster Istio is orchestrated by [scripts/mesh.sh](scripts/mesh.sh), which
 shared root CA across all of them (`gen-certs.sh`), wires flat pod routing
 (`networking.sh`) when applicable, then runs the istio module against each cluster
 context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
-- `flat` topology → all clusters share network `solomog` (relies on networking.sh).
-- `gateway` topology → per-cluster network; **east-west gateway + endpoint discovery
-  wiring is not yet automated** (TODO — see the multi-network steps in the docs).
+- `flat` topology → all clusters share network `solomog`; `networking.sh flat` routes the
+  whole peer subnets between the Docker bridges (pods talk pod-IP → pod-IP directly).
+- `gateway` topology → per-cluster network; `mesh-eastwest.sh` exposes an `istio-eastwest`
+  gateway per cluster + links every pair (declarative kubectl, replicating `istioctl
+  multicluster expose|link` — no Solo istioctl dependency), and `networking.sh gateway`
+  routes **only to each peer's east-west gateway `/32`** (discovered live; tighter than flat,
+  faithful to real multi-network). Comes up peered end-to-end.
+- **Host routing is ephemeral** (lives in the Docker Desktop VM) — a Docker restart wipes it and
+  silently disconnects the mesh, though the clusters/Istio/gateways/certs survive. Recover with
+  `solomog net:repair CLUSTERS="…"` (auto-detects flat vs gateway from the live clusters; no
+  stored state) — not a full task re-run.
 - Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) give
   mixed-version meshes; mesh.sh maps `cluster-two` → `ISTIO_VERSION_CLUSTER_TWO`.
 
@@ -355,8 +363,12 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   `kennethreitz/httpbin` is amd64-only — replaced with `mccutchen/go-httpbin` (Go,
   multi-arch, listens on 8080 → Service maps 80→8080). Vet any new image for an
   arm64 variant (`docker manifest inspect <img> | grep arm64`).
-- **nftables rules are ephemeral** — they vanish on Docker Desktop restart. Flat
-  multi-cluster networking must be re-applied.
+- **Inter-cluster host routing is ephemeral** — the DOCKER-USER rules live in the Docker Desktop
+  VM and vanish on a Docker restart, silently disconnecting any multi-cluster mesh (flat or
+  gateway). Re-apply with `solomog net:repair CLUSTERS="…"`. The routing goes in **DOCKER-USER**,
+  not a private nft table: an nft table's `accept` can't override Docker's inter-bridge isolation
+  `DROP` (both are base chains on the forward hook, DROP wins), but FORWARD hits DOCKER-USER first
+  and an ACCEPT there is terminal.
 - **Certs must exist before Istio installs.** `stack.sh` and `mesh.sh` order
   `gen-certs` first; preserve that ordering. One shared root CA is reused across all
   clusters in a mesh — delete `certs/` to rotate.
@@ -419,9 +431,11 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 
 ## Status / open questions
 
-- **Multi-network (`gateway`) east-west wiring** is not automated — `mesh.sh` sets
-  per-cluster networks but does not create east-west gateways or endpoint discovery.
-  Finish from https://docs.solo.io/istio/1.30.x/quickstart/multi/.
+- **Multi-network (`gateway`) east-west wiring** is now automated by `mesh-eastwest.sh`
+  (expose + link, declarative) + `networking.sh gateway` (routing) — the mesh comes up peered.
+  Validated on Docker Desktop / vind with a 2-cluster ambient mesh (`istioctl multicluster
+  check` → all ✅). N>2 uses a full remote-peer mesh (every cluster links every other); exercise
+  a 3-cluster gateway mesh to confirm.
 - **`gloo-mesh` mgmt-plane repo** is the last unverified chart coordinate.
 - Confirm whether enterprise products use **distinct** license keys or one shared
   Gloo license (design supports both; per-product env vars fall back to SOLO_LICENSE_KEY).

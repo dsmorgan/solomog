@@ -9,10 +9,10 @@ set -euo pipefail
 #   flat     → every cluster shares one network name ("solomog"); pod-to-pod
 #              routing is wired by networking.sh. Simplest cross-cluster setup.
 #   gateway  → each cluster gets its own network (multi-network); cross-cluster
-#              traffic is meant to traverse east-west gateways.
-#              NOTE: east-west gateway + endpoint-discovery wiring is not yet
-#              automated here — see the multi-network steps in
-#              https://docs.solo.io/istio/1.30.x/quickstart/multi/  (TODO).
+#              traffic traverses east-west gateways. mesh-eastwest.sh exposes + links
+#              them declaratively (no Solo istioctl) and networking.sh routes to the
+#              peer east-west gateway IPs. Ref (istioctl equivalent + concepts):
+#              https://docs.solo.io/istio/1.30.x/quickstart/multi/
 #
 # Environment:
 #   EDITION      enterprise (default) | community
@@ -68,8 +68,12 @@ for cluster in "${CLUSTERS[@]}"; do
   cluster_version="${!override_var:-${ISTIO_VERSION:-}}"
 
   solomog_step "Install Istio onto ${cluster}  (network=${network}, version=${cluster_version:-default}, mode=${ISTIO_MODE})"
-  SOLO_CONTEXT="$ctx" SOLO_CLUSTER="$cluster" SOLO_NETWORK="$network" ISTIO_MODE="$ISTIO_MODE" \
-  ${cluster_version:+ISTIO_VERSION="$cluster_version"} \
+  # `env` (not a bare prefix) so the conditional ISTIO_VERSION assignment works: an inline
+  # env-prefix that comes from an expansion (${cluster_version:+VAR=val}) is NOT recognized as
+  # an assignment by bash — it'd be run as a command ("ISTIO_VERSION=1.30.1: command not found").
+  # env parses its NAME=VALUE args at runtime, and the word expands to nothing when unset.
+  env SOLO_CONTEXT="$ctx" SOLO_CLUSTER="$cluster" SOLO_NETWORK="$network" ISTIO_MODE="$ISTIO_MODE" \
+    ${cluster_version:+ISTIO_VERSION="$cluster_version"} \
     helmfile sync \
       -f "$REPO_DIR/helmfiles/products/istio.yaml.gotmpl" \
       -e "$EDITION" \
@@ -77,10 +81,18 @@ for cluster in "${CLUSTERS[@]}"; do
   SUMMARY_LINES+=("${cluster}  →  context vcluster-docker_${cluster} (network ${network})")
 done
 
-EXTRA=""
-[[ "$TOPOLOGY" == "gateway" ]] && EXTRA="NOTE: east-west gateway wiring not yet automated (TODO)"
+# 5. Gateway topology: expose east-west gateways, wire routing to the peer gateway IPs, and link
+#    the clusters (declarative — no Solo istioctl needed). Runs after the Istio install so the
+#    istio-eastwest/istio-remote GatewayClasses exist. (flat wired its pod routing back in step 2.)
+if [[ "$TOPOLOGY" == "gateway" ]]; then
+  bash "$REPO_DIR/scripts/mesh-eastwest.sh" "${CLUSTERS[@]}"
+fi
+
+# Host routing (both topologies) lives in the Docker Desktop VM and is wiped by a Docker restart.
+EXTRA="inter-cluster routing is ephemeral — re-run 'solomog net:repair CLUSTERS=\"${CLUSTERS[*]}\"' after a Docker Desktop restart"
+[[ "$TOPOLOGY" == "gateway" ]] && EXTRA="east-west gateways exposed + linked. ${EXTRA}"
 solomog_summary \
   "Mesh ready: ${#CLUSTERS[@]} clusters, ${TOPOLOGY} topology (${EDITION}, ${ISTIO_MODE})" \
   "${SUMMARY_LINES[@]}" \
   "shared root CA across all clusters (certs/)" \
-  ${EXTRA:+"$EXTRA"}
+  "$EXTRA"
