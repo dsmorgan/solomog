@@ -76,11 +76,21 @@ _SM_DESTROY_LOSS_QUIPS=(
 # Reset the run timer (uses the bash SECONDS builtin).
 solomog_clock_reset() { SECONDS=0; }
 
+# _solomog_truthy <val> — exit 0 only for affirmative values (1/true/yes/on, any case).
+# Used for the SOLOMOG_SERIOUS mute flag so that the empty/"false"/"0" values people put
+# in .env keep the banter ON — only an explicit affirmative mutes.
+_solomog_truthy() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # solomog_intro [mode] — 🗿 start banner with a random quip (muted by SOLOMOG_SERIOUS=1).
 # Called once per session by the `solomog` wrapper, not per task.
 # mode "destroy" → removal-themed pool (teardown); anything else → the build pool.
 solomog_intro() {
-  [ -n "${SOLOMOG_SERIOUS:-}" ] && return 0
+  _solomog_truthy "${SOLOMOG_SERIOUS:-}" && return 0
   local q
   if [ "${1:-}" = "destroy" ]; then
     q="${_SM_DESTROY_START_QUIPS[$((RANDOM % ${#_SM_DESTROY_START_QUIPS[@]}))]}"
@@ -93,7 +103,7 @@ solomog_intro() {
 # solomog_outro <exit-code> [mode] — 🗿 closing banner; win quip on success, loss on
 # failure. Called once per session by the wrapper. mode "destroy" uses the removal pools.
 solomog_outro() {
-  [ -n "${SOLOMOG_SERIOUS:-}" ] && return 0
+  _solomog_truthy "${SOLOMOG_SERIOUS:-}" && return 0
   local rc="${1:-0}" mode="${2:-}" q
   if [ "$rc" = "0" ]; then
     if [ "$mode" = "destroy" ]; then
