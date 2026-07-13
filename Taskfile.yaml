@@ -615,6 +615,41 @@ tasks:
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → apply-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
 
+  export:
+    desc: "Export a bundle as a portable, secret-safe hand-off package: BUNDLE=<name> [OUT=… CLUSTER=… EDITION=…]. Stateless (no cluster)."
+    summary: |
+      Package a bundle's DECLARATIVE config (its .yaml / .yaml.tmpl) into a portable,
+      secret-safe directory you can hand to someone NOT using solomog. Stateless — touches
+      no cluster. Produces manifests/ (apply order preserved), env.example (vars the bundle
+      needs, secrets flagged), PREREQUISITES.md (product/version/flags), install/values.yaml
+      (resolved install values, best-effort), and README.md. A secret backstop scans the
+      package for real .env values and redacts any that leak.
+
+      Phase 1: .sh hooks are NOT executed — they're copied into manual-steps/ and listed in
+      the README as explicit manual steps (so the package never looks complete when a hook's
+      config isn't captured). Rendering + drift-verify against a live cluster come later.
+
+      Variables:
+        BUNDLE    bundle name to export (REQUIRED)                     see: solomog bundles:list
+        OUT       output directory            default .solomog/exports/<bundle>-<timestamp>
+        EDITION   enterprise | community       default enterprise      (for resolved install values)
+        CLUSTER   value rendered for %%CLUSTER%% default "example"      (recipient substitutes)
+        GATEWAY   value rendered for %%GATEWAY%% default agw
+        HOST      value rendered for %%HOST%%    default <GATEWAY>.<CLUSTER>.test
+
+      Examples:
+        solomog export BUNDLE=agw-okta-mcp
+        solomog export BUNDLE=llmroute OUT=~/handoff/llmroute
+    cmds:
+      - bash scripts/run.sh "Export bundle {{.BUNDLE}}" bash scripts/export-bundle.sh
+    env:
+      BUNDLE: '{{.BUNDLES | default .BUNDLE}}'
+      OUT: '{{.OUT | default ""}}'
+      EDITION: '{{.EDITION}}'
+      CLUSTER: '{{.CLUSTER | default ""}}'
+      GATEWAY: '{{.GATEWAY | default ""}}'
+      HOST: '{{.HOST | default ""}}'
+
   bundles:list:
     desc: "List available custom-config bundles (bundles/ and bundles/private/)."
     cmds:
