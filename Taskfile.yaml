@@ -145,8 +145,11 @@ tasks:
 
   # ─── Istio — multi-cluster mesh ───────────────────────────────────────────
   # mesh.sh installs the istio product module onto each cluster with a shared CA.
-  # flat    → clusters share one network; pod routing via networking.sh.
-  # gateway → per-cluster network (east-west wiring is a documented TODO).
+  # flat    → clusters share one network; whole-subnet pod routing via networking.sh.
+  # gateway → per-cluster network; mesh-eastwest.sh exposes + links east-west gateways and
+  #           networking.sh routes to the peer gateway IPs — the mesh comes up peered.
+  # Host routing is ephemeral (Docker VM) — re-run `solomog net:repair CLUSTERS="…"` after a
+  # Docker Desktop restart (the mesh itself survives; only the routing is lost).
   # Override the cluster names with CLUSTERS="a b" (or CLUSTER="a b").
   # 3-cluster scenarios support mixed Istio versions via versions.env overrides.
 
@@ -154,7 +157,8 @@ tasks:
     desc: "2 clusters · ambient · flat network · EDITION={{.EDITION}}"
     summary: |
       Build a 2-cluster ambient Istio mesh on a flat (shared) network — one root CA,
-      flat pod routing (networking.sh) so clusters reach each other directly.
+      flat pod routing (networking.sh) so clusters reach each other directly. Host
+      routing is ephemeral; re-run `solomog net:repair` after a Docker restart.
 
       Variables:
         CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
@@ -173,7 +177,8 @@ tasks:
     desc: "2 clusters · sidecar · flat network · EDITION={{.EDITION}}"
     summary: |
       Build a 2-cluster sidecar Istio mesh on a flat (shared) network — one root CA,
-      flat pod routing (networking.sh) so clusters reach each other directly.
+      flat pod routing (networking.sh) so clusters reach each other directly. Host
+      routing is ephemeral; re-run `solomog net:repair` after a Docker restart.
 
       Variables:
         CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
@@ -236,6 +241,7 @@ tasks:
       Build a 3-cluster ambient Istio mesh on a flat (shared) network — one root CA
       across all three, flat pod routing. Per-cluster Istio version overrides
       (ISTIO_VERSION_CLUSTER_TWO/THREE in versions.env) enable mixed-version meshes.
+      Host routing is ephemeral; re-run `solomog net:repair` after a Docker restart.
 
       Variables:
         CLUSTERS   space-separated cluster names   default "cluster-one cluster-two cluster-three"
@@ -256,6 +262,7 @@ tasks:
       Build a 3-cluster sidecar Istio mesh on a flat (shared) network — one root CA
       across all three, flat pod routing. Per-cluster Istio version overrides
       (ISTIO_VERSION_CLUSTER_TWO/THREE in versions.env) enable mixed-version meshes.
+      Host routing is ephemeral; re-run `solomog net:repair` after a Docker restart.
 
       Variables:
         CLUSTERS   space-separated cluster names   default "cluster-one cluster-two cluster-three"
@@ -266,6 +273,50 @@ tasks:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two cluster-three"}}'
     cmds:
       - bash scripts/mesh.sh flat {{.CLUSTERS}}
+    env:
+      EDITION: '{{.EDITION}}'
+      ISTIO_MODE: sidecar
+
+  istio:ambient:multi-3-gateway:
+    desc: "3 clusters · ambient · multi-network (east-west) · EDITION={{.EDITION}}"
+    summary: |
+      Build a 3-cluster ambient Istio mesh on separate networks (east-west gateway topology):
+      per-cluster networks, one shared root CA, east-west gateways exposed and linked in a FULL
+      mesh (every cluster ↔ every other), and host routing to the peer gateway IPs — comes up
+      peered, no manual steps. Host routing is ephemeral; re-run `solomog net:repair` after a
+      Docker restart. Per-cluster Istio version overrides (versions.env) enable mixed versions.
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two cluster-three"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (ambient) and topology (gateway) are fixed by this task.
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two cluster-three"}}'
+    cmds:
+      - bash scripts/mesh.sh gateway {{.CLUSTERS}}
+    env:
+      EDITION: '{{.EDITION}}'
+      ISTIO_MODE: ambient
+
+  istio:sidecar:multi-3-gateway:
+    desc: "3 clusters · sidecar · multi-network (east-west) · EDITION={{.EDITION}}"
+    summary: |
+      Build a 3-cluster sidecar Istio mesh on separate networks (east-west gateway topology):
+      per-cluster networks, one shared root CA, east-west gateways exposed and linked in a FULL
+      mesh (every cluster ↔ every other), and host routing to the peer gateway IPs — comes up
+      peered, no manual steps. Host routing is ephemeral; re-run `solomog net:repair` after a
+      Docker restart. Per-cluster Istio version overrides (versions.env) enable mixed versions.
+
+      Variables:
+        CLUSTERS   space-separated cluster names   default "cluster-one cluster-two cluster-three"
+        EDITION    enterprise | community          default enterprise
+
+      Mode (sidecar) and topology (gateway) are fixed by this task.
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default "cluster-one cluster-two cluster-three"}}'
+    cmds:
+      - bash scripts/mesh.sh gateway {{.CLUSTERS}}
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
