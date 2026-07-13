@@ -192,9 +192,9 @@ tasks:
     desc: "2 clusters · ambient · multi-network (east-west) · EDITION={{.EDITION}}"
     summary: |
       Build a 2-cluster ambient Istio mesh on separate networks (east-west gateway
-      topology). NOTE: east-west gateway + endpoint discovery wiring is NOT yet
-      automated — this sets per-cluster networks but you finish the cross-network
-      wiring manually (see CLAUDE.md / the multi-network docs).
+      topology): per-cluster networks, one shared root CA, east-west gateways exposed
+      and linked, and host routing to the peer gateway IPs — comes up peered, no manual
+      steps. Host routing is ephemeral; re-run `solomog net:repair` after a Docker restart.
 
       Variables:
         CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
@@ -213,9 +213,9 @@ tasks:
     desc: "2 clusters · sidecar · multi-network (east-west) · EDITION={{.EDITION}}"
     summary: |
       Build a 2-cluster sidecar Istio mesh on separate networks (east-west gateway
-      topology). NOTE: east-west gateway + endpoint discovery wiring is NOT yet
-      automated — this sets per-cluster networks but you finish the cross-network
-      wiring manually (see CLAUDE.md / the multi-network docs).
+      topology): per-cluster networks, one shared root CA, east-west gateways exposed
+      and linked, and host routing to the peer gateway IPs — comes up peered, no manual
+      steps. Host routing is ephemeral; re-run `solomog net:repair` after a Docker restart.
 
       Variables:
         CLUSTERS   space-separated cluster names   default "cluster-one cluster-two"
@@ -269,6 +269,25 @@ tasks:
     env:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
+
+  net:repair:
+    desc: "Re-apply inter-cluster Docker routing after a Docker Desktop restart (mesh survives; only routing is lost)."
+    summary: |
+      A Docker Desktop restart wipes the host-level routing between vcluster networks (it lives in
+      the Docker VM), silently disconnecting a multi-cluster mesh — the clusters, Istio, gateways,
+      and certs all survive. This re-applies just the routing, so recovery is cheap (no full task
+      re-run). No stored state: bridges derive from the cluster names, and topology (flat vs
+      gateway) is auto-detected from the live clusters.
+
+      Variables:
+        CLUSTERS   space-separated cluster names in the mesh (alias CLUSTER)   required
+
+      Example:
+        solomog net:repair CLUSTERS="ia1 ia2"
+    vars:
+      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default ""}}'
+    cmds:
+      - bash scripts/run.sh "Repair mesh routing → {{.CLUSTERS}}" bash scripts/net-repair.sh {{.CLUSTERS}}
 
   # ─── kgateway ────────────────────────────────────────────────────────────
 

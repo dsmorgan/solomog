@@ -30,7 +30,12 @@ helm_repo_prometheus_community: "https://prometheus-community.github.io/helm-cha
 # Per-product license keys. A product-specific key wins; otherwise it falls
 # back to SOLO_LICENSE_KEY so a single key can cover every product.
 # These resolve to "" in community mode and are simply ignored there.
-istio_license_key:        '{{ env "SOLO_ISTIO_LICENSE_KEY"   | default (env "SOLO_LICENSE_KEY") | default "" }}'
+# Managed Istio (Gloo Operator) is a Gloo Mesh entitlement — the ambient-multicluster workshop
+# sets the operator's SOLO_ISTIO_LICENSE_KEY from GLOO_MESH_LICENSE_KEY. So resolve in that order:
+# explicit istio override → the Gloo Mesh key → generic fallback. NB the generic SOLO_LICENSE_KEY
+# fallback may be a trial token that istiod accepts as "gloo Enterprise" but rejects for the
+# multicluster kube-client ("no license found") — a real GLOO_MESH_LICENSE_KEY is required for a mesh.
+istio_license_key:        '{{ env "SOLO_ISTIO_LICENSE_KEY"   | default (env "GLOO_MESH_LICENSE_KEY") | default (env "SOLO_LICENSE_KEY") | default "" }}'
 gloo_mesh_license_key:    '{{ env "GLOO_MESH_LICENSE_KEY"    | default (env "SOLO_LICENSE_KEY") | default "" }}'
 kgateway_license_key:     '{{ env "KGATEWAY_LICENSE_KEY"     | default (env "SOLO_LICENSE_KEY") | default "" }}'
 gloo_gateway_license_key: '{{ env "GLOO_GATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
