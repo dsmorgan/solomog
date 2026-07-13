@@ -33,6 +33,32 @@ tasks:
     cmds: [cat versions.env]
     silent: true
 
+  routes:
+    desc: "Show the routing config on a cluster's agentgateway(s): routes, host/path, backends, policies, active status. CLUSTER=<name> [WIDE=true]"
+    summary: |
+      A brief, read-only view of the routing config on a cluster's agentgateway(s):
+      each Gateway → its listeners → the HTTPRoutes attached to it (host/path →
+      backend, which policies attach, and whether each route/gateway is actually
+      ACTIVE per its .status conditions). Built from kubectl only — so unlike the
+      proxy's config_dump / agctl, it also surfaces routes that AREN'T active
+      (Accepted / ResolvedRefs / Programmed = False). Cluster-scoped, read-only;
+      changes nothing. Scope is agentgateway today (auto-detected).
+
+      Variables:
+        CLUSTER   cluster to inspect (context vcluster-docker_<CLUSTER>)   default cluster-one
+        WIDE      true to also show per-rule matchers/filters and the failure
+                  reason for any non-active route                          default false
+
+      Examples:
+        solomog routes CLUSTER=a8
+        solomog routes CLUSTER=a8 WIDE=true
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      WIDE: '{{if eq (.WIDE | default "") "true"}}wide{{end}}'
+    cmds:
+      - bash scripts/routes.sh {{.CLUSTER}} {{.WIDE}}
+    silent: true
+
   # ─── Stack — compose any products on a single cluster ─────────────────────
   # The general-purpose entry point. Installs any combination of products onto
   # one cluster, in dependency order. Single-product tasks below are shortcuts.
