@@ -14,17 +14,18 @@ set -euo pipefail
 #
 # Usage: graph.sh <cluster>
 # Env:
-#   SERVE   true|false (default true) — serve on a local port + open browser; false = just
-#           write the HTML and print its path.
+#   OPEN    true|false (default true) — open the generated HTML in a browser
+#   SERVE   true (default false) — serve on a local port (Enter to stop) instead of just
+#           opening the self-contained file. localhost gives native clipboard copy.
 #   OUT     output HTML path (default .solomog/graph/<cluster>-<ts>.html)
-#   PORT    serve port (default: an ephemeral free port)
+#   PORT    serve port, SERVE=true only (default: an ephemeral free port)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
 
 CLUSTER="${1:?Usage: graph.sh <cluster>}"
 CTX="vcluster-docker_$CLUSTER"
-SERVE="${SERVE:-true}"
+SERVE="${SERVE:-false}"
 TS="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo graph)"
 OUT="${OUT:-$REPO_DIR/.solomog/graph/${CLUSTER}-${TS}.html}"
 CYTO="$REPO_DIR/scripts/lib/graph/cytoscape.min.js"
@@ -105,6 +106,7 @@ DATA="$(jq -cn \
         + [ $cp[] | {data:{
             id:("deploy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"Deployment", role:"controlplane", ns:.metadata.namespace, name:.metadata.name,
+            aux:(.metadata.name != "enterprise-agentgateway"),
             status:(if (.status.readyReplicas//0)==(.status.replicas//0) and (.status.replicas//0)>0 then "ok" else "bad" end),
             rtype:"deploy",
             kubectl:("kubectl get deploy "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
@@ -207,9 +209,16 @@ mkdir -p "$(dirname "$OUT")"
   .hint{color:var(--dim);font-size:12px;margin-top:6px}
   #legend{position:fixed;left:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--dim)}
   #legend span{display:inline-block;margin-right:10px} #legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:middle}
+  #controls{position:fixed;left:12px;top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--dim);display:flex;gap:14px;align-items:center}
+  #controls label{cursor:pointer;user-select:none} #controls input{vertical-align:middle;margin-right:5px}
+  #controls button{background:transparent;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:12px}
 </style></head><body><div id="wrap"><div id="cy"></div>
 <div id="side"><h1>solomog graph</h1><div class="sub">cluster ${CLUSTER} · agentgateway (${EDITION})</div>
 <div id="detail"><div class="empty">Click a node to inspect it.</div></div></div></div>
+<div id="controls">
+  <label><input type="checkbox" id="aux"> control-plane services</label>
+  <button id="relayout">re-layout</button>
+</div>
 <div id="legend"></div>
 <script>
 HTMLHEAD
@@ -242,8 +251,19 @@ HTMLHEAD
       {selector:'edge[rel="control-plane"]',style:{'line-style':'dashed','line-color':'#c792ea','target-arrow-color':'#c792ea'}},
       {selector:'edge[rel="pod"]',style:{'line-style':'dotted'}}
     ],
-    layout:{name:'cose',animate:false,padding:40,nodeRepulsion:9000,idealEdgeLength:90,nodeOverlap:16}
+    layout:{name:'grid'}
   });
+  // Hierarchical layout rooted at the Gateway(s); operates on visible elements only so a
+  // hidden group doesn't leave gaps. Called on load and after any show/hide.
+  function relayout(){
+    var vis=cy.elements(':visible');
+    vis.layout({name:'breadthfirst',directed:false,roots:cy.nodes('[kind="Gateway"]:visible'),
+      spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
+    cy.fit(vis,40);
+  }
+  // Toggle the auxiliary control-plane services (ext-auth / rate-limiter / waf). The core
+  // control plane (enterprise-agentgateway) and the data-plane pod always stay.
+  function applyAux(show){ var a=cy.nodes('[?aux]'); if(show){a.show();}else{a.hide();} }
   function esc(s){return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
   function row(k,v){return '<tr><td class="key">'+esc(k)+'</td><td>'+v+'</td></tr>';}
   function render(n){
@@ -262,12 +282,15 @@ HTMLHEAD
     document.getElementById('detail').innerHTML=h;
   }
   window.solomogCopy=function(){
-    var t=document.getElementById('kc').innerText;
-    (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(
-      function(){document.getElementById('cpm').innerText='copied ✓';},
-      function(){var r=document.createRange();r.selectNode(document.getElementById('kc'));
-        window.getSelection().removeAllRanges();window.getSelection().addRange(r);
-        document.getElementById('cpm').innerText='selected — ⌘C to copy';});
+    var t=document.getElementById('kc').innerText, m=document.getElementById('cpm');
+    function fallback(){  // works from file:// where navigator.clipboard may be unavailable
+      try{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';
+        document.body.appendChild(ta);ta.select();var ok=document.execCommand('copy');document.body.removeChild(ta);
+        m.innerText=ok?'copied ✓':'press ⌘C to copy';}catch(e){m.innerText='press ⌘C to copy';}
+    }
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(function(){m.innerText='copied ✓';},fallback);
+    }else fallback();
   };
   cy.on('tap','node',function(e){render(e.target);});
   cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it.</div>';}});
@@ -276,6 +299,11 @@ HTMLHEAD
   document.getElementById('legend').innerHTML=kinds.map(function(k){
     return '<span><i style="background:'+(COLOR[k]||'#9fb0d0')+'"></i>'+k+'</span>';
   }).join('')+'<br><span><i style="background:#3fe08f"></i>active</span><span><i style="background:#ff5f7a"></i>inactive</span>';
+  // controls
+  document.getElementById('aux').addEventListener('change',function(e){applyAux(e.target.checked);relayout();});
+  document.getElementById('relayout').addEventListener('click',relayout);
+  applyAux(false);   // aux control-plane services hidden by default
+  relayout();
 })();
 APPJS
   echo '</script></body></html>'
@@ -283,13 +311,28 @@ APPJS
 
 echo "    HTML → ${OUT}  ($(wc -c < "$OUT" | tr -d ' ') bytes)"
 
-# ── Serve + open (unless SERVE=false). ──────────────────────────────────────────
+# ── Open / serve. ───────────────────────────────────────────────────────────
+# The HTML is fully self-contained, so by DEFAULT we just open the file — the task then
+# exits cleanly with nothing to stop. OPEN=false just writes it. SERVE=true runs a local
+# http server instead (localhost is a secure context → native clipboard copy); stop that
+# one with Enter for a clean exit (Ctrl-C signals the whole `task` chain → reported as a
+# failure, which is exactly the non-error-that-looks-like-an-error to avoid).
+OPEN="${OPEN:-true}"
+
 if [ "$SERVE" != "true" ]; then
-  echo "✓ graph written (SERVE=false). Open it: open \"$OUT\""
+  if [ "$OPEN" = "true" ] && command -v open >/dev/null 2>&1; then
+    open "$OUT" 2>/dev/null || true
+    echo "✓ opened in your browser: ${OUT}"
+  else
+    echo "✓ graph written: ${OUT}"
+    echo "  open it:  open \"$OUT\""
+  fi
   exit 0
 fi
+
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 not found — open the file directly: open \"$OUT\"" >&2
+  echo "python3 not found — opening the file directly instead." >&2
+  command -v open >/dev/null 2>&1 && open "$OUT" 2>/dev/null || echo "  open \"$OUT\""
   exit 0
 fi
 PORT="${PORT:-$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()' 2>/dev/null || echo 8765)}"
@@ -297,7 +340,17 @@ DIR="$(dirname "$OUT")"; FILE="$(basename "$OUT")"
 URL="http://127.0.0.1:${PORT}/${FILE}"
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DIR" >/dev/null 2>&1 &
 SRV=$!
-trap 'kill "$SRV" 2>/dev/null || true' INT TERM EXIT
-command -v open >/dev/null 2>&1 && open "$URL" 2>/dev/null || true
-echo "✓ serving at ${URL}   (Ctrl-C to stop)"
-wait "$SRV"
+cleanup() { kill "$SRV" 2>/dev/null || true; }
+trap 'cleanup' EXIT
+trap 'echo; cleanup; echo "✓ graph server stopped."; exit 0' INT TERM   # Ctrl-C: best-effort clean
+[ "$OPEN" = "true" ] && command -v open >/dev/null 2>&1 && open "$URL" 2>/dev/null || true
+echo "✓ serving at ${URL}"
+if [ -t 0 ]; then
+  printf '  Press Enter to stop the server and finish.\n'
+  read -r _ || true          # clean exit — no signal, so `task`/wrapper see success
+else
+  echo "  (Ctrl-C to stop)"; wait "$SRV" 2>/dev/null || true
+fi
+cleanup
+echo "✓ graph server stopped."
+exit 0
