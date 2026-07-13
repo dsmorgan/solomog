@@ -85,6 +85,25 @@ for a in "$@"; do
   esac
 done
 
+# Resolve the 🗿 banter mute flag (SOLOMOG_SERIOUS). The banter is the wrapper's own
+# output, but the wrapper — unlike `task` — does NOT source .env, so read the flag here.
+# All three forms work, in precedence order:
+#   1. environment / inline CLI var:  SOLOMOG_SERIOUS=1 solomog …   or   solomog … SOLOMOG_SERIOUS=1
+#   2. .env:  SOLOMOG_SERIOUS=1
+# Only affirmatives (1/true/yes/on) mute — see _solomog_truthy in ui.sh.
+for _a in "$@"; do
+  case "$_a" in SOLOMOG_SERIOUS=*) SOLOMOG_SERIOUS="${_a#*=}" ;; esac
+done
+if [ -z "${SOLOMOG_SERIOUS:-}" ] && [ -f "$SCRIPT_DIR/.env" ]; then
+  _sm_v="$(sed -n 's/^[[:space:]]*SOLOMOG_SERIOUS[[:space:]]*=[[:space:]]*//p' "$SCRIPT_DIR/.env" | tail -n1)"
+  _sm_v="${_sm_v%%#*}"                          # drop any trailing inline comment
+  _sm_v="${_sm_v%"${_sm_v##*[![:space:]]}"}"    # rtrim
+  _sm_v="${_sm_v#\"}"; _sm_v="${_sm_v%\"}"      # strip surrounding double quotes
+  _sm_v="${_sm_v#\'}"; _sm_v="${_sm_v%\'}"      # …or single quotes
+  SOLOMOG_SERIOUS="$_sm_v"; unset _sm_v
+fi
+export SOLOMOG_SERIOUS
+
 solomog_intro "$MOG_MODE"
 solomog_clock_reset   # grand-total clock (this process; task subprocesses don't touch it)
 
