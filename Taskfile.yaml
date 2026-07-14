@@ -619,11 +619,12 @@ tasks:
     desc: "Open an interactive graph of a cluster's agentgateway config in the browser: CLUSTER=<name>. OPEN=false to just write the HTML."
     summary: |
       Snapshot a cluster's agentgateway configuration and render it as an interactive,
-      self-contained HTML graph in your browser: Gateway (data plane) + control-plane
-      deployment + pods → HTTPRoutes → Backends → Policies, with Gateway-API edges
-      (parentRef / backendRef / targetRef). Layout is a hierarchy rooted at the Gateway;
-      a toggle shows/hides the auxiliary control-plane services. Click any node for its
-      details and a copy-paste kubectl command. Same relationship model as `solomog routes`.
+      self-contained HTML graph in your browser: a "data plane" box (Gateway + its proxy pod)
+      and a "control plane" box (enterprise-agentgateway), the GatewayClass linking them
+      (gatewayClassName → controllerName → manages), then HTTPRoutes → Backends → Policies with
+      Gateway-API edges (parentRef / backendRef / targetRef). A toggle shows/hides the auxiliary
+      control-plane services. Click any node for its details and a copy-paste kubectl command.
+      Same relationship model as `solomog routes`.
 
       The HTML is self-contained (graph lib + data inlined) — it works offline and can be
       handed off. By DEFAULT it just opens the file (the task then exits cleanly, nothing to

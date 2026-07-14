@@ -53,6 +53,7 @@ POL="$(jq -s 'add' <(_tagged enterpriseagentgatewaypolicies.enterpriseagentgatew
 BE="$(jq -s 'add' <(_tagged enterpriseagentgatewaybackends.enterpriseagentgateway.solo.io) <(_tagged agentgatewaybackends.agentgateway.dev))"
 PODS="$(_items pods)"
 DEPS="$(_items deployments.apps)"
+GC="$(_items gatewayclasses.gateway.networking.k8s.io)"
 
 GWNAMES="$(echo "$GW" | jq -r '[.[]|select(.spec.gatewayClassName|test("agentgateway"))|.metadata.name]|join(",")')"
 if [ -z "$GWNAMES" ]; then
@@ -64,7 +65,7 @@ EDITION="community"; echo "$GW" | jq -e '.[]|select(.spec.gatewayClassName=="ent
 # ── Build Cytoscape elements (nodes + edges) from the snapshot. ─────────────────
 DATA="$(jq -cn \
   --argjson gw "$GW" --argjson rt "$RT" --argjson pol "$POL" --argjson be "$BE" \
-  --argjson pods "$PODS" --argjson deps "$DEPS" --arg cluster "$CLUSTER" --arg edition "$EDITION" '
+  --argjson pods "$PODS" --argjson deps "$DEPS" --argjson gc "$GC" --arg cluster "$CLUSTER" --arg edition "$EDITION" '
   def cond(t): [.status.conditions[]?|select(.type==t).status];
   def stat(t): cond(t) as $c | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end;
   def rstat:
@@ -89,35 +90,57 @@ DATA="$(jq -cn \
 
   # control-plane deployments (enterprise-agentgateway + its sidecar services)
   | ($deps | map(select(.metadata.name=="enterprise-agentgateway" or (.metadata.name|endswith("-enterprise-agentgateway"))))) as $cp
+  # GatewayClass(es) the agentgateway Gateways reference
+  | ($gws | map(.spec.gatewayClassName) | unique) as $classes
+  # is the core control plane present? (drives the control-plane compound + its edges)
+  | ($cp | any(.metadata.name=="enterprise-agentgateway")) as $hasCP
 
   | {
       cluster:$cluster, edition:$edition, gateways:$gwnames,
       elements: (
-        # ── Gateway nodes ──
-        [ $gws[] | {data:{
-            id:("gateway:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
+        # ── Plane compound boxes (data plane always; control plane iff its deploy exists) ──
+        [ {data:{id:"plane:data", label:"data plane", isPlane:true}} ]
+        + (if $hasCP then [ {data:{id:"plane:control", label:"control plane", isPlane:true}} ] else [] end)
+
+        # ── Gateway nodes (data plane) ──
+        + [ $gws[] | {data:{
+            id:("gateway:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name, parent:"plane:data",
             kind:"Gateway", role:"dataplane", ns:.metadata.namespace, name:.metadata.name,
             status:stat("Programmed"), rtype:"gateway",
             kubectl:("kubectl get gateway "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ class:.spec.gatewayClassName, address:(.status.addresses[0].value//"-"),
                      listeners:[.spec.listeners[]|(.protocol+"/"+(.port|tostring)+" ("+(.hostname//"*")+")")] } }} ]
 
-        # ── Control-plane deployment nodes + edge from each Gateway ──
+        # ── Control-plane deployment nodes (control plane) ──
         + [ $cp[] | {data:{
-            id:("deploy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
+            id:("deploy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name, parent:"plane:control",
             kind:"Deployment", role:"controlplane", ns:.metadata.namespace, name:.metadata.name,
             aux:(.metadata.name != "enterprise-agentgateway"),
             status:(if (.status.readyReplicas//0)==(.status.replicas//0) and (.status.replicas//0)>0 then "ok" else "bad" end),
             rtype:"deploy",
             kubectl:("kubectl get deploy "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ ready:((.status.readyReplicas//0|tostring)+"/"+(.status.replicas//0|tostring)) } }} ]
-        + [ $gws[] | .metadata.namespace as $gns | $cp[]
-            | {data:{ id:("e:cp:"+$gns+":"+.metadata.name), source:("gateway:"+$gns+"/"+($gwnames[0])),
-                      target:("deploy:"+.metadata.namespace+"/"+.metadata.name), rel:"control-plane" }} ]
+
+        # ── GatewayClass node(s) + the real chain: ──
+        #   Gateway --gatewayClassName--> GatewayClass --controllerName--> control plane --manages--> Gateway
+        + [ $classes[] as $cn | {data:{
+            id:("gatewayclass:"+$cn), label:$cn, kind:"GatewayClass", role:"class", name:$cn, ns:"(cluster-scoped)",
+            status:"na", rtype:"gatewayclass", kubectl:("kubectl get gatewayclass "+$cn+" -o yaml"),
+            detail:{ controllerName:(first($gc[]|select(.metadata.name==$cn)|.spec.controllerName)//"-") } }} ]
+        + [ $gws[] | {data:{
+            id:("e:class:"+.metadata.namespace+":"+.metadata.name), source:("gateway:"+.metadata.namespace+"/"+.metadata.name),
+            target:("gatewayclass:"+.spec.gatewayClassName), rel:"gatewayClassName" }} ]
+        + (if $hasCP then ($cp[]|select(.metadata.name=="enterprise-agentgateway")) as $d |
+            ([ $classes[] as $cn | {data:{ id:("e:ctrl:"+$cn), source:("gatewayclass:"+$cn),
+                 target:("deploy:"+$d.metadata.namespace+"/enterprise-agentgateway"), rel:"controllerName" }} ]
+             + [ $gws[] as $g | {data:{ id:("e:manages:"+$g.metadata.name),
+                 source:("deploy:"+$d.metadata.namespace+"/enterprise-agentgateway"),
+                 target:("gateway:"+$g.metadata.namespace+"/"+$g.metadata.name), rel:"manages" }} ])
+           else [] end)
 
         # ── Data-plane pod nodes (labelled with the gateway name) + edge ──
         + [ $pods[] | select(.metadata.labels["gateway.networking.k8s.io/gateway-name"] as $g | $g != null and ($gwnames|index($g))) | {data:{
-            id:("pod:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
+            id:("pod:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name, parent:"plane:data",
             kind:"Pod", role:"dataplane", ns:.metadata.namespace, name:.metadata.name,
             status:(if .status.phase=="Running" then "ok" else "bad" end), rtype:"pod",
             kubectl:("kubectl get pod "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
@@ -223,12 +246,18 @@ mkdir -p "$(dirname "$OUT")"
 <script>
 HTMLHEAD
   cat "$CYTO"
+  # fcose layout extension (compound-aware, hierarchical-ish) + its deps, in load order.
+  cat "$REPO_DIR/scripts/lib/graph/layout-base.js" \
+      "$REPO_DIR/scripts/lib/graph/cose-base.js" \
+      "$REPO_DIR/scripts/lib/graph/cytoscape-fcose.js"
   echo '</script><script>'
   printf 'window.SOLOMOG_DATA=%s;\n' "$DATA"
   cat <<'APPJS'
 (function(){
   var D=window.SOLOMOG_DATA;
-  var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c'};
+  try{ if(window.cytoscapeFcose) cytoscape.use(window.cytoscapeFcose); }catch(e){}
+  var HAS_FCOSE=!!window.cytoscapeFcose;
+  var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c',GatewayClass:'#80cbc4'};
   function statColor(s){return s==='ok'?'#3fe08f':s==='bad'?'#ff5f7a':'#4a5578';}
   var cy=cytoscape({
     container:document.getElementById('cy'),
@@ -242,13 +271,21 @@ HTMLHEAD
       {selector:'node[kind="Gateway"]',style:{'shape':'round-rectangle','width':40,'height':30}},
       {selector:'node[kind="Deployment"]',style:{'shape':'round-rectangle'}},
       {selector:'node[kind="Backend"]',style:{'shape':'diamond','width':30,'height':30}},
+      {selector:'node[kind="GatewayClass"]',style:{'shape':'round-tag','width':34,'height':26}},
       {selector:'node[role="policy"]',style:{'shape':'hexagon'}},
+      // plane compound boxes — labelled dashed containers grouping data vs control plane
+      {selector:'node[?isPlane]',style:{'background-color':'#8a97b0','background-opacity':0.05,
+        'border-width':1,'border-style':'dashed','border-color':'#4a5578','shape':'round-rectangle',
+        'label':'data(label)','text-valign':'top','text-halign':'center','text-margin-y':-4,
+        'font-size':11,'color':'#8a97b0','padding':18}},
       {selector:'node:selected',style:{'border-color':'#fff','border-width':4}},
       {selector:'edge',style:{
         'label':'data(rel)','font-size':8,'color':'#8a97b0','text-background-color':'#0f1420','text-background-opacity':1,
         'width':1.5,'line-color':'#39435c','target-arrow-color':'#39435c',
         'target-arrow-shape':'triangle','curve-style':'bezier','arrow-scale':.8}},
-      {selector:'edge[rel="control-plane"]',style:{'line-style':'dashed','line-color':'#c792ea','target-arrow-color':'#c792ea'}},
+      {selector:'edge[rel="manages"]',style:{'line-style':'dashed','line-color':'#c792ea','target-arrow-color':'#c792ea'}},
+      {selector:'edge[rel="controllerName"]',style:{'line-style':'dashed','line-color':'#80cbc4','target-arrow-color':'#80cbc4'}},
+      {selector:'edge[rel="gatewayClassName"]',style:{'line-color':'#80cbc4','target-arrow-color':'#80cbc4'}},
       {selector:'edge[rel="pod"]',style:{'line-style':'dotted'}}
     ],
     layout:{name:'grid'}
@@ -257,8 +294,11 @@ HTMLHEAD
   // hidden group doesn't leave gaps. Called on load and after any show/hide.
   function relayout(){
     var vis=cy.elements(':visible');
-    vis.layout({name:'breadthfirst',directed:false,roots:cy.nodes('[kind="Gateway"]:visible'),
-      spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
+    var opts=HAS_FCOSE
+      ? {name:'fcose',animate:false,quality:'proof',randomize:true,packComponents:true,
+         nodeSeparation:80,idealEdgeLength:70,nodeRepulsion:6500,gravity:0.3}
+      : {name:'cose',animate:false,padding:30,randomize:true,nodeRepulsion:9000,idealEdgeLength:80,nestingFactor:1.2};
+    vis.layout(opts).run();
     cy.fit(vis,40);
   }
   // Toggle the auxiliary control-plane services (ext-auth / rate-limiter / waf). The core
@@ -292,10 +332,10 @@ HTMLHEAD
       navigator.clipboard.writeText(t).then(function(){m.innerText='copied ✓';},fallback);
     }else fallback();
   };
-  cy.on('tap','node',function(e){render(e.target);});
+  cy.on('tap','node',function(e){ if(e.target.data('isPlane'))return; render(e.target); });
   cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it.</div>';}});
   // legend
-  var kinds=['Gateway','Deployment','Pod','HTTPRoute','Backend','Policy'];
+  var kinds=['Gateway','GatewayClass','Deployment','Pod','HTTPRoute','Backend','Policy'];
   document.getElementById('legend').innerHTML=kinds.map(function(k){
     return '<span><i style="background:'+(COLOR[k]||'#9fb0d0')+'"></i>'+k+'</span>';
   }).join('')+'<br><span><i style="background:#3fe08f"></i>active</span><span><i style="background:#ff5f7a"></i>inactive</span>';
