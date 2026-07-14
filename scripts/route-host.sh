@@ -15,9 +15,8 @@ set -euo pipefail
 #   * Gateway — expose's listeners set no `hostname` and allow routes from all
 #     namespaces, so they accept any sub-host and any namespace's HTTPRoute.
 #
-# The one catch: /etc/hosts has NO wildcard support. The `*.agw.<cluster>.test`
-# line expose writes is a literal string and will not resolve <label>.agw...,
-# so we append an explicit line for this sub-host (same LB IP). Needs sudo.
+# The one catch: /etc/hosts has NO wildcard support (expose only writes the bare
+# HOST). We append an explicit line for this sub-host (same LB IP). Needs sudo.
 #
 # Usage: route-host.sh <context> <cluster> <label> <svc> <svc-ns> <svc-port> [gw-name] [gw-ns]
 #   label    sub-host label (e.g. "ui", "grafana")

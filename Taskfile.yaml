@@ -25,7 +25,7 @@ tasks:
     cmds: [bash scripts/setup.sh]
 
   versions:update:
-    desc: Fetch latest product versions from GitHub and update versions.env
+    desc: "Check pinned versions against GitHub latest (read-only — does not write versions.env)"
     cmds: [bash scripts/versions-update.sh]
 
   versions:show:
@@ -508,20 +508,22 @@ tasks:
 
   # ─── Gateway exposure (Gateway + TLS + DNS) ───────────────────────────────
   # Creates the Gateway and makes it reachable locally. Product-agnostic; defaults
-  # target enterprise agentgateway. Override NAME/NAMESPACE/CLASS/HOST as needed.
+  # target agentgateway (enterprise or community GatewayClass auto-resolved).
 
   expose:
     desc: "Create + expose a Gateway (TLS + /etc/hosts). Run 'solomog help expose' for options."
     summary: |
       Create a Gateway and make it reachable locally: mkcert TLS cert (HOST + *.HOST),
       the Gateway resource (HTTP + HTTPS listeners), and an /etc/hosts entry (needs sudo).
+      CLASS is edition-aware: prefers the GatewayClass actually on the cluster
+      (enterprise-agentgateway|agentgateway, enterprise-kgateway|kgateway).
 
       Variables:
         CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
         PRODUCT      agentgateway | kgateway                           auto-detected from GatewayClasses
         NAME         Gateway name                                      default per PRODUCT (agw / kgw)
         NAMESPACE    namespace                                         default per PRODUCT (agentgateway-system / kgateway-system)
-        CLASS        gatewayClassName                                  default per PRODUCT (enterprise-agentgateway / enterprise-kgateway)
+        CLASS        gatewayClassName                                  default: detected (enterprise-* or community)
         HOST         TLS + DNS hostname                                default <NAME>.<CLUSTER>.test
         SECRET       TLS secret name                                   default <NAME>-tls
         HTTP_PORT    HTTP listener port                                default 8080
@@ -693,15 +695,18 @@ tasks:
       - bash scripts/bundles.sh list
 
   bundles:show:
-    desc: "Show a bundle's manifests in apply order: BUNDLE=<name>."
+    desc: "Show a bundle's manifests in apply order: BUNDLE=<name> (alias BUNDLES)."
     summary: |
       Show a bundle's manifests in apply order, with [tmpl]/[exec] markers. Cluster-free
       (discovery only — does not apply anything).
 
       Variables:
-        BUNDLE   bundle name to inspect (REQUIRED)   see: solomog bundles:list
+        BUNDLE    bundle name to inspect (REQUIRED)   see: solomog bundles:list
+        BUNDLES   alias for BUNDLE (same as apply/test/export)
+    vars:
+      BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
     cmds:
-      - bash scripts/bundles.sh show {{.BUNDLE}}
+      - bash scripts/bundles.sh show {{.BUNDLES}}
 
   test:
     desc: "Run bundle test(s) (BUNDLE=<name> or BUNDLES=\"a b\", tests/*.sh) against CLUSTER; captures results to .solomog/test-runs/."
@@ -809,6 +814,9 @@ tasks:
     cmds:
       - bash scripts/run.sh "Deploy utils (httpbin, curl, netshoot) → {{.CLUSTER}}" bash scripts/apps/install-utils.sh vcluster-docker_{{.CLUSTER}}
     env:
+      # TODO: ROUTE (like other dotenv-sourced vars) can stick from .env — if ROUTE=true
+      # is ever set there, every apps:* run adds routes without CLI opt-in. TOKEN_EXCHANGE
+      # was specially made CLI-only; ROUTE was not. Prefer not putting ROUTE in .env.
       ROUTE: '{{.ROUTE | default "false"}}'
       ROUTE_PATH: '{{.ROUTE_PATH | default "/httpbin"}}'
       GATEWAY: '{{.GATEWAY | default ""}}'

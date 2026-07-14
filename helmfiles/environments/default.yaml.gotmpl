@@ -15,6 +15,8 @@ kube_prom_stack_version: "{{ env "KUBE_PROM_STACK_VERSION" }}"
 
 # Cluster-specific Istio version overrides (used by multi-3 scenarios).
 # Fall back to istio_version when the env var is not set.
+# TODO: these helmfile values are unused — mesh.sh sets ISTIO_VERSION via env for
+# each cluster instead. Kept for documentation / a future helmfile-driven mesh path.
 istio_version_cluster_two:   "{{ env "ISTIO_VERSION_CLUSTER_TWO"   | default (env "ISTIO_VERSION") }}"
 istio_version_cluster_three: "{{ env "ISTIO_VERSION_CLUSTER_THREE" | default (env "ISTIO_VERSION") }}"
 
@@ -35,6 +37,7 @@ helm_repo_prometheus_community: "https://prometheus-community.github.io/helm-cha
 # explicit istio override → the Gloo Mesh key → generic fallback. NB the generic SOLO_LICENSE_KEY
 # fallback may be a trial token that istiod accepts as "gloo Enterprise" but rejects for the
 # multicluster kube-client ("no license found") — a real GLOO_MESH_LICENSE_KEY is required for a mesh.
+# TODO: surface this more loudly at mesh install time if only SOLO_LICENSE_KEY is set (easy footgun).
 istio_license_key:        '{{ env "SOLO_ISTIO_LICENSE_KEY"   | default (env "GLOO_MESH_LICENSE_KEY") | default (env "SOLO_LICENSE_KEY") | default "" }}'
 gloo_mesh_license_key:    '{{ env "GLOO_MESH_LICENSE_KEY"    | default (env "SOLO_LICENSE_KEY") | default "" }}'
 kgateway_license_key:     '{{ env "KGATEWAY_LICENSE_KEY"     | default (env "SOLO_LICENSE_KEY") | default "" }}'

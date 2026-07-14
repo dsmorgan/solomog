@@ -34,6 +34,12 @@ fi
 TOPOLOGY="$1"; shift
 CLUSTERS=("$@")
 
+if [[ "$TOPOLOGY" != "flat" && "$TOPOLOGY" != "gateway" ]]; then
+  echo "Error: unknown topology '$TOPOLOGY' (expected flat or gateway)." >&2
+  echo "Usage: mesh.sh <flat|gateway> <cluster> <cluster> [<cluster> ...]" >&2
+  exit 1
+fi
+
 solomog_clock_reset
 
 # 1. Create all clusters

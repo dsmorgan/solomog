@@ -15,10 +15,15 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTERS=("$@")
 [[ ${#CLUSTERS[@]} -ge 2 ]] || { echo "Usage: net-repair.sh <cluster> <cluster> [...]  (set CLUSTERS=)" >&2; exit 1; }
 
+# Prefer gateway topology if ANY named cluster has an istio-eastwest Gateway (checking only
+# the first cluster used to mis-detect mixed/leftover meshes).
 mode="flat"
-if kubectl --context "vcluster-docker_${CLUSTERS[0]}" -n istio-gateways \
-     get gateway istio-eastwest >/dev/null 2>&1; then
-  mode="gateway"
-fi
-echo "==> Detected ${mode} topology from live clusters — re-applying inter-bridge routing"
+for cluster in "${CLUSTERS[@]}"; do
+  if kubectl --context "vcluster-docker_${cluster}" -n istio-gateways \
+       get gateway istio-eastwest >/dev/null 2>&1; then
+    mode="gateway"
+    break
+  fi
+done
+echo "==> Detected ${mode} topology from live clusters (${CLUSTERS[*]}) — re-applying inter-bridge routing"
 exec bash "$REPO_DIR/scripts/networking.sh" "$mode" "${CLUSTERS[@]}"

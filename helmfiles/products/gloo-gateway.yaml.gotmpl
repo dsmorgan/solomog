@@ -40,6 +40,8 @@ releases:
           - "--context={{ env "SOLO_CONTEXT" | default "vcluster-docker_cluster-one" }}"
           - apply
           - -f
+          # TODO: pinned to v1.4.0 and lacks --server-side; other products use
+          # .Values.gateway_api_version (1.5.x) with --server-side — skew can break composed stacks.
           - https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.0/standard-install.yaml
     values:
 {{ if eq .Environment.Name "enterprise" }}
