@@ -41,6 +41,7 @@ ns_for() {
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: stack.sh <cluster-name> <product> [<product> ...]" >&2
+  # TODO: usage list omits gloo-gateway (it is in CANONICAL_ORDER below).
   echo "  products: istio gloo-mesh kgateway agentgateway" >&2
   exit 1
 fi
@@ -98,6 +99,7 @@ for product in "${CANONICAL_ORDER[@]}"; do
   # STS/JWKS config dynamically, so restart it. Only when this invocation actually asked
   # for it — TOKEN_EXCHANGE is CLI-only (see Taskfile), never silently inherited from .env.
   if [[ "$product" == "agentgateway" && "$EDITION" == "enterprise" && "${TOKEN_EXCHANGE:-false}" == "true" ]]; then
+    # TODO: label selector hardcodes gateway-name=agw — custom NAME= gateways are never restarted.
     solomog_step "Restart agw data-plane proxy (token exchange enabled)"
     kubectl --context "$CTX" rollout restart deployment -n agentgateway-system -l gateway.networking.k8s.io/gateway-name=agw
     kubectl --context "$CTX" rollout status  deployment -n agentgateway-system -l gateway.networking.k8s.io/gateway-name=agw

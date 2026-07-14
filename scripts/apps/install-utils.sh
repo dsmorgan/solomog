@@ -17,6 +17,8 @@ set -euo pipefail
 #   GATEWAY_NS   gateway namespace (default: auto-detected)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=../lib/gateway.sh
+source "$REPO_DIR/scripts/lib/gateway.sh"
 CONTEXT="${1:?Usage: install-utils.sh <kube-context>}"
 ROUTE="${ROUTE:-false}"
 ROUTE_PATH="${ROUTE_PATH:-/httpbin}"
@@ -31,14 +33,11 @@ if [[ "$ROUTE" != "true" ]]; then
   exit 0
 fi
 
-# Auto-detect the gateway (name + namespace) when not given. Mirrors expose.sh:
-# enterprise-kgateway → kgw/kgateway-system; else agw/agentgateway-system.
+# Auto-detect the gateway (name + namespace) when not given. Edition-aware via gateway.sh
+# (enterprise-* or community GatewayClass → kgw/kgateway-system or agw/agentgateway-system).
 if [[ -z "$GATEWAY" || -z "$GATEWAY_NS" ]]; then
-  classes="$(kubectl --context "$CONTEXT" get gatewayclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
-  has_agw=false; has_kgw=false
-  [[ "$classes" == *enterprise-agentgateway* ]] && has_agw=true
-  [[ "$classes" == *enterprise-kgateway* ]]     && has_kgw=true
-  if $has_kgw && ! $has_agw; then _GW=kgw; _GWNS=kgateway-system
+  product="$(solomog_detect_product "$(solomog_gateway_classes "$CONTEXT")")"
+  if [[ "$product" == kgateway ]]; then _GW=kgw; _GWNS=kgateway-system
   else _GW=agw; _GWNS=agentgateway-system; fi
   GATEWAY="${GATEWAY:-$_GW}"
   GATEWAY_NS="${GATEWAY_NS:-$_GWNS}"

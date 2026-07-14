@@ -23,7 +23,7 @@ helm_repo_kgateway: "us-docker.pkg.dev/solo-public/enterprise-kgateway/charts"
 # Verified: https://docs.solo.io/gateway/1.21.x/quickstart/
 helm_repo_gloo_gateway: "https://storage.googleapis.com/gloo-ee-helm"
 
-# Enterprise agentgateway (2.3.x) — OCI registry.
+# Enterprise agentgateway — OCI registry (CalVer default in versions.env).
 # Charts: enterprise-agentgateway-crds, enterprise-agentgateway. Namespace: agentgateway-system.
 # Verified: https://docs.solo.io/agentgateway/2.3.x/install/helm/
 helm_repo_agentgateway: "us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts"
