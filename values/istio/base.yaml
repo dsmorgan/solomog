@@ -2,7 +2,9 @@
 # Per-scenario overrides live in ambient/values.yaml and sidecar/values.yaml.
 
 global:
-  # meshID and clusterName are overridden per release in multi-cluster helmfiles.
+  # Single-cluster defaults. Community multi-cluster (mesh.sh) overlays
+  # global.network + global.multiCluster.clusterName from SOLO_NETWORK / SOLO_CLUSTER
+  # in helmfiles/products/istio.yaml.gotmpl — do not hardcode cluster-one here for mesh.
   meshID: mesh1
   network: network1
   multiCluster:

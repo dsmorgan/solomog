@@ -39,8 +39,8 @@ These combine freely and are the core mental model:
      ns `kgateway-system`, license `licensing.licenseKey`) / upstream kgateway in community.
    - `gloo-gateway` = **Gloo Gateway** (gloo-ee/gloo 1.21.x, classic Helm repos, ns `gloo-system`,
      license top-level `license_key`). A *different product* from kgateway — do not merge them.
-   - `agentgateway` = **enterprise agentgateway** (2.3.x, OCI charts `enterprise-agentgateway[-crds]`,
-     ns `agentgateway-system`, license `licensing.licenseKey`).
+   - `agentgateway` = **enterprise agentgateway** (CalVer OCI charts `enterprise-agentgateway[-crds]`,
+     ns `agentgateway-system`, license `licensing.licenseKey`). Community uses a separate OSS line.
    - `gloo-mesh` = optional Gloo Mesh Enterprise mgmt plane. Repo unverified (TODO); not used
      by any default scenario. Distinct from the Gloo Operator above.
 2. **Edition** — `enterprise` (default) or `community`. A helmfile *environment*.
@@ -126,14 +126,15 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   layer: it creates the `Gateway` (http:8080 + https:443/TLS), an mkcert TLS secret, and
   writes the vcluster LoadBalancer IP into `/etc/hosts` (sudo). vcluster auto-provisions
   the LB as an haproxy container (`vcluster.lb.<cluster>.<gw>.<ns>`) and the Gateway's
-  `status.addresses[0].value` is the reachable IP. `PRODUCT` seeds the defaults:
-  `agentgateway` → gw `agw` / ns `agentgateway-system` / class `enterprise-agentgateway`;
-  `kgateway` → gw `kgw` / ns `kgateway-system` / class `enterprise-kgateway`.
-  When `PRODUCT` is unset, expose.sh **auto-detects** it from the cluster's GatewayClasses
-  (`enterprise-kgateway` → kgateway, `enterprise-agentgateway` → agentgateway; both/neither
-  → agentgateway). The Taskfile must therefore pass `PRODUCT` empty (not a default) so the
-  script can detect. NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY`
-  default is `agw` (the agentgateway apps route there) — keep it in sync with the gw name.
+  `status.addresses[0].value` is the reachable IP. `PRODUCT` seeds name/ns defaults:
+  `agentgateway` → gw `agw` / ns `agentgateway-system`; `kgateway` → gw `kgw` /
+  ns `kgateway-system`. `CLASS` is resolved from the GatewayClass on the cluster
+  (edition-aware: `enterprise-*` or community `agentgateway`/`kgateway`) via
+  [scripts/lib/gateway.sh](scripts/lib/gateway.sh). When `PRODUCT` is unset, expose.sh
+  **auto-detects** it the same way (both/neither → agentgateway). The Taskfile must
+  therefore pass `PRODUCT` empty (not a default) so the script can detect.
+  NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY` default is `agw`
+  (the agentgateway apps route there) — keep it in sync with the gw name.
   Hostname defaults to `<NAME>.<CLUSTER>.test` — always use **`.test`** (RFC 6761), never
   `.local` (mDNS/Bonjour collision → slow resolution); the cluster component keeps the host
   unique across clusters.
@@ -379,18 +380,19 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
     charts (istio-release), ambient profile, ~1.26.x.
   - `kgateway` — enterprise 2.2.x (`us-docker.pkg.dev/.../enterprise-kgateway`);
     community 2.3.x (`cr.kgateway.dev/kgateway-dev/charts`).
-  - `agentgateway` — enterprise 2.3.x (`.../enterprise-agentgateway`); community
+  - `agentgateway` — enterprise CalVer line (`.../enterprise-agentgateway`); community
     1.3.x (`cr.agentgateway.dev/charts`). Both editions ship a `-crds` chart.
-    **Enterprise pin is deliberate: v2.3.x is the latest STABLE quarterly release
-    (production-recommended). Do NOT bump to the newer CalVer builds (v2026.x) — those
-    are NON-STABLE (test/dev). Solo is mid-transition SemVer→CalVer; solomog mirrors
-    customer PRODUCTION envs, so it tracks the stable line even though CalVer is
-    numerically newer.** ([docs](https://docs.solo.io/agentgateway/2.3.x/reference/versions/#supported-versions))
-    Consequence: the `EnterpriseAgentgatewayBackend` CEL rules differ by line — v2026.x
+    **CalVer is Solo's direction of travel for agentgateway (and increasingly other
+    products) — a naming scheme, not an LTS/"latest"/unstable channel by itself.**
+    Channel/support window is documented separately; solomog's default
+    `AGENTGATEWAY_VERSION` tracks the CalVer feature set used by active PoVs. Older
+    SemVer pins (e.g. v2.3.x) remain available for customer-env mirroring.
+    ([docs](https://docs.solo.io/agentgateway/2.3.x/reference/versions/#supported-versions))
+    Consequence: the `EnterpriseAgentgatewayBackend` CEL rules differ by line — CalVer
     lets a `policies` block hold just `auth`, but on 2.3.x `policies` must also include a
-    non-empty `policies.ai`. Solo workshops are written for the CalVer builds, so their
-    AI-backend manifests need a `policies.ai` added to validate on 2.3.x (this is why the
-    `bundles/llmroute` backends carry `modelAliases`/`promptCaching`). See versions.env.
+    non-empty `policies.ai`. Solo workshops written for CalVer may need a `policies.ai`
+    added to validate on 2.3.x (this is why the `bundles/llmroute` backends carry
+    `modelAliases`/`promptCaching`). See versions.env.
   - `gloo-gateway` — 1.21.x (classic Helm repos).
   - `management` (Solo UI add-on) — 0.4.5, `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts`
     (verified: docs.solo.io/agentgateway/2.3.x/install/ui/setup/). `kube-prometheus-stack` 80.4.2

@@ -42,6 +42,7 @@ releases:
     values:
       - relay:
           serverAddress: "gloo-mesh-mgmt-server.gloo-mesh.svc:9900"
+          # TODO: hardcodes cluster identity — should use SOLO_CLUSTER (or similar) like istio.
           cluster: solomog-cluster
 {{ else }}
 # community mode: Gloo Mesh Enterprise is not available — nothing to install.
