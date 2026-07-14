@@ -7,19 +7,21 @@ set -euo pipefail
 #
 # Source: fe-enterprise-agentgateway-workshop/openapi-to-mcp-in-cluster.md
 #
-# ROUTING IS INTENTIONALLY OMITTED: the workshop's HTTPRoute (path /mcp on the
-# agentgateway-proxy Gateway) is NOT applied here — routing is handled separately
-# (the /mcp path is shared across the MCP labs and needs coordination).
+# Routing is opt-in via ROUTE=true (HTTPRoute at ROUTE_PATH, default /mcp). The
+# backend itself is always created; leave ROUTE unset/false to deploy without a
+# route (handy when coordinating a shared /mcp path across MCP labs).
 #
 # Requires ENTERPRISE agentgateway (EnterpriseAgentgatewayBackend CRD).
 # Install it first:  solomog agentgateway CLUSTER=<name>
 #
 # Usage: install-mcp-stripe.sh <kube-context>
+# Env:
+#   ROUTE        true|false (default false) — create the HTTPRoute
+#   ROUTE_PATH   path prefix (default /mcp)
+#   GATEWAY      gateway name (default agw)
 
 CONTEXT="${1:?Usage: install-mcp-stripe.sh <kube-context>}"
 
-# Routing is opt-in (ROUTE=true). When set, an HTTPRoute attaches this backend to
-# the gateway at ROUTE_PATH. The backend itself is always created.
 ROUTE="${ROUTE:-false}"
 ROUTE_PATH="${ROUTE_PATH:-/mcp}"
 GATEWAY="${GATEWAY:-agw}"

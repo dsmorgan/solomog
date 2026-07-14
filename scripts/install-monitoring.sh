@@ -19,7 +19,8 @@ set -euo pipefail
 #   GATEWAY     gateway to route through (default agw)
 #   GATEWAY_NS  gateway namespace (default agentgateway-system)
 #   EDITION     enterprise (default) — only selects a helmfile env; stack is OSS either way
-#   GRAFANA_ADMIN_PASSWORD  Grafana admin password (default prom-operator)
+#   GRAFANA_ADMIN_PASSWORD  Grafana admin password (default prom-operator).
+#                           Set in .env (or the process env) — not a Taskfile CLI var.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTEXT="${1:?Usage: install-monitoring.sh <kube-context>}"

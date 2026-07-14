@@ -91,7 +91,7 @@ solomog            # lists every available scenario
     upstream Istio Helm charts.
   - `kgateway` = **enterprise kgateway** (kgateway 2.2.x) / upstream kgateway in community.
   - `gloo-gateway` = **Gloo Gateway** (gloo-ee 1.21.x) — a *separate* product, not the same as kgateway.
-  - `agentgateway` = **enterprise agentgateway** (2.3.x) / OSS agentgateway (1.3.x) in community.
+  - `agentgateway` = **enterprise agentgateway** (CalVer default; override for SemVer customer pins) / OSS agentgateway in community.
   - `gloo-mesh` = optional **Gloo Mesh Enterprise** management plane (repo unverified — TODO).
 
   Enterprise and community use different registries and version lines; the right
@@ -132,7 +132,7 @@ solomog gloo-gateway EDITION=community
 
 ```bash
 solomog istio:ambient:multi-flat         # 2 clusters, shared (flat) network
-solomog istio:ambient:multi-gateway      # 2 clusters, multi-network (east-west: TODO)
+solomog istio:ambient:multi-gateway      # 2 clusters, multi-network (east-west wired)
 solomog istio:ambient:multi-3            # 3 clusters (supports mixed versions)
 # sidecar:* variants exist for each
 ```
@@ -168,8 +168,9 @@ solomog apps:mock-openai CLUSTER=a1 ROUTE=true ROUTE_PATH=/llm
 ```
 
 Without `ROUTE=true`, apps deploy their backend only (no route). `PRODUCT` seeds the
-gateway defaults — `agentgateway` → `agw`/`agentgateway-system`/`enterprise-agentgateway`,
-`kgateway` → `kgw`/`kgateway-system`/`enterprise-kgateway` — and `NAME`/`NAMESPACE`/`CLASS`/`HOST`/`SECRET`
+gateway name/namespace defaults — `agentgateway` → `agw`/`agentgateway-system`,
+`kgateway` → `kgw`/`kgateway-system` — and `CLASS` is resolved from the GatewayClass
+actually on the cluster (`enterprise-*` or the community short name). `NAME`/`NAMESPACE`/`CLASS`/`HOST`/`SECRET`
 are still individually overridable. **`PRODUCT` is auto-detected** from the cluster's
 GatewayClasses when not set, so `solomog expose CLUSTER=cluster-one` on a kgateway
 cluster picks `kgw` automatically (falls back to agentgateway if both/neither are present).
@@ -201,8 +202,8 @@ solomog monitoring expose ROUTE=true CLUSTER=a1
   in the chart (no separate `management-crds` step). **Enterprise only.**
 - **`monitoring`** is cross-cutting (not under a product) because one Prometheus/Grafana
   serves every product. It auto-detects installed products and loads their dashboards —
-  override with `DASHBOARDS="agentgateway"` or `DASHBOARDS=none`. Set a Grafana password
-  with `GRAFANA_ADMIN_PASSWORD=…`.
+  override with `DASHBOARDS="agentgateway"` or `DASHBOARDS=none`. Grafana password defaults
+  to `prom-operator`; override via `GRAFANA_ADMIN_PASSWORD` in `.env` if needed.
 - **Routing vs port-forward.** Both default to a port-forward (printed after install).
   Adding `ROUTE=true` (with `expose`) routes them host-based at `/` — the UIs each get
   their own host because the Solo UI (`/age/`) and Grafana both assume they own their

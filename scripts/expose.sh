@@ -7,13 +7,16 @@ set -euo pipefail
 #   1. Generates an mkcert TLS cert for HOST + *.HOST → a tls Secret.
 #   2. Creates a Gateway (http:8080 + https:443/TLS) of the given GatewayClass.
 #   3. Waits for the vcluster LoadBalancer (haproxy) to assign an address.
-#   4. Updates /etc/hosts so HOST + *.HOST resolve to that address (needs sudo).
+#   4. Updates /etc/hosts so HOST resolves to that address (needs sudo).
+#      (/etc/hosts has no wildcard support — only the bare HOST is written here;
+#       sub-hosts like ui.HOST are backfilled below / via route-host.sh.)
 #
 # PRODUCT picks sensible defaults for the gateway name, namespace, and class:
-#   agentgateway → agw / agentgateway-system / enterprise-agentgateway
-#   kgateway     → kgw / kgateway-system     / enterprise-kgateway
-# Any of NAME / NAMESPACE / CLASS / HOST / SECRET can still be overridden directly
-# (e.g. for istio, or community editions whose GatewayClass differs).
+#   agentgateway → agw / agentgateway-system / enterprise-agentgateway|agentgateway
+#   kgateway     → kgw / kgateway-system     / enterprise-kgateway|kgateway
+# CLASS is resolved from whatever GatewayClass is actually on the cluster
+# (edition-aware). Any of NAME / NAMESPACE / CLASS / HOST / SECRET can still be
+# overridden directly (e.g. for istio).
 #
 # Env:
 #   CLUSTER     cluster name (context vcluster-docker_<CLUSTER>); default cluster-one
@@ -22,7 +25,7 @@ set -euo pipefail
 #               cluster is the common case); falls back to agentgateway if ambiguous.
 #   NAME        Gateway name;        default per PRODUCT (agw / kgw)
 #   NAMESPACE   namespace;           default per PRODUCT
-#   CLASS       gatewayClassName;    default per PRODUCT
+#   CLASS       gatewayClassName;    default: detected enterprise-* or community name
 #   HOST        hostname for TLS+DNS; default <NAME>.<CLUSTER>.test
 #               (.test is RFC 6761 reserved for testing; .local is avoided because
 #                it collides with mDNS/Bonjour and resolves slowly. Including the
@@ -31,34 +34,41 @@ set -euo pipefail
 #   HTTP_PORT   HTTP listener port;  default 8080
 #   HTTPS_PORT  HTTPS listener port; default 443
 
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/gateway.sh
+source "$REPO_DIR/scripts/lib/gateway.sh"
+
 CLUSTER="${CLUSTER:-cluster-one}"
 CTX="vcluster-docker_${CLUSTER}"
 PRODUCT="${PRODUCT:-}"
 
+classes="$(solomog_gateway_classes "$CTX")"
+
 # Auto-detect PRODUCT from the cluster's GatewayClasses when not set explicitly.
-# (enterprise-kgateway / enterprise-agentgateway are distinct substrings, so the
-# *-waypoint classes don't cause false matches.)
 if [[ -z "$PRODUCT" ]]; then
-  classes="$(kubectl --context "$CTX" get gatewayclass -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)"
-  has_agw=false; has_kgw=false
-  [[ "$classes" == *enterprise-agentgateway* ]] && has_agw=true
-  [[ "$classes" == *enterprise-kgateway* ]]     && has_kgw=true
-  if   $has_kgw && ! $has_agw; then PRODUCT=kgateway
-    echo "==> Auto-detected PRODUCT=kgateway (enterprise-kgateway GatewayClass present)"
-  elif $has_agw && ! $has_kgw; then PRODUCT=agentgateway
-    echo "==> Auto-detected PRODUCT=agentgateway (enterprise-agentgateway GatewayClass present)"
-  elif $has_agw && $has_kgw; then PRODUCT=agentgateway
-    echo "==> Both gateway products detected — defaulting PRODUCT=agentgateway (pass PRODUCT=kgateway to override)"
-  else PRODUCT=agentgateway
-    echo "==> No known GatewayClass detected — defaulting PRODUCT=agentgateway (pass PRODUCT explicitly if wrong)"
-  fi
+  PRODUCT="$(solomog_detect_product "$classes")"
+  case "$PRODUCT" in
+    kgateway)
+      echo "==> Auto-detected PRODUCT=kgateway (kgateway GatewayClass present)"
+      ;;
+    agentgateway)
+      if [[ "$classes" == *agentgateway* && "$classes" == *kgateway* ]]; then
+        echo "==> Both gateway products detected — defaulting PRODUCT=agentgateway (pass PRODUCT=kgateway to override)"
+      elif [[ "$classes" == *agentgateway* ]]; then
+        echo "==> Auto-detected PRODUCT=agentgateway (agentgateway GatewayClass present)"
+      else
+        echo "==> No known GatewayClass detected — defaulting PRODUCT=agentgateway (pass PRODUCT explicitly if wrong)"
+      fi
+      ;;
+  esac
 fi
 
 case "$PRODUCT" in
-  agentgateway) _NAME=agw; _NS=agentgateway-system; _CLASS=enterprise-agentgateway ;;
-  kgateway)     _NAME=kgw; _NS=kgateway-system;     _CLASS=enterprise-kgateway ;;
-  *) _NAME=""; _NS=""; _CLASS="" ;;
+  agentgateway) _NAME=agw; _NS=agentgateway-system ;;
+  kgateway)     _NAME=kgw; _NS=kgateway-system ;;
+  *) _NAME=""; _NS="" ;;
 esac
+_CLASS="$(solomog_resolve_gateway_class "$PRODUCT" "$classes")"
 
 NAME="${NAME:-$_NAME}"
 NAMESPACE="${NAMESPACE:-$_NS}"
@@ -140,17 +150,17 @@ until [[ -n "$LB_IP" ]]; do
 done
 echo "    address: ${LB_IP}"
 
-# 4. /etc/hosts  (needs sudo)
+# 4. /etc/hosts  (needs sudo) — bare HOST only; wildcards are not supported.
 echo "==> Updating /etc/hosts (sudo)"
 sudo sed -i '' "/[[:space:]]${HOST}\$/d;/[[:space:]]${HOST}[[:space:]]/d" /etc/hosts 2>/dev/null || true
 echo "${LB_IP} ${HOST}" | sudo tee -a /etc/hosts >/dev/null
 
 # Backfill explicit entries for any sub-host routes already attached to this gateway
 # (e.g. ui.${HOST}, grafana.${HOST} from agentgateway:ui / monitoring with ROUTE=true).
-# /etc/hosts has no wildcard support, so the "*.${HOST}" line above does NOT cover
-# them — each needs its own line. This makes ordering not matter: route-host.sh adds
-# the entry when the gateway already exists, and expose backfills it when the route
-# was created first. Requires jq (already a solomog dependency).
+# /etc/hosts has no wildcard support, so each sub-host needs its own line. This makes
+# ordering not matter: route-host.sh adds the entry when the gateway already exists,
+# and expose backfills it when the route was created first. Requires jq (already a
+# solomog dependency).
 if command -v jq &>/dev/null; then
   SUBHOSTS="$(kubectl --context "$CTX" get httproute -A -o json 2>/dev/null \
     | jq -r --arg gw "$NAME" --arg suffix ".$HOST" '

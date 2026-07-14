@@ -110,6 +110,12 @@ releases:
     values:
       - ../../values/istio/base.yaml
       - ../../values/istio/{{ .Values.istio_mode }}/values.yaml
+      # Per-cluster identity (mesh.sh exports SOLO_CLUSTER / SOLO_NETWORK). Without this
+      # overlay every community cluster would keep base.yaml's cluster-one / network1.
+      - global:
+          network: '{{ env "SOLO_NETWORK" | default (env "SOLO_CLUSTER") | default "cluster-one" }}'
+          multiCluster:
+            clusterName: '{{ env "SOLO_CLUSTER" | default "cluster-one" }}'
 
 {{ if eq .Values.istio_mode "ambient" }}
   - name: istio-cni
