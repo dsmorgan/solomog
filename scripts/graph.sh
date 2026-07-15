@@ -151,8 +151,9 @@ DATA="$(jq -cn \
             | {data:{ id:("e:pod:"+.metadata.namespace+":"+.metadata.name),
                       source:("gateway:"+.metadata.namespace+"/"+$g), target:("pod:"+.metadata.namespace+"/"+.metadata.name), rel:"pod" }} ]
 
-        # ── HTTPRoute nodes + parentRef edges to their Gateway ──
-        + [ $rt[] | select([.spec.parentRefs[]?.name] | any(. as $p | $gwnames|index($p))) | {data:{
+        # ── HTTPRoute nodes (ALL — including ones not attached to a known Gateway, so
+        #    orphans surface) + parentRef edges (drawn only to Gateways that exist) ──
+        + [ $rt[] | {data:{
             id:("httproute:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"HTTPRoute", role:"route", ns:.metadata.namespace, name:.metadata.name,
             status:rstat, rtype:"httproute",
@@ -190,7 +191,7 @@ DATA="$(jq -cn \
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | .spec.targetRefs[]?
             | {data:{ id:("e:target:"+$pns+":"+$pn+":"+.kind+":"+.name), source:("policy:"+$pns+"/"+$pn),
-                      target:((if .kind=="Gateway" then "gateway:" elif .kind=="HTTPRoute" then "httproute:" else "unknown:" end)+$pns+"/"+.name),
+                      target:((if .kind=="Gateway" then "gateway:" elif .kind=="HTTPRoute" then "httproute:" elif (.kind|test("Backend")) then "backend:" else "unknown:" end)+$pns+"/"+.name),
                       rel:"targetRef" }} ]
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | [paths(scalars) as $p | select($p[-1]=="name" and ($p|index("backendRef"))) | getpath($p)][]
@@ -296,6 +297,7 @@ mkdir -p "$(dirname "$OUT")"
   #legend i.hex{clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)}
   #legend i.tag{clip-path:polygon(0 0,68% 0,100% 50%,68% 100%,0 100%)}
   #legend i.ring{background:transparent;border:2px solid #9fb0d0;border-radius:50%}
+  #legend i.ring.dash{border-style:dashed;border-radius:3px}
   #controls{position:fixed;left:12px;top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--dim);display:flex;gap:14px;align-items:center}
   #controls label{cursor:pointer;user-select:none} #controls input{vertical-align:middle;margin-right:5px}
   #controls button{background:transparent;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:12px}
@@ -335,6 +337,12 @@ HTMLHEAD
       // policies' kind is the CR kind (EnterpriseAgentgatewayPolicy / AgentgatewayPolicy),
       // not "Policy", so the kind→COLOR lookup misses — set their fill by role instead.
       {selector:'node[role="policy"]',style:{'shape':'hexagon','background-color':'#f78c6c'}},
+      // orphaned config (not reachable from any Gateway) + the anchor it clusters under
+      {selector:'node.orphan',style:{'border-color':'#ffb454','border-style':'dashed','border-width':3}},
+      {selector:'node[?isAnchor]',style:{'shape':'round-rectangle','background-color':'#ffb454','background-opacity':0.15,
+        'border-color':'#ffb454','border-width':1,'border-style':'dashed','width':18,'height':18,
+        'label':'data(label)','color':'#ffb454','font-size':11,'text-valign':'bottom','text-margin-y':4}},
+      {selector:'edge[rel="unattached"]',style:{'line-style':'dashed','line-color':'#7a5a2a','target-arrow-shape':'none','width':1}},
       {selector:'node:selected',style:{'border-color':'#fff','border-width':4}},
       {selector:'edge',style:{
         'label':'data(rel)','font-size':8,'color':'#8a97b0','text-background-color':'#0f1420','text-background-opacity':1,
@@ -351,9 +359,30 @@ HTMLHEAD
   // hidden group doesn't leave gaps. Called on load and after any show/hide.
   function relayout(){
     var vis=cy.elements(':visible');
-    vis.layout({name:'breadthfirst',directed:false,roots:cy.nodes('[kind="Gateway"]:visible'),
+    vis.layout({name:'breadthfirst',directed:false,
+      roots:cy.$('node[kind="Gateway"], node[?isAnchor]').filter(':visible'),
       spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
     cy.fit(vis,40);
+  }
+  // Orphan detection: config (route/backend/policy) not reachable from any Gateway is
+  // "unattached" — the applied-but-not-wired-in case. Flag it and cluster it under a
+  // labelled anchor so it's obvious instead of a lone node drifting at the edge.
+  function markOrphans(){
+    var reached={}, frontier=cy.nodes('[kind="Gateway"]').toArray();
+    frontier.forEach(function(g){reached[g.id()]=true;});
+    while(frontier.length){
+      frontier.pop().connectedEdges().connectedNodes().forEach(function(m){
+        if(!reached[m.id()]){reached[m.id()]=true;frontier.push(m);}
+      });
+    }
+    var orphans=cy.nodes().filter(function(n){
+      var k=n.data('kind');
+      return (k==='HTTPRoute'||k==='Backend'||n.data('role')==='policy') && !reached[n.id()];
+    });
+    if(!orphans.length) return;
+    orphans.addClass('orphan'); orphans.data('orphan',true);
+    cy.add({group:'nodes',data:{id:'__unattached',label:'⚠ unattached',isAnchor:true}});
+    orphans.forEach(function(n){cy.add({group:'edges',data:{id:'oe_'+n.id(),source:'__unattached',target:n.id(),rel:'unattached'}});});
   }
   // Toggle the auxiliary control-plane services (ext-auth / rate-limiter / waf). The core
   // control plane (enterprise-agentgateway) and the data-plane pod always stay.
@@ -384,6 +413,7 @@ HTMLHEAD
     var d=n.data(), det=d.detail||{}, s=d.status||'na';
     var h='<div class="k">'+esc(d.kind)+'</div><div class="name">'+esc(d.name)+'</div>';
     h+='<span class="badge '+s+'">'+(s==='ok'?'✓ active':s==='bad'?'✗ inactive':'—')+'</span>';
+    if(d.orphan) h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ unattached — not reachable from any Gateway (applied, but not wired in)</div>';
     h+='<table>'+row('namespace',esc(d.ns||'-'));
     Object.keys(det).forEach(function(k){
       var v=det[k]; if(Array.isArray(v)) v=v.length?v.map(esc).join('<br>'):'—';
@@ -428,7 +458,7 @@ HTMLHEAD
       navigator.clipboard.writeText(t).then(function(){done('copied ✓');},fallback);
     }else fallback();
   };
-  cy.on('tap','node',function(e){ render(e.target); });
+  cy.on('tap','node',function(e){ if(e.target.data('isAnchor'))return; render(e.target); });
   cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it.</div>';}});
   // legend — kinds shown with their canvas SHAPE + fill colour; then the plane grouping the
   // colours encode; then status as a ring (status is the node BORDER on canvas, not the fill).
@@ -443,10 +473,12 @@ HTMLHEAD
     +'<span>'+sw('rrect',COLOR.Deployment)+'control (Deployment)</span>'
     +'<span>'+sw('rrect',COLOR.GatewayClass)+'class</span>'
     +'<br><b style="color:#8a97b0">status (border):</b> '
-    +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>';
+    +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>'
+    +'<span><i class="ring dash" style="border-color:#ffb454"></i>unattached</span>';
   // controls
   document.getElementById('aux').addEventListener('change',function(e){applyAux(e.target.checked);relayout();});
   document.getElementById('relayout').addEventListener('click',relayout);
+  markOrphans();     // flag + cluster config not reachable from a Gateway
   applyAux(false);   // aux control-plane services hidden by default
   relayout();
   // deep-link: opening #<node-id> selects that node (shareable link to a resource's panel)
