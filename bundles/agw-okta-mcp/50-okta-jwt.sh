@@ -58,6 +58,9 @@ spec:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
       name: mcp
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: mcp2
   traffic:
     jwtAuthentication:
       mode: Strict
@@ -76,4 +79,4 @@ spec:
               cacheDuration: 5m
 EOF
 
-echo "✓ applied okta-jwks backend + okta-mcp-jwt policy — route 'mcp' now requires an Okta JWT"
+echo "✓ applied okta-jwks backend + okta-mcp-jwt policy — route 'mcp' and 'tools' now requires an Okta JWT"
