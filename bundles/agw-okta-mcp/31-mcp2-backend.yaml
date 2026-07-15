@@ -1,0 +1,13 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: mcp2-backend
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+    - name: mcp2-target
+      static:
+        host: mcp2-server.mcp.svc.cluster.local
+        port: 80
+        protocol: StreamableHTTP
