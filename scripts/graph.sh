@@ -212,6 +212,50 @@ DATA="$(printf '%s' "$DATA" | jq '
       (.data.source) as $s | (.data.target) as $t
       | select(($s|not) or (($ids|index($s)) and ($ids|index($t)))))')"
 
+# ── Per-node manifests → inlined YAML (raw + cleaned). We already fetched every object, so
+# map each node id to its full object, then render two YAML views: the raw manifest and a
+# cleaned one for copy/paste into a new cluster/bundle (kubectl-neat if installed, else a
+# built-in strip of server-managed fields). All done at generate time — no extra cluster calls.
+MANIFESTS="$(jq -n --argjson data "$DATA" --argjson gws "$GW" --argjson rts "$RT" --argjson gcs "$GC" \
+  --argjson deps "$DEPS" --argjson pods "$PODS" --argjson bes "$BE" --argjson pols "$POL" '
+  ($data.elements | map(select(.data.source|not) | .data)) as $nodes
+  | reduce $nodes[] as $n ({};
+      ($n.rtype) as $k | ($n.ns) as $ns | ($n.name) as $nm | ($n.id) as $id
+      | (( if   $k=="gateway"      then first($gws[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+           elif $k=="httproute"    then first($rts[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+           elif $k=="gatewayclass" then first($gcs[]|select(.metadata.name==$nm))
+           elif $k=="deploy"       then first($deps[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+           elif $k=="pod"          then first($pods[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+           elif ($k|test("backend")) then first($bes[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+           elif ($k|test("polic"))   then first($pols[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+           else null end ) // null ) as $obj
+      | if $obj != null then .[$id]=($obj | del(._rtype)) else . end)')"
+
+RAW_YAML="$(printf '%s' "$MANIFESTS" | ruby -ryaml -rjson -e 'h=JSON.parse(STDIN.read);print JSON.generate(h.transform_values{|v| YAML.dump(v)})' 2>/dev/null || echo '{}')"
+if command -v kubectl-neat >/dev/null 2>&1; then
+  CLEAN_BY="kubectl-neat"
+  CLEAN_YAML="{}"
+  while IFS= read -r id; do
+    [ -z "$id" ] && continue
+    cy="$(printf '%s' "$MANIFESTS" | jq -c --arg k "$id" '.[$k]' | kubectl-neat -f - -o yaml 2>/dev/null || true)"
+    CLEAN_YAML="$(printf '%s' "$CLEAN_YAML" | jq --arg k "$id" --arg v "$cy" '.[$k]=$v')"
+  done <<EOF
+$(printf '%s' "$MANIFESTS" | jq -r 'keys[]')
+EOF
+else
+  CLEAN_BY="built-in strip"
+  CLEAN_YAML="$(printf '%s' "$MANIFESTS" | jq '
+    def clean: del(.metadata.managedFields, .metadata.resourceVersion, .metadata.uid,
+      .metadata.generation, .metadata.creationTimestamp, .metadata.selfLink, .status,
+      .metadata.annotations."kubectl.kubernetes.io/last-applied-configuration")
+      | if ((.metadata.annotations // {}) | length)==0 then del(.metadata.annotations) else . end;
+    map_values(clean)' \
+    | ruby -ryaml -rjson -e 'h=JSON.parse(STDIN.read);print JSON.generate(h.transform_values{|v| YAML.dump(v)})' 2>/dev/null || echo '{}')"
+fi
+YAML_MAP="$(jq -n --argjson raw "$RAW_YAML" --argjson clean "$CLEAN_YAML" --arg by "$CLEAN_BY" '
+  reduce ($raw|keys[]) as $k ({}; .[$k]={raw:$raw[$k], clean:($clean[$k] // ""), cleanBy:$by})')"
+echo "    manifests embedded for $(printf '%s' "$YAML_MAP" | jq 'length') node(s)  (clean via ${CLEAN_BY})"
+
 # ── Assemble the self-contained HTML (vendored Cytoscape + inlined data + app). ─
 mkdir -p "$(dirname "$OUT")"
 {
@@ -234,6 +278,13 @@ mkdir -p "$(dirname "$OUT")"
   td.key{color:var(--dim);width:34%;padding-right:8px} pre{background:#0b0f18;border:1px solid var(--line);border-radius:6px;padding:10px;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
   button{background:var(--accent);color:#0b0f18;border:0;border-radius:6px;padding:6px 12px;font-weight:600;cursor:pointer}
   .hint{color:var(--dim);font-size:12px;margin-top:6px}
+  .tabs{display:flex;gap:6px;margin:14px 0 0;align-items:flex-end}
+  .tab{background:transparent;color:var(--dim);border:1px solid var(--line);border-bottom:0;border-radius:6px 6px 0 0;padding:4px 11px;font-size:12px;font-weight:600}
+  .tab.active{color:var(--txt);border-color:var(--accent)}
+  .tab.mini{margin-left:auto;border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-weight:400}
+  pre.yaml{margin-top:0;border-top-left-radius:0;max-height:48vh}
+  pre.yaml .yk{color:#82aaff} pre.yaml .ys{color:#c3e88d} pre.yaml .yn{color:#f78c6c}
+  pre.yaml .yc{color:#546178;font-style:italic} pre.yaml .yd{color:#8a97b0}
   #legend{position:fixed;left:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--dim)}
   #legend span{display:inline-block;margin-right:10px}
   #legend i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:middle;background:#9fb0d0}
@@ -259,6 +310,7 @@ HTMLHEAD
   cat "$CYTO"
   echo '</script><script>'
   printf 'window.SOLOMOG_DATA=%s;\n' "$DATA"
+  printf 'window.SOLOMOG_YAML=%s;\n' "$YAML_MAP"
   cat <<'APPJS'
 (function(){
   var D=window.SOLOMOG_DATA;
@@ -305,6 +357,26 @@ HTMLHEAD
   function applyAux(show){ var a=cy.nodes('[?aux]'); if(show){a.show();}else{a.hide();} }
   function esc(s){return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
   function row(k,v){return '<tr><td class="key">'+esc(k)+'</td><td>'+v+'</td></tr>';}
+  // Minimal, safe YAML syntax highlighter (best-effort colour; never breaks layout).
+  function hlYaml(s){
+    return esc(s).split('\n').map(function(l){
+      if(/^\s*#/.test(l)) return '<span class="yc">'+l+'</span>';
+      var m=l.match(/^(\s*)(- )?([^\s:][^:]*)(:)(\s*)(.*)$/);
+      if(m){
+        var v=m[6], vh='';
+        if(v!==''){
+          if(/^#/.test(v)) vh='<span class="yc">'+v+'</span>';
+          else if(/^(true|false|null|~|-?\d+(\.\d+)?)$/.test(v)) vh='<span class="yn">'+v+'</span>';
+          else vh='<span class="ys">'+v+'</span>';
+        }
+        return m[1]+(m[2]?'<span class="yd">- </span>':'')+'<span class="yk">'+m[3]+'</span>'+m[4]+m[5]+vh;
+      }
+      var li=l.match(/^(\s*)(- )(.*)$/);
+      if(li) return li[1]+'<span class="yd">- </span><span class="ys">'+li[3]+'</span>';
+      return l;
+    }).join('\n');
+  }
+  var CUR=null;  // current node's YAML {raw, clean, cleanBy}
   function render(n){
     var d=n.data(), det=d.detail||{}, s=d.status||'na';
     var h='<div class="k">'+esc(d.kind)+'</div><div class="name">'+esc(d.name)+'</div>';
@@ -317,18 +389,40 @@ HTMLHEAD
     });
     h+='</table>';
     h+='<div class="k">kubectl</div><pre id="kc">'+esc(d.kubectl)+'</pre>';
-    h+='<button onclick="solomogCopy()">Copy kubectl</button><div class="hint" id="cpm"></div>';
+    h+='<button onclick="solomogCopy(\'kc\')">Copy kubectl</button><div class="hint" id="cpm"></div>';
+    CUR=(window.SOLOMOG_YAML||{})[d.id]||null;
+    if(CUR){
+      h+='<div class="tabs">'
+        +'<button class="tab active" id="tab-clean" onclick="solomogTab(\'clean\')">clean</button>'
+        +'<button class="tab" id="tab-raw" onclick="solomogTab(\'raw\')">raw</button>'
+        +'<button class="tab mini" onclick="solomogCopy(\'yaml\')">copy YAML</button></div>';
+      h+='<pre class="yaml" id="yaml"></pre><div class="hint" id="ypm"></div>';
+    }
     document.getElementById('detail').innerHTML=h;
+    if(CUR) solomogTab('clean');
   }
-  window.solomogCopy=function(){
-    var t=document.getElementById('kc').innerText, m=document.getElementById('cpm');
+  window.solomogTab=function(which){
+    if(!CUR)return;
+    var txt=which==='raw'?CUR.raw:(CUR.clean||CUR.raw);
+    document.getElementById('yaml').innerHTML=hlYaml(txt||'(empty)');
+    var tc=document.getElementById('tab-clean'), tr=document.getElementById('tab-raw');
+    tc.className='tab'+(which==='clean'?' active':''); tr.className='tab'+(which==='raw'?' active':'');
+    document.getElementById('ypm').innerText = which==='clean'
+      ? (CUR.clean?('cleaned via '+CUR.cleanBy+' — ready to apply/bundle'):('clean unavailable — showing raw'))
+      : 'full manifest as fetched';
+  };
+  window.solomogCopy=function(id){
+    id=id||'kc';
+    var el=document.getElementById(id); if(!el)return;
+    var t=el.innerText, m=document.getElementById(id==='yaml'?'ypm':'cpm');
+    function done(msg){ if(m) m.innerText=msg; }
     function fallback(){  // works from file:// where navigator.clipboard may be unavailable
       try{var ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';
         document.body.appendChild(ta);ta.select();var ok=document.execCommand('copy');document.body.removeChild(ta);
-        m.innerText=ok?'copied ✓':'press ⌘C to copy';}catch(e){m.innerText='press ⌘C to copy';}
+        done(ok?'copied ✓':'press ⌘C to copy');}catch(e){done('press ⌘C to copy');}
     }
     if(navigator.clipboard&&navigator.clipboard.writeText){
-      navigator.clipboard.writeText(t).then(function(){m.innerText='copied ✓';},fallback);
+      navigator.clipboard.writeText(t).then(function(){done('copied ✓');},fallback);
     }else fallback();
   };
   cy.on('tap','node',function(e){ render(e.target); });
@@ -352,6 +446,9 @@ HTMLHEAD
   document.getElementById('relayout').addEventListener('click',relayout);
   applyAux(false);   // aux control-plane services hidden by default
   relayout();
+  // deep-link: opening #<node-id> selects that node (shareable link to a resource's panel)
+  function pickFromHash(){var id=decodeURIComponent((location.hash||'').slice(1));if(!id)return;var n=cy.getElementById(id);if(n&&n.length){render(n);n.select();}}
+  window.addEventListener('hashchange',pickFromHash); pickFromHash();
 })();
 APPJS
   echo '</script></body></html>'
