@@ -262,7 +262,9 @@ HTMLHEAD
       {selector:'node[kind="Deployment"]',style:{'shape':'round-rectangle'}},
       {selector:'node[kind="Backend"]',style:{'shape':'diamond','width':30,'height':30}},
       {selector:'node[kind="GatewayClass"]',style:{'shape':'round-tag','width':34,'height':26}},
-      {selector:'node[role="policy"]',style:{'shape':'hexagon'}},
+      // policies' kind is the CR kind (EnterpriseAgentgatewayPolicy / AgentgatewayPolicy),
+      // not "Policy", so the kind→COLOR lookup misses — set their fill by role instead.
+      {selector:'node[role="policy"]',style:{'shape':'hexagon','background-color':'#f78c6c'}},
       {selector:'node:selected',style:{'border-color':'#fff','border-width':4}},
       {selector:'edge',style:{
         'label':'data(rel)','font-size':8,'color':'#8a97b0','text-background-color':'#0f1420','text-background-opacity':1,
