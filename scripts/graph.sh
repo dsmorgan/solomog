@@ -72,6 +72,10 @@ DATA="$(jq -cn \
     ([.status.parents[]?.conditions[]?|select(.type=="Accepted").status]) as $a
     | ([.status.parents[]?.conditions[]?|select(.type=="ResolvedRefs").status]) as $r
     | if ($a|length)==0 then "na" elif (($a|all(.=="True")) and ($r|all(.=="True"))) then "ok" else "bad" end;
+  # Policies use the Gateway-API GEP-713 PolicyStatus shape: conditions live under
+  # .status.ancestors[].conditions[] (Accepted + Attached), NOT .status.conditions.
+  def pconds: [.status.ancestors[]?.conditions[]?];
+  def pstat: pconds as $c | if ($c|length)==0 then "na" elif ($c|any(.status!="True")) then "bad" else "ok" end;
 
   ($gw | map(select(.spec.gatewayClassName|test("agentgateway")))) as $gws
   | ($gws | map(.metadata.name)) as $gwnames
@@ -184,10 +188,11 @@ DATA="$(jq -cn \
         + [ $pol[] | {data:{
             id:("policy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:.kind, role:"policy", ns:.metadata.namespace, name:.metadata.name,
-            status:stat("Accepted"), rtype:._rtype,
+            status:pstat, rtype:._rtype,
             kubectl:("kubectl get "+._rtype+" "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ targets:[.spec.targetRefs[]?|(.kind+"/"+.name)],
-                     conditions:([.status.conditions[]?|(.type+"="+.status)] | if length==0 then ["(none reported by this CRD)"] else . end) } }} ]
+                     conditions:(( [pconds[] | .type+"="+.status+(if .status!="True" then " — "+(.reason//"")+": "+(.message//"") else "" end)] )
+                                 | if length==0 then ["(none reported)"] else . end) } }} ]
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | .spec.targetRefs[]?
             | {data:{ id:("e:target:"+$pns+":"+$pn+":"+.kind+":"+.name), source:("policy:"+$pns+"/"+$pn),
