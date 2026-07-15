@@ -85,7 +85,8 @@ DATA="$(jq -cn \
          | [paths(scalars) as $p | select($p[-1]=="name" and ($p|index("backendRef"))) | getpath($p)][]
          | {key:($pns+"/"+.), ns:$pns, name:., cr:false}),
        ($be[] | {key:(.metadata.namespace+"/"+.metadata.name), ns:.metadata.namespace, name:.metadata.name,
-                 cr:true, btype:((.spec|keys|map(select(.!="policies"))|first)//"?"), rtype:._rtype}) ]
+                 cr:true, btype:((.spec|keys|map(select(.!="policies"))|first)//"?"), rtype:._rtype,
+                 status:stat("Accepted"), conds:[.status.conditions[]?|(.type+"="+.status)]}) ]
      | group_by(.key) | map(add)) as $backends
 
   # control-plane deployments (enterprise-agentgateway + its sidecar services)
@@ -105,7 +106,8 @@ DATA="$(jq -cn \
             status:stat("Programmed"), rtype:"gateway",
             kubectl:("kubectl get gateway "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ class:.spec.gatewayClassName, address:(.status.addresses[0].value//"-"),
-                     listeners:[.spec.listeners[]|(.protocol+"/"+(.port|tostring)+" ("+(.hostname//"*")+")")] } }} ]
+                     listeners:[.spec.listeners[]|(.protocol+"/"+(.port|tostring)+" ("+(.hostname//"*")+")")],
+                     conditions:[.status.conditions[]?|(.type+"="+.status)] } }} ]
 
         # ── Control-plane deployment nodes (control plane) ──
         + [ $cp[] | {data:{
@@ -119,10 +121,13 @@ DATA="$(jq -cn \
 
         # ── GatewayClass node(s) + the real chain: ──
         #   Gateway --gatewayClassName--> GatewayClass --controllerName--> control plane --manages--> Gateway
-        + [ $classes[] as $cn | {data:{
+        + [ $classes[] as $cn | ($gc[]|select(.metadata.name==$cn)) as $gcx | {data:{
             id:("gatewayclass:"+$cn), label:$cn, kind:"GatewayClass", role:"class", name:$cn, ns:"(cluster-scoped)",
-            status:"na", rtype:"gatewayclass", kubectl:("kubectl get gatewayclass "+$cn+" -o yaml"),
-            detail:{ controllerName:(first($gc[]|select(.metadata.name==$cn)|.spec.controllerName)//"-") } }} ]
+            status:( [$gcx.status.conditions[]?|select(.type=="Accepted").status] as $c
+                     | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end ),
+            rtype:"gatewayclass", kubectl:("kubectl get gatewayclass "+$cn+" -o yaml"),
+            detail:{ controllerName:($gcx.spec.controllerName//"-"),
+                     conditions:[$gcx.status.conditions[]?|(.type+"="+.status)] } }} ]
         + [ $gws[] | {data:{
             id:("e:class:"+.metadata.namespace+":"+.metadata.name), source:("gateway:"+.metadata.namespace+"/"+.metadata.name),
             target:("gatewayclass:"+.spec.gatewayClassName), rel:"gatewayClassName" }} ]
@@ -153,7 +158,8 @@ DATA="$(jq -cn \
             status:rstat, rtype:"httproute",
             kubectl:("kubectl get httproute "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ hostnames:([.spec.hostnames[]?]|if length==0 then ["*"] else . end),
-                     paths:([.spec.rules[]?.matches[]?.path.value]|unique|map(select(.!=null))) } }} ]
+                     paths:([.spec.rules[]?.matches[]?.path.value]|unique|map(select(.!=null))),
+                     conditions:[.status.parents[]?.conditions[]?|(.type+"="+.status)] } }} ]
         + [ $rt[] | .metadata.namespace as $rns | .metadata.name as $rn
             | .spec.parentRefs[]? | select(.name as $p | $gwnames|index($p))
             | {data:{ id:("e:parent:"+$rns+":"+$rn+":"+.name), source:("httproute:"+$rns+"/"+$rn),
@@ -163,10 +169,11 @@ DATA="$(jq -cn \
         + [ $backends[] | {data:{
             id:("backend:"+.key), label:.name, kind:"Backend",
             role:(if .cr then "backend" else "external" end), ns:.ns, name:.name,
-            status:"na", rtype:(.rtype // "service"),
+            status:(.status // "na"), rtype:(.rtype // "service"),
             kubectl:(if .cr then ("kubectl get "+(.rtype)+" "+.name+" -n "+.ns+" -o yaml")
                      else ("kubectl get service "+.name+" -n "+.ns+" -o yaml  # or a backend CR") end),
-            detail:{ type:(.btype // "-"), declared:(if .cr then "CR" else "route ref (Service?)" end) } }} ]
+            detail:{ type:(.btype // "-"), declared:(if .cr then "CR" else "route ref (Service?)" end),
+                     conditions:(.conds // []) } }} ]
         + [ $rt[] | .metadata.namespace as $rns | .metadata.name as $rn
             | .spec.rules[]?.backendRefs[]?
             | {data:{ id:("e:be:"+$rns+":"+$rn+":"+.name), source:("httproute:"+$rns+"/"+$rn),
@@ -178,7 +185,8 @@ DATA="$(jq -cn \
             kind:.kind, role:"policy", ns:.metadata.namespace, name:.metadata.name,
             status:stat("Accepted"), rtype:._rtype,
             kubectl:("kubectl get "+._rtype+" "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
-            detail:{ targets:[.spec.targetRefs[]?|(.kind+"/"+.name)] } }} ]
+            detail:{ targets:[.spec.targetRefs[]?|(.kind+"/"+.name)],
+                     conditions:([.status.conditions[]?|(.type+"="+.status)] | if length==0 then ["(none reported by this CRD)"] else . end) } }} ]
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | .spec.targetRefs[]?
             | {data:{ id:("e:target:"+$pns+":"+$pn+":"+.kind+":"+.name), source:("policy:"+$pns+"/"+$pn),
