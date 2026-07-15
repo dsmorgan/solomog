@@ -100,7 +100,10 @@ tasks:
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
-      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
+      # Cluster-specific: defaults to the cluster's Solo UI host so it tracks CLUSTER (like
+      # OAUTH_ISSUER_HOST). Override in .env only for a non-default gateway/host. Inert unless
+      # TOKEN_EXCHANGE=true. Blank .env value → this derived default applies.
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
     preconditions:
@@ -459,7 +462,10 @@ tasks:
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
-      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
+      # Cluster-specific: defaults to the cluster's Solo UI host so it tracks CLUSTER (like
+      # OAUTH_ISSUER_HOST). Override in .env only for a non-default gateway/host. Inert unless
+      # TOKEN_EXCHANGE=true. Blank .env value → this derived default applies.
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
 
@@ -501,7 +507,10 @@ tasks:
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
-      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default ""}}'
+      # Cluster-specific: defaults to the cluster's Solo UI host so it tracks CLUSTER (like
+      # OAUTH_ISSUER_HOST). Override in .env only for a non-default gateway/host. Inert unless
+      # TOKEN_EXCHANGE=true. Blank .env value → this derived default applies.
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
       GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'  # empty → script default agentgateway-system
