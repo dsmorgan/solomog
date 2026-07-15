@@ -267,8 +267,10 @@ mkdir -p "$(dirname "$OUT")"
   :root{--bg:#0f1420;--panel:#171e2e;--line:#2a344a;--txt:#e6ebf5;--dim:#8a97b0;--accent:#7aa2ff}
   *{box-sizing:border-box} html,body{margin:0;height:100%;font:14px/1.45 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
   #wrap{display:flex;height:100vh}
-  #cy{flex:1;height:100%}
-  #side{width:380px;max-width:44vw;border-left:1px solid var(--line);background:var(--panel);padding:16px;overflow:auto}
+  #cy{flex:1;height:100%;min-width:0}
+  #grip{flex:0 0 6px;cursor:col-resize;background:var(--line);border-left:1px solid var(--bg)}
+  #grip:hover,#grip.drag{background:var(--accent)}
+  #side{flex:0 0 380px;min-width:300px;max-width:88vw;background:var(--panel);padding:16px;overflow:auto}
   h1{font-size:14px;margin:0 0 4px} .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
   .empty{color:var(--dim)} .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
   .name{font-size:16px;font-weight:600;margin:2px 0 8px;word-break:break-all}
@@ -282,7 +284,7 @@ mkdir -p "$(dirname "$OUT")"
   .tab{background:transparent;color:var(--dim);border:1px solid var(--line);border-bottom:0;border-radius:6px 6px 0 0;padding:4px 11px;font-size:12px;font-weight:600}
   .tab.active{color:var(--txt);border-color:var(--accent)}
   .tab.mini{margin-left:auto;border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-weight:400}
-  pre.yaml{margin-top:0;border-top-left-radius:0;max-height:48vh}
+  pre.yaml{margin-top:0;border-top-left-radius:0;max-height:48vh;white-space:pre;word-break:normal}
   pre.yaml .yk{color:#82aaff} pre.yaml .ys{color:#c3e88d} pre.yaml .yn{color:#f78c6c}
   pre.yaml .yc{color:#546178;font-style:italic} pre.yaml .yd{color:#8a97b0}
   #legend{position:fixed;left:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--dim)}
@@ -298,6 +300,7 @@ mkdir -p "$(dirname "$OUT")"
   #controls label{cursor:pointer;user-select:none} #controls input{vertical-align:middle;margin-right:5px}
   #controls button{background:transparent;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:12px}
 </style></head><body><div id="wrap"><div id="cy"></div>
+<div id="grip" title="drag to resize"></div>
 <div id="side"><h1>solomog graph</h1><div class="sub">cluster ${CLUSTER} · agentgateway (${EDITION})</div>
 <div id="detail"><div class="empty">Click a node to inspect it.</div></div></div></div>
 <div id="controls">
@@ -449,6 +452,15 @@ HTMLHEAD
   // deep-link: opening #<node-id> selects that node (shareable link to a resource's panel)
   function pickFromHash(){var id=decodeURIComponent((location.hash||'').slice(1));if(!id)return;var n=cy.getElementById(id);if(n&&n.length){render(n);n.select();}}
   window.addEventListener('hashchange',pickFromHash); pickFromHash();
+  // resizable side panel — drag the grip; cy re-fits its canvas to the new width
+  var grip=document.getElementById('grip'), side=document.getElementById('side'), dragging=false;
+  grip.addEventListener('mousedown',function(e){dragging=true;grip.classList.add('drag');document.body.style.userSelect='none';e.preventDefault();});
+  window.addEventListener('mousemove',function(e){
+    if(!dragging)return;
+    var w=Math.max(300,Math.min(window.innerWidth-e.clientX-3, window.innerWidth*0.88));
+    side.style.flexBasis=w+'px'; cy.resize();
+  });
+  window.addEventListener('mouseup',function(){if(dragging){dragging=false;grip.classList.remove('drag');document.body.style.userSelect='';cy.resize();}});
 })();
 APPJS
   echo '</script></body></html>'
