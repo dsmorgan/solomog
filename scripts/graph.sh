@@ -98,14 +98,10 @@ DATA="$(jq -cn \
   | {
       cluster:$cluster, edition:$edition, gateways:$gwnames,
       elements: (
-        # ── Plane compound boxes (data plane always; control plane iff its deploy exists) ──
-        [ {data:{id:"plane:data", label:"data plane", isPlane:true}} ]
-        + (if $hasCP then [ {data:{id:"plane:control", label:"control plane", isPlane:true}} ] else [] end)
-
         # ── Gateway nodes (data plane) ──
-        + [ $gws[] | {data:{
-            id:("gateway:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name, parent:"plane:data",
-            kind:"Gateway", role:"dataplane", ns:.metadata.namespace, name:.metadata.name,
+        [ $gws[] | {data:{
+            id:("gateway:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
+            kind:"Gateway", role:"dataplane", plane:"data", ns:.metadata.namespace, name:.metadata.name,
             status:stat("Programmed"), rtype:"gateway",
             kubectl:("kubectl get gateway "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ class:.spec.gatewayClassName, address:(.status.addresses[0].value//"-"),
@@ -113,8 +109,8 @@ DATA="$(jq -cn \
 
         # ── Control-plane deployment nodes (control plane) ──
         + [ $cp[] | {data:{
-            id:("deploy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name, parent:"plane:control",
-            kind:"Deployment", role:"controlplane", ns:.metadata.namespace, name:.metadata.name,
+            id:("deploy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
+            kind:"Deployment", role:"controlplane", plane:"control", ns:.metadata.namespace, name:.metadata.name,
             aux:(.metadata.name != "enterprise-agentgateway"),
             status:(if (.status.readyReplicas//0)==(.status.replicas//0) and (.status.replicas//0)>0 then "ok" else "bad" end),
             rtype:"deploy",
@@ -140,8 +136,8 @@ DATA="$(jq -cn \
 
         # ── Data-plane pod nodes (labelled with the gateway name) + edge ──
         + [ $pods[] | select(.metadata.labels["gateway.networking.k8s.io/gateway-name"] as $g | $g != null and ($gwnames|index($g))) | {data:{
-            id:("pod:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name, parent:"plane:data",
-            kind:"Pod", role:"dataplane", ns:.metadata.namespace, name:.metadata.name,
+            id:("pod:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
+            kind:"Pod", role:"dataplane", plane:"data", ns:.metadata.namespace, name:.metadata.name,
             status:(if .status.phase=="Running" then "ok" else "bad" end), rtype:"pod",
             kubectl:("kubectl get pod "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ phase:.status.phase, node:(.spec.nodeName//"-") } }} ]
@@ -246,17 +242,11 @@ mkdir -p "$(dirname "$OUT")"
 <script>
 HTMLHEAD
   cat "$CYTO"
-  # fcose layout extension (compound-aware, hierarchical-ish) + its deps, in load order.
-  cat "$REPO_DIR/scripts/lib/graph/layout-base.js" \
-      "$REPO_DIR/scripts/lib/graph/cose-base.js" \
-      "$REPO_DIR/scripts/lib/graph/cytoscape-fcose.js"
   echo '</script><script>'
   printf 'window.SOLOMOG_DATA=%s;\n' "$DATA"
   cat <<'APPJS'
 (function(){
   var D=window.SOLOMOG_DATA;
-  try{ if(window.cytoscapeFcose) cytoscape.use(window.cytoscapeFcose); }catch(e){}
-  var HAS_FCOSE=!!window.cytoscapeFcose;
   var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c',GatewayClass:'#80cbc4'};
   function statColor(s){return s==='ok'?'#3fe08f':s==='bad'?'#ff5f7a':'#4a5578';}
   var cy=cytoscape({
@@ -273,11 +263,6 @@ HTMLHEAD
       {selector:'node[kind="Backend"]',style:{'shape':'diamond','width':30,'height':30}},
       {selector:'node[kind="GatewayClass"]',style:{'shape':'round-tag','width':34,'height':26}},
       {selector:'node[role="policy"]',style:{'shape':'hexagon'}},
-      // plane compound boxes — labelled dashed containers grouping data vs control plane
-      {selector:'node[?isPlane]',style:{'background-color':'#8a97b0','background-opacity':0.05,
-        'border-width':1,'border-style':'dashed','border-color':'#4a5578','shape':'round-rectangle',
-        'label':'data(label)','text-valign':'top','text-halign':'center','text-margin-y':-4,
-        'font-size':11,'color':'#8a97b0','padding':18}},
       {selector:'node:selected',style:{'border-color':'#fff','border-width':4}},
       {selector:'edge',style:{
         'label':'data(rel)','font-size':8,'color':'#8a97b0','text-background-color':'#0f1420','text-background-opacity':1,
@@ -294,11 +279,8 @@ HTMLHEAD
   // hidden group doesn't leave gaps. Called on load and after any show/hide.
   function relayout(){
     var vis=cy.elements(':visible');
-    var opts=HAS_FCOSE
-      ? {name:'fcose',animate:false,quality:'proof',randomize:true,packComponents:true,
-         nodeSeparation:80,idealEdgeLength:70,nodeRepulsion:6500,gravity:0.3}
-      : {name:'cose',animate:false,padding:30,randomize:true,nodeRepulsion:9000,idealEdgeLength:80,nestingFactor:1.2};
-    vis.layout(opts).run();
+    vis.layout({name:'breadthfirst',directed:false,roots:cy.nodes('[kind="Gateway"]:visible'),
+      spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
     cy.fit(vis,40);
   }
   // Toggle the auxiliary control-plane services (ext-auth / rate-limiter / waf). The core
@@ -332,13 +314,17 @@ HTMLHEAD
       navigator.clipboard.writeText(t).then(function(){m.innerText='copied ✓';},fallback);
     }else fallback();
   };
-  cy.on('tap','node',function(e){ if(e.target.data('isPlane'))return; render(e.target); });
+  cy.on('tap','node',function(e){ render(e.target); });
   cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it.</div>';}});
-  // legend
+  // legend — kinds (by color), then the plane grouping the colors encode, then status
   var kinds=['Gateway','GatewayClass','Deployment','Pod','HTTPRoute','Backend','Policy'];
-  document.getElementById('legend').innerHTML=kinds.map(function(k){
-    return '<span><i style="background:'+(COLOR[k]||'#9fb0d0')+'"></i>'+k+'</span>';
-  }).join('')+'<br><span><i style="background:#3fe08f"></i>active</span><span><i style="background:#ff5f7a"></i>inactive</span>';
+  document.getElementById('legend').innerHTML=
+    kinds.map(function(k){return '<span><i style="background:'+(COLOR[k]||'#9fb0d0')+'"></i>'+k+'</span>';}).join('')
+    +'<br><b style="color:#8a97b0">planes:</b> '
+    +'<span><i style="background:'+COLOR.Gateway+'"></i>data (Gateway, Pod)</span>'
+    +'<span><i style="background:'+COLOR.Deployment+'"></i>control (Deployment)</span>'
+    +'<span><i style="background:'+COLOR.GatewayClass+'"></i>class</span>'
+    +'<br><span><i style="background:#3fe08f"></i>active</span><span><i style="background:#ff5f7a"></i>inactive</span>';
   // controls
   document.getElementById('aux').addEventListener('change',function(e){applyAux(e.target.checked);relayout();});
   document.getElementById('relayout').addEventListener('click',relayout);
