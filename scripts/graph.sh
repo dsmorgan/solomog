@@ -227,7 +227,14 @@ mkdir -p "$(dirname "$OUT")"
   button{background:var(--accent);color:#0b0f18;border:0;border-radius:6px;padding:6px 12px;font-weight:600;cursor:pointer}
   .hint{color:var(--dim);font-size:12px;margin-top:6px}
   #legend{position:fixed;left:12px;bottom:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;color:var(--dim)}
-  #legend span{display:inline-block;margin-right:10px} #legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:middle}
+  #legend span{display:inline-block;margin-right:10px}
+  #legend i{display:inline-block;width:11px;height:11px;margin-right:5px;vertical-align:middle;background:#9fb0d0}
+  #legend i.ellipse{border-radius:50%}
+  #legend i.rrect{border-radius:3px}
+  #legend i.diamond{width:9px;height:9px;transform:rotate(45deg)}
+  #legend i.hex{clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%)}
+  #legend i.tag{clip-path:polygon(0 0,68% 0,100% 50%,68% 100%,0 100%)}
+  #legend i.ring{background:transparent;border:2px solid #9fb0d0;border-radius:50%}
   #controls{position:fixed;left:12px;top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--dim);display:flex;gap:14px;align-items:center}
   #controls label{cursor:pointer;user-select:none} #controls input{vertical-align:middle;margin-right:5px}
   #controls button{background:transparent;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:12px}
@@ -318,15 +325,20 @@ HTMLHEAD
   };
   cy.on('tap','node',function(e){ render(e.target); });
   cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it.</div>';}});
-  // legend — kinds (by color), then the plane grouping the colors encode, then status
+  // legend — kinds shown with their canvas SHAPE + fill colour; then the plane grouping the
+  // colours encode; then status as a ring (status is the node BORDER on canvas, not the fill).
+  var SHAPE={Gateway:'rrect',GatewayClass:'tag',Deployment:'rrect',Pod:'ellipse',HTTPRoute:'ellipse',Backend:'diamond',Policy:'hex'};
+  function sw(shape,color){return '<i class="'+shape+'" style="background:'+color+'"></i>';}
+  function ring(color){return '<i class="ring" style="border-color:'+color+'"></i>';}
   var kinds=['Gateway','GatewayClass','Deployment','Pod','HTTPRoute','Backend','Policy'];
   document.getElementById('legend').innerHTML=
-    kinds.map(function(k){return '<span><i style="background:'+(COLOR[k]||'#9fb0d0')+'"></i>'+k+'</span>';}).join('')
+    kinds.map(function(k){return '<span>'+sw(SHAPE[k],COLOR[k]||'#9fb0d0')+k+'</span>';}).join('')
     +'<br><b style="color:#8a97b0">planes:</b> '
-    +'<span><i style="background:'+COLOR.Gateway+'"></i>data (Gateway, Pod)</span>'
-    +'<span><i style="background:'+COLOR.Deployment+'"></i>control (Deployment)</span>'
-    +'<span><i style="background:'+COLOR.GatewayClass+'"></i>class</span>'
-    +'<br><span><i style="background:#3fe08f"></i>active</span><span><i style="background:#ff5f7a"></i>inactive</span>';
+    +'<span>'+sw('rrect',COLOR.Gateway)+'data (Gateway, Pod)</span>'
+    +'<span>'+sw('rrect',COLOR.Deployment)+'control (Deployment)</span>'
+    +'<span>'+sw('rrect',COLOR.GatewayClass)+'class</span>'
+    +'<br><b style="color:#8a97b0">status (border):</b> '
+    +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>';
   // controls
   document.getElementById('aux').addEventListener('change',function(e){applyAux(e.target.checked);relayout();});
   document.getElementById('relayout').addEventListener('click',relayout);
