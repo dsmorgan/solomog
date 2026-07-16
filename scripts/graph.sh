@@ -235,7 +235,16 @@ MANIFESTS="$(jq -n --argjson data "$DATA" --argjson gws "$GW" --argjson rts "$RT
            elif ($k|test("backend")) then first($bes[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
            elif ($k|test("polic"))   then first($pols[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
            else null end ) // null ) as $obj
-      | if $obj != null then .[$id]=($obj | del(._rtype)) else . end)')"
+      # Drop kubectl'"'"'s last-applied-configuration bookkeeping annotation (a redundant
+      # serialized copy of the object). It'"'"'s huge noise and — because it'"'"'s stored with a
+      # trailing newline — YAML-serializes to a blank line + lone "'"'"'" that reads like a
+      # stray comma. Strip it from BOTH raw and clean (clean stripped it already); drop the
+      # annotations map entirely if it was the only key.
+      | if $obj != null then .[$id]=($obj
+            | del(._rtype)
+            | del(.metadata.annotations."kubectl.kubernetes.io/last-applied-configuration")
+            | if ((.metadata.annotations // {}) | length)==0 then del(.metadata.annotations) else . end)
+          else . end)')"
 
 RAW_YAML="$(printf '%s' "$MANIFESTS" | ruby -ryaml -rjson -e 'h=JSON.parse(STDIN.read);print JSON.generate(h.transform_values{|v| YAML.dump(v)})' 2>/dev/null || echo '{}')"
 if command -v kubectl-neat >/dev/null 2>&1; then
