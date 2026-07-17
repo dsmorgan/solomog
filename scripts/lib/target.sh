@@ -55,3 +55,13 @@ solomog_register_context() {   # args: <cluster> <context>
   printf '%s\t%s\n' "$1" "$2" >> "$reg"
   echo "==> registered cluster '$1' → context '$2' (.solomog/contexts)"
 }
+
+# Remove a cluster's registry entry (e.g. from eks:delete). No-op if absent.
+solomog_deregister_context() {   # args: <cluster>
+  local reg tmp; reg="$(_solomog_registry)"; tmp="${reg}.tmp"
+  [ -f "$reg" ] || return 0
+  grep -v -E "^$1[[:space:]]" "$reg" > "$tmp" 2>/dev/null || true
+  mv "$tmp" "$reg"
+  [ -s "$reg" ] || rm -f "$reg"
+  echo "==> deregistered cluster '$1' (.solomog/contexts)"
+}
