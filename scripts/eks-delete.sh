@@ -81,6 +81,29 @@ delete_lbs_in_vpc() {   # args: <vpc>
   done
 }
 
+# Delete the orphaned k8s-elb-* security groups the ELB left behind. An SG is a VPC-level
+# dependency, so a single leftover blocks the whole VPC delete (bit us once: the ELB and its ENIs
+# were already gone but the SG remained → stack DELETE_FAILED on [VPC]). The SG can only be deleted
+# after the ELB's ENIs drop, which lags the ELB delete by ~30-60s, so we retry on DependencyViolation.
+delete_elb_sgs_in_vpc() {   # args: <vpc>
+  local vpc="$1" sg tries err
+  [ -z "$vpc" ] && return 0
+  for sg in $(aws ec2 describe-security-groups --region "$REGION" \
+      --filters "Name=vpc-id,Values=$vpc" \
+      --query "SecurityGroups[?starts_with(GroupName,'k8s-elb-')].GroupId" --output text 2>/dev/null); do
+    for tries in 1 2 3 4 5 6; do
+      if err="$(aws ec2 delete-security-group --region "$REGION" --group-id "$sg" 2>&1)"; then
+        echo "    deleted orphaned ELB SG $sg"; break
+      fi
+      case "$err" in
+        *InvalidGroup.NotFound*) break ;;                        # already gone
+        *DependencyViolation*) echo "    SG $sg still referenced (ENIs draining), retry ${tries}/6..."; sleep 10 ;;
+        *) echo "    could not delete SG $sg: $err"; break ;;     # e.g. still in another SG's rules
+      esac
+    done
+  done
+}
+
 # 3. Wait until no load balancers remain in the VPC (ELB deletion is what frees the subnets).
 if [ -n "$VPC" ]; then
   echo "==> waiting for load balancers to drain from ${VPC}"
@@ -92,13 +115,20 @@ if [ -n "$VPC" ]; then
     [ "$c1" = "0" ] && [ "$c2" = "0" ] && { echo "    load balancers gone"; break; }
     echo "    still draining (elb=$c1 elbv2=$c2)... (${elapsed}s)"; sleep 15; elapsed=$((elapsed + 15))
   done
+  # ELBs gone — now clear the k8s-elb-* SGs they left behind (else the VPC delete fails).
+  echo "==> clearing orphaned k8s-elb-* security groups in ${VPC}"
+  delete_elb_sgs_in_vpc "$VPC"
 fi
 
 # 4. Delete the cluster. eksctl is the clean path (handles both CFN stacks + termination protection);
 #    if the control plane is already gone, fall back to deleting the eksctl-<name>-* stacks directly.
 echo "==> eksctl delete cluster ${CLUSTER_NAME}"
 if ! eksctl delete cluster --name "$CLUSTER_NAME" --region "$REGION" --disable-nodegroup-eviction 2>&1; then
-  echo "==> eksctl delete didn't complete — cleaning any leftover eksctl-${CLUSTER_NAME}-* CFN stacks directly"
+  echo "==> eksctl delete didn't complete — self-healing the orphan (LBs, ELB SGs, then CFN stacks)"
+  # Re-sweep LBs + ELB SGs directly, so the CFN VPC delete below isn't blocked by them.
+  delete_lbs_in_vpc "$VPC"
+  delete_elb_sgs_in_vpc "$VPC"
+  echo "==> cleaning any leftover eksctl-${CLUSTER_NAME}-* CFN stacks directly"
   for stack in $(aws cloudformation describe-stacks --region "$REGION" \
       --query "Stacks[?starts_with(StackName,'eksctl-${CLUSTER_NAME}-')].StackName" --output text 2>/dev/null); do
     echo "    stack ${stack}: disabling termination protection + deleting"
