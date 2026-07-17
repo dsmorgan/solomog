@@ -42,6 +42,9 @@ CLUSTER_NAME="${CTX##*/}"                      # arn:...:cluster/NAME → NAME
 REGION="${AWS_REGION:-}"
 if [ -z "$REGION" ]; then REGION="$(printf '%s' "$CTX" | cut -d: -f4)"; fi
 REGION="${REGION:-us-east-1}"
+# Export it so every `aws` call uses it. The task passes AWS_REGION="" (its `default ""`), and an
+# EMPTY AWS_REGION makes the CLI build "sts..amazonaws.com" (Invalid endpoint) — worse than unset.
+export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
 command -v aws    >/dev/null || { echo "Error: aws CLI not found." >&2; exit 1; }
 command -v eksctl >/dev/null || { echo "Error: eksctl not found (brew install eksctl)." >&2; exit 1; }
@@ -49,7 +52,8 @@ command -v eksctl >/dev/null || { echo "Error: eksctl not found (brew install ek
 echo "==> IRSA for proxy '${GW}' on ${CLUSTER_NAME} (${REGION}), context ${CTX}"
 
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)" \
-  || { echo "Error: no AWS creds in the shell — export AWS_PROFILE + eval export-credentials first." >&2; exit 1; }
+  || { echo "Error: 'aws sts get-caller-identity' failed — ensure AWS creds are in the shell" >&2;
+       echo "       (export AWS_PROFILE + eval \"\$(aws configure export-credentials --format env)\")." >&2; exit 1; }
 SA="$(kubectl --context "$CTX" -n "$NS" get deploy "$GW" -o jsonpath='{.spec.template.spec.serviceAccountName}')"
 : "${SA:?could not detect the proxy ServiceAccount from deploy/${GW}}"
 echo "    account=${ACCOUNT}  serviceAccount=${NS}/${SA}"
@@ -125,4 +129,7 @@ kubectl --context "$CTX" -n "$NS" rollout status  deploy/"$GW" --timeout=120s
 echo ""
 echo "✓ IRSA wired: ${NS}/${SA} → ${ROLE_ARN}"
 echo "  The proxy now signs to AgentCore with a keyless role — no more ≤12h cred expiry."
-echo "  Verify: kubectl --context $CTX -n $NS exec deploy/$GW -- env | grep AWS_  # expect AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE, no AWS_ACCESS_KEY_ID"
+echo "  (The bundle 05-/30- cred hooks are now unnecessary on this cluster.)"
+echo "  Verify (the proxy image is distroless, so read the pod spec, not \`exec env\`):"
+echo "    kubectl --context $CTX -n $NS get pods -o yaml | grep -E 'AWS_ROLE_ARN|AWS_WEB_IDENTITY|AWS_ACCESS_KEY_ID'"
+echo "    → expect AWS_ROLE_ARN + AWS_WEB_IDENTITY_TOKEN_FILE, and NO AWS_ACCESS_KEY_ID"
