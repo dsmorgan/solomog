@@ -804,6 +804,37 @@ tasks:
     cmds:
       - bash scripts/run.sh "Refresh AWS credentials" bash scripts/aws-refresh.sh
 
+  eks:create:
+    desc: "Create an EKS cluster (eksctl --with-oidc) + register its kube context. CLUSTER=<name> required. Run 'solomog help eks:create'."
+    summary: |
+      Provision the EKS cluster for the agentgateway EKS tier: `eksctl create cluster --with-oidc`
+      then `aws eks update-kubeconfig`, printing the kube CONTEXT to thread through the rest of the
+      flow (agentgateway → expose → apply → eks:irsa). Idempotent (skips create if the cluster
+      exists). Provisions REAL infra (~15-20 min, costs $). `--with-oidc` sets up the IAM OIDC
+      provider that eks:irsa needs.
+
+      Needs aws creds IN THE SHELL (export AWS_PROFILE + eval export-credentials) + eksctl.
+
+      Variables:
+        CLUSTER        EKS cluster NAME (required — no default; this makes a real cluster)
+        AWS_REGION     region                          default us-east-1
+        EKS_VERSION    Kubernetes version              default 1.31
+        EKS_NODES      managed node count              default 2
+        EKS_NODE_TYPE  instance type                   default m5.large
+
+      Example:
+        export AWS_PROFILE=AdministratorAccess-170015905430
+        eval "$(aws configure export-credentials --format env)"
+        solomog eks:create CLUSTER=dmorgan-agw
+    cmds:
+      - bash scripts/run.sh "Create EKS cluster {{.CLUSTER}}" bash scripts/eks-create.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      AWS_REGION: '{{.AWS_REGION | default ""}}'
+      EKS_VERSION: '{{.EKS_VERSION | default ""}}'
+      EKS_NODES: '{{.EKS_NODES | default ""}}'
+      EKS_NODE_TYPE: '{{.EKS_NODE_TYPE | default ""}}'
+
   eks:irsa:
     desc: "Give the agentgateway proxy a keyless AWS identity (IRSA) on an EKS CONTEXT — replaces the expiring env-injected creds. Run 'solomog help eks:irsa'."
     summary: |
