@@ -73,7 +73,7 @@ solomog_clock_reset
 
 # 1. Create the cluster — vind only. For an external target (CONTEXT set, e.g. EKS) the
 #    cluster already exists out-of-band; solomog installs onto it but never creates it.
-if solomog_is_external; then
+if solomog_is_external "$CLUSTER"; then
   solomog_step "External target ${CTX} — skipping cluster create (installing onto existing context)"
   if ! kubectl --context "$CTX" version -o json >/dev/null 2>&1; then
     echo "Error: kube context '${CTX}' is not reachable. Check: kubectl --context ${CTX} get ns" >&2

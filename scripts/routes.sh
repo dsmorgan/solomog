@@ -22,14 +22,15 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/gateway.sh
 . "$REPO_DIR/scripts/lib/gateway.sh"
+# shellcheck source=scripts/lib/target.sh
+. "$REPO_DIR/scripts/lib/target.sh"
 
 CLUSTER="${1:?Usage: routes.sh <cluster> [wide]}"
 WIDE="${2:-}"
-# CONTEXT override: set to an existing context (e.g. EKS) to inspect it instead of a vind cluster.
-# Unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
-CTX="${CONTEXT:-vcluster-docker_$CLUSTER}"
-# External target (CONTEXT set): CLUSTER is only a display label — derive from the context.
-[ -n "${CONTEXT:-}" ] && CLUSTER="${CTX##*/}"
+# Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
+CTX="$(solomog_context "$CLUSTER")"
+# External target: CLUSTER is only a display label — derive from the context.
+solomog_is_external "$CLUSTER" && CLUSTER="${CTX##*/}"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[32m'; RED=$'\033[31m'; B=$'\033[1m'; D=$'\033[2m'; C=$'\033[36m'; R=$'\033[0m'

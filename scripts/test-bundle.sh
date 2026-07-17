@@ -11,7 +11,8 @@ set -euo pipefail
 # Every run is captured under .solomog/test-runs/<BUNDLE>-<timestamp>/ (gitignored): one
 # <test>.log per test (output + exit code) plus a `summary`. Exits non-zero if any failed.
 #
-# Usage: test-bundle.sh <kube-context>
+# Usage: CLUSTER=<name> [CONTEXT=<override>] BUNDLE=<name> test-bundle.sh
+#   Context resolves from CLUSTER (registry/vind) or the CONTEXT override — see lib/target.sh.
 # Env:
 #   BUNDLE    (required) bundle name(s) whose tests/ to run. Space-separated for several
 #             bundles, run left-to-right (BUNDLE and BUNDLES are interchangeable, like
@@ -22,8 +23,10 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/ui.sh"
 source "$REPO_DIR/scripts/lib/gateway.sh"
-CONTEXT="${1:?Usage: test-bundle.sh <kube-context>}"
-CLUSTER="${CONTEXT#vcluster-docker_}"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+CLUSTER="${CLUSTER:-cluster-one}"
+CONTEXT="$(solomog_context "$CLUSTER")"   # CONTEXT override → registry (external) → vind default
 BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List with: solomog bundles:list}"
 # Auto-detect the gateway (agw/kgw) from the cluster, like expose — so $HOST matches the
 # cert expose minted. Override with GATEWAY=/HOST= for anything non-standard.
