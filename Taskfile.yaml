@@ -537,13 +537,19 @@ tasks:
       CLASS is edition-aware: prefers the GatewayClass actually on the cluster
       (enterprise-agentgateway|agentgateway, enterprise-kgateway|kgateway).
 
+      With CONTEXT set (external, e.g. EKS) it switches to the cloud path: a public
+      LoadBalancer with a self-signed cert minted for the LB's resolved hostname, and
+      NO /etc/hosts edit (the LB hostname is public DNS). The phase-4c agent trusts the
+      mkcert CA, which is why self-signed is fine.
+
       Variables:
         CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CONTEXT      external kube context (EKS); set → cloud path      default "" (vind)
         PRODUCT      agentgateway | kgateway                           auto-detected from GatewayClasses
         NAME         Gateway name                                      default per PRODUCT (agw / kgw)
         NAMESPACE    namespace                                         default per PRODUCT (agentgateway-system / kgateway-system)
         CLASS        gatewayClassName                                  default: detected (enterprise-* or community)
-        HOST         TLS + DNS hostname                                default <NAME>.<CLUSTER>.test
+        HOST         TLS + DNS hostname                                default <NAME>.<CLUSTER>.test (vind) / resolved LB hostname (external)
         SECRET       TLS secret name                                   default <NAME>-tls
         HTTP_PORT    HTTP listener port                                default 8080
         HTTPS_PORT   HTTPS listener port                               default 443
@@ -552,12 +558,14 @@ tasks:
         solomog expose CLUSTER=aaa
         solomog expose PRODUCT=kgateway CLUSTER=aaa
         solomog expose HTTP_PORT=9080 HTTPS_PORT=8443 CLUSTER=aaa
+        solomog expose CONTEXT=arn:aws:eks:us-east-1:...:cluster/dmorgan-agw   # external EKS
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Expose gateway → {{.CLUSTER}}" bash scripts/expose.sh
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CONTEXT: '{{.CONTEXT | default ""}}'   # set → external (EKS): public LB + self-signed TLS, no /etc/hosts
       PRODUCT: '{{.PRODUCT | default ""}}'
       NAME: '{{.NAME | default ""}}'
       NAMESPACE: '{{.NAMESPACE | default ""}}'
