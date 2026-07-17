@@ -35,8 +35,10 @@ TS="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo graph)"
 OUT="${OUT:-$REPO_DIR/.solomog/graph/${CLUSTER}-${TS}.html}"
 CYTO="$REPO_DIR/scripts/lib/graph/cytoscape.min.js"
 
-if ! kubectl --context "$CTX" get gatewayclass >/dev/null 2>&1; then
+if ! _probe="$(kubectl --context "$CTX" get gatewayclass 2>&1)"; then
   echo "Error: can't reach context '$CTX' (is cluster '$CLUSTER' up?)." >&2
+  echo "  kubectl said:" >&2
+  printf '%s\n' "$_probe" | sed 's/^/    /' >&2
   exit 1
 fi
 [ -f "$CYTO" ] || { echo "Error: vendored graph lib missing: $CYTO" >&2; exit 1; }
