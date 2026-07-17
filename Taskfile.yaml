@@ -837,6 +837,36 @@ tasks:
       EKS_NODES: '{{.EKS_NODES | default ""}}'
       EKS_NODE_TYPE: '{{.EKS_NODE_TYPE | default ""}}'
 
+  eks:delete:
+    desc: "Tear down an EKS cluster safely (delete Gateway/LB svcs first → eksctl delete → deregister). CLUSTER=<name> required. Run 'solomog help eks:delete'."
+    summary: |
+      Safely delete an EKS cluster solomog installed onto — the complement to eks:create. Deletes
+      the Gateways + LoadBalancer Services FIRST so AWS drops the ELBs (whose ENIs would otherwise
+      pin the subnets and fail the VPC delete → orphaned VPC → burned VPC-quota slot), waits for
+      them to drain, then `eksctl delete cluster`, then deregisters from .solomog/contexts. Also
+      self-heals orphans: deletes any LB left in the VPC, and if the control plane is already gone
+      deletes the eksctl-<name>-* CloudFormation stacks directly (disabling termination protection).
+      MUTATES AWS. EKS only.
+
+      Needs aws creds IN THE SHELL (export AWS_PROFILE + eval export-credentials) + eksctl.
+
+      Variables:
+        CLUSTER     registered EKS cluster name (required — no default; destructive)
+        AWS_REGION  region                          default: derived from the context ARN
+        GATEWAY     gateway name (default agw)       informational; all Gateways + LB svcs are removed
+
+      Example:
+        export AWS_PROFILE=AdministratorAccess-170015905430
+        eval "$(aws configure export-credentials --format env)"
+        solomog eks:delete CLUSTER=dmorgan-agw
+    cmds:
+      - bash scripts/run.sh "Delete EKS cluster {{.CLUSTER}}" bash scripts/eks-delete.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      CONTEXT: '{{.CONTEXT | default ""}}'
+      AWS_REGION: '{{.AWS_REGION | default ""}}'
+      GATEWAY: '{{.GATEWAY | default ""}}'
+
   eks:irsa:
     desc: "Give the agentgateway proxy a keyless AWS identity (IRSA) on an EKS CONTEXT — replaces the expiring env-injected creds. Run 'solomog help eks:irsa'."
     summary: |
