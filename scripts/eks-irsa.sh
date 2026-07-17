@@ -30,7 +30,7 @@ source "$REPO_DIR/scripts/lib/target.sh"
 
 CLUSTER="${CLUSTER:-cluster-one}"
 CTX="$(solomog_context "$CLUSTER")"
-if ! solomog_is_external; then
+if ! solomog_is_external "$CLUSTER"; then
   echo "Error: eks:irsa is for external EKS targets — set CONTEXT to the EKS kube context." >&2
   exit 1
 fi

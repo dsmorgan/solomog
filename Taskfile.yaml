@@ -636,12 +636,13 @@ tasks:
       # BUNDLE and BUNDLES are interchangeable (like CLUSTER/CLUSTERS); either may name
       # several bundles, applied left-to-right. apply-bundle.sh loops over the list.
       BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
-      # CONTEXT override: apply onto an existing external context (EKS) instead of vind.
-      # Empty/unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
-      CONTEXT: '{{.CONTEXT | default (printf "vcluster-docker_%s" .CLUSTER)}}'
     cmds:
-      - bash scripts/run.sh "Apply bundle(s) {{.BUNDLES}} → {{.CONTEXT}}" bash scripts/apply-bundle.sh {{.CONTEXT}}
+      - bash scripts/run.sh "Apply bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/apply-bundle.sh
     env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      # CONTEXT is an explicit override; unset → CLUSTER resolves via the registry (external,
+      # e.g. EKS) or the vind default. See scripts/lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default ""}}'
       BUNDLE: '{{.BUNDLES}}'
       DRY_RUN: '{{.DRY_RUN | default "false"}}'
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → apply-bundle.sh auto-detects agw/kgw
@@ -763,12 +764,13 @@ tasks:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
       # BUNDLE/BUNDLES interchangeable; either may name several bundles, tested in order.
       BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
-      # CONTEXT override: test against an existing external context (EKS) instead of vind.
-      # Empty/unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
-      CONTEXT: '{{.CONTEXT | default (printf "vcluster-docker_%s" .CLUSTER)}}'
     cmds:
-      - bash scripts/run.sh "Test bundle(s) {{.BUNDLES}} → {{.CONTEXT}}" bash scripts/test-bundle.sh {{.CONTEXT}}
+      - bash scripts/run.sh "Test bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/test-bundle.sh
     env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      # CONTEXT is an explicit override; unset → CLUSTER resolves via the registry (external)
+      # or the vind default. See scripts/lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default ""}}'
       BUNDLE: '{{.BUNDLES}}'
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → test-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'

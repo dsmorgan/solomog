@@ -19,6 +19,10 @@ set -euo pipefail
 # Prereqs: eksctl, aws CLI with creds IN THE SHELL (export AWS_PROFILE + eval export-credentials),
 # kubectl. One-time: `aws configure sso` if you haven't.
 
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+
 CLUSTER="${CLUSTER:-}"
 : "${CLUSTER:?set CLUSTER=<eks-cluster-name> — this provisions a real EKS cluster, so no default}"
 
@@ -55,10 +59,13 @@ echo "==> registering kube context"
 aws eks update-kubeconfig --name "$CLUSTER" --region "$REGION"
 CTX="arn:aws:eks:${REGION}:${ACCOUNT}:cluster/${CLUSTER}"
 
+# Record CLUSTER → CTX so the rest of solomog can just use CLUSTER=${CLUSTER} (no CONTEXT needed).
+solomog_register_context "$CLUSTER" "$CTX"
+
 echo ""
 echo "✓ EKS cluster ready — context: ${CTX}"
-echo "  Next (thread this CONTEXT through the flow):"
-echo "    solomog agentgateway CONTEXT=${CTX}"
-echo "    solomog expose       CONTEXT=${CTX}         # public LB + self-signed TLS"
-echo "    solomog apply BUNDLE=<bundle> CONTEXT=${CTX}"
-echo "    solomog eks:irsa     CONTEXT=${CTX}         # keyless AWS identity for the proxy"
+echo "  Registered — now just use CLUSTER=${CLUSTER} for the rest of the flow:"
+echo "    solomog agentgateway CLUSTER=${CLUSTER}"
+echo "    solomog eks:irsa     CLUSTER=${CLUSTER}      # keyless AWS identity for the proxy"
+echo "    solomog expose       CLUSTER=${CLUSTER}      # public LB + self-signed TLS"
+echo "    solomog apply BUNDLE=<bundle> CLUSTER=${CLUSTER}"

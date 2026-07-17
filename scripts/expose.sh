@@ -78,7 +78,7 @@ CLASS="${CLASS:-$_CLASS}"
 # vind: host is the local .test name (known up front). external (EKS): default the host to
 # the cloud LB's public hostname, which we only learn AFTER the Gateway's LB provisions — so
 # leave it empty here and resolve it below (unless the caller pinned a real DNS name via HOST).
-if solomog_is_external; then
+if solomog_is_external "$CLUSTER"; then
   HOST="${HOST:-}"
 else
   HOST="${HOST:-${NAME}.${CLUSTER}.test}"
@@ -152,7 +152,7 @@ wait_for_gateway_address() {   # args: <timeout-seconds>
 kubectl --context "$CTX" create namespace "$NAMESPACE" --dry-run=client -o yaml \
   | kubectl --context "$CTX" apply -f -
 
-if solomog_is_external; then
+if solomog_is_external "$CLUSTER"; then
   # ── EXTERNAL (cloud, e.g. EKS) ────────────────────────────────────────────
   # Public LB with self-signed TLS, no /etc/hosts. Two-pass: the cert must name the
   # LB's public hostname, which only exists once the Gateway's LB Service provisions.

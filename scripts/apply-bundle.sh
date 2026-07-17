@@ -40,7 +40,8 @@ set -euo pipefail
 # auto-prune is too easy to misfire). Stop-on-first-error (set -e) surfaces ordering
 # bugs (e.g. a CR before its CRD) immediately; fix and re-run.
 #
-# Usage: apply-bundle.sh <kube-context>
+# Usage: CLUSTER=<name> [CONTEXT=<override>] BUNDLE=<name> apply-bundle.sh
+#   Context resolves from CLUSTER (registry/vind) or the CONTEXT override — see lib/target.sh.
 # Env:
 #   BUNDLE    (required) bundle name(s) under bundles/ or bundles/private/. Space-separated
 #             for several bundles, applied left-to-right (BUNDLE and BUNDLES are interchangeable,
@@ -51,8 +52,10 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
-CONTEXT="${1:?Usage: apply-bundle.sh <kube-context>}"
-CLUSTER="${CONTEXT#vcluster-docker_}"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+CLUSTER="${CLUSTER:-cluster-one}"
+CONTEXT="$(solomog_context "$CLUSTER")"   # CONTEXT override → registry (external) → vind default
 BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List options with: solomog bundles:list}"
 DRY_RUN="${DRY_RUN:-false}"
 # Auto-detect the gateway (agw/kgw) so %%GATEWAY%%/%%HOST%% render correctly per cluster.

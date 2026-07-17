@@ -22,14 +22,15 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
 
 CLUSTER="${1:?Usage: graph.sh <cluster>}"
-# CONTEXT override: set to an existing context (e.g. EKS) to graph it instead of a vind cluster.
-# Unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
-CTX="${CONTEXT:-vcluster-docker_$CLUSTER}"
-# For an external target (CONTEXT set), CLUSTER is only a display label — derive a readable one
-# from the context (arn:...:cluster/NAME → NAME; plain context name → itself).
-[ -n "${CONTEXT:-}" ] && CLUSTER="${CTX##*/}"
+# Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
+CTX="$(solomog_context "$CLUSTER")"
+# For an external target, CLUSTER is only a display label — derive a readable one from the
+# context (arn:...:cluster/NAME → NAME; plain context name → itself).
+solomog_is_external "$CLUSTER" && CLUSTER="${CTX##*/}"
 SERVE="${SERVE:-false}"
 TS="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo graph)"
 OUT="${OUT:-$REPO_DIR/.solomog/graph/${CLUSTER}-${TS}.html}"
