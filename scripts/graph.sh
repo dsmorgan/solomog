@@ -24,7 +24,12 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
 
 CLUSTER="${1:?Usage: graph.sh <cluster>}"
-CTX="vcluster-docker_$CLUSTER"
+# CONTEXT override: set to an existing context (e.g. EKS) to graph it instead of a vind cluster.
+# Unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
+CTX="${CONTEXT:-vcluster-docker_$CLUSTER}"
+# For an external target (CONTEXT set), CLUSTER is only a display label — derive a readable one
+# from the context (arn:...:cluster/NAME → NAME; plain context name → itself).
+[ -n "${CONTEXT:-}" ] && CLUSTER="${CTX##*/}"
 SERVE="${SERVE:-false}"
 TS="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo graph)"
 OUT="${OUT:-$REPO_DIR/.solomog/graph/${CLUSTER}-${TS}.html}"

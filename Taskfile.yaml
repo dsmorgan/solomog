@@ -57,6 +57,10 @@ tasks:
       WIDE: '{{if eq (.WIDE | default "") "true"}}wide{{end}}'
     cmds:
       - bash scripts/routes.sh {{.CLUSTER}} {{.WIDE}}
+    env:
+      # CONTEXT override: inspect an existing external context (EKS) instead of vind.
+      # Empty → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default ""}}'
     silent: true
 
   # ─── Stack — compose any products on a single cluster ─────────────────────
@@ -92,6 +96,9 @@ tasks:
       - bash scripts/stack.sh {{.CLUSTER}} {{.PRODUCTS}}
     env:
       EDITION: '{{.EDITION}}'
+      # CONTEXT override: install onto an existing external context (EKS) instead of vind.
+      # Empty → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default ""}}'
       ISTIO_MODE: '{{.ISTIO_MODE}}'
       # TOKEN_EXCHANGE is CLI-only — no .env fallback — so it can never silently leak
       # into an unrelated cluster's install. See .env.example for why.
@@ -457,6 +464,9 @@ tasks:
       - bash scripts/stack.sh {{.CLUSTER}} agentgateway
     env:
       EDITION: '{{.EDITION}}'
+      # CONTEXT override: set to an existing kube context (e.g. EKS) to install onto it
+      # instead of a vind cluster. Empty → vind default vcluster-docker_<cluster>. See lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default ""}}'
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
@@ -618,8 +628,11 @@ tasks:
       # BUNDLE and BUNDLES are interchangeable (like CLUSTER/CLUSTERS); either may name
       # several bundles, applied left-to-right. apply-bundle.sh loops over the list.
       BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
+      # CONTEXT override: apply onto an existing external context (EKS) instead of vind.
+      # Empty/unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default (printf "vcluster-docker_%s" .CLUSTER)}}'
     cmds:
-      - bash scripts/run.sh "Apply bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/apply-bundle.sh vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Apply bundle(s) {{.BUNDLES}} → {{.CONTEXT}}" bash scripts/apply-bundle.sh {{.CONTEXT}}
     env:
       BUNDLE: '{{.BUNDLES}}'
       DRY_RUN: '{{.DRY_RUN | default "false"}}'
@@ -659,6 +672,9 @@ tasks:
     cmds:
       - bash scripts/run.sh "Graph agentgateway config → {{.CLUSTER}}" bash scripts/graph.sh {{.CLUSTER}}
     env:
+      # CONTEXT override: graph an existing external context (EKS) instead of vind.
+      # Empty → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default ""}}'
       OPEN: '{{.OPEN | default "true"}}'
       SERVE: '{{.SERVE | default "false"}}'
       OUT: '{{.OUT | default ""}}'
@@ -739,8 +755,11 @@ tasks:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
       # BUNDLE/BUNDLES interchangeable; either may name several bundles, tested in order.
       BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
+      # CONTEXT override: test against an existing external context (EKS) instead of vind.
+      # Empty/unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
+      CONTEXT: '{{.CONTEXT | default (printf "vcluster-docker_%s" .CLUSTER)}}'
     cmds:
-      - bash scripts/run.sh "Test bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/test-bundle.sh vcluster-docker_{{.CLUSTER}}
+      - bash scripts/run.sh "Test bundle(s) {{.BUNDLES}} → {{.CONTEXT}}" bash scripts/test-bundle.sh {{.CONTEXT}}
     env:
       BUNDLE: '{{.BUNDLES}}'
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → test-bundle.sh auto-detects agw/kgw
