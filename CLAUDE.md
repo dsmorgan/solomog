@@ -86,9 +86,16 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 
 ## Conventions
 
-- **kube context = `vcluster-docker_<cluster-name>`** everywhere (the docker
-  driver's naming). The Docker *network* is `vcluster.<name>` — different; only
-  networking.sh uses the network name.
+- **`CLUSTER` is the one knob; context resolution lives in [scripts/lib/target.sh](scripts/lib/target.sh).**
+  `solomog_context <cluster>` resolves: `CONTEXT` env override → the external registry
+  `.solomog/contexts` (a `<cluster>\t<context>` map that `eks:create` writes via
+  `solomog_register_context`) → the vind default **`vcluster-docker_<cluster-name>`** (the docker
+  driver's naming). So a registered external cluster (e.g. EKS `CLUSTER=dmorgan-agw`) is used
+  exactly like a vind one; `CONTEXT=` is only for an unregistered context. `solomog_is_external
+  <cluster>` is true when `CONTEXT` is set or the cluster is registered — solomog then only
+  installs onto it (never vind-create/teardown/networks it). New context-consuming scripts must
+  resolve via `solomog_context`, never hardcode `vcluster-docker_`. The Docker *network* is
+  `vcluster.<name>` — different; only networking.sh uses the network name.
 - **`CLUSTER` and `CLUSTERS` are interchangeable aliases** across all tasks. Single
   tasks resolve `{{.CLUSTER | default .CLUSTERS | default "<def>" | splitList " " | first}}`
   (first name); multi tasks resolve `{{.CLUSTERS | default .CLUSTER | default "<defs>"}}`
