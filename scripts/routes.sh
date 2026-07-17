@@ -25,7 +25,11 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 CLUSTER="${1:?Usage: routes.sh <cluster> [wide]}"
 WIDE="${2:-}"
-CTX="vcluster-docker_$CLUSTER"
+# CONTEXT override: set to an existing context (e.g. EKS) to inspect it instead of a vind cluster.
+# Unset → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
+CTX="${CONTEXT:-vcluster-docker_$CLUSTER}"
+# External target (CONTEXT set): CLUSTER is only a display label — derive from the context.
+[ -n "${CONTEXT:-}" ] && CLUSTER="${CTX##*/}"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[32m'; RED=$'\033[31m'; B=$'\033[1m'; D=$'\033[2m'; C=$'\033[36m'; R=$'\033[0m'

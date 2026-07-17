@@ -24,6 +24,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRODUCTS_DIR="$REPO_DIR/helmfiles/products"
 source "$REPO_DIR/scripts/lib/ui.sh"
+source "$REPO_DIR/scripts/lib/target.sh"
 
 EDITION="${EDITION:-enterprise}"
 
@@ -48,7 +49,7 @@ fi
 
 CLUSTER="$1"; shift
 REQUESTED=("$@")
-CTX="vcluster-docker_${CLUSTER}"
+CTX="$(solomog_context "$CLUSTER")"
 
 # Canonical install order — append new products here as modules are added.
 CANONICAL_ORDER=(istio gloo-mesh kgateway gloo-gateway agentgateway)
@@ -70,9 +71,18 @@ requested() {
 
 solomog_clock_reset
 
-# 1. Create the cluster
-solomog_step "Create cluster: ${CLUSTER}  (edition=${EDITION}, products=[${REQUESTED[*]}])"
-bash "$REPO_DIR/scripts/vind-create.sh" "$CLUSTER"
+# 1. Create the cluster — vind only. For an external target (CONTEXT set, e.g. EKS) the
+#    cluster already exists out-of-band; solomog installs onto it but never creates it.
+if solomog_is_external; then
+  solomog_step "External target ${CTX} — skipping cluster create (installing onto existing context)"
+  if ! kubectl --context "$CTX" version -o json >/dev/null 2>&1; then
+    echo "Error: kube context '${CTX}' is not reachable. Check: kubectl --context ${CTX} get ns" >&2
+    exit 1
+  fi
+else
+  solomog_step "Create cluster: ${CLUSTER}  (edition=${EDITION}, products=[${REQUESTED[*]}])"
+  bash "$REPO_DIR/scripts/vind-create.sh" "$CLUSTER"
+fi
 
 # 2. Generate shared Istio certs if any mesh product is in the stack
 if requested istio || requested gloo-mesh; then
