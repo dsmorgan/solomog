@@ -823,6 +823,7 @@ tasks:
         EKS_VERSION    Kubernetes version              pinned in versions.env (1.34); override per-run
         EKS_NODES      managed node count              default 2
         EKS_NODE_TYPE  instance type                   default m5.large
+        OWNER          owner=<val> tag (from .env)     default "solomog" — set to your email
 
       Example:
         export AWS_PROFILE=AdministratorAccess-170015905430
@@ -836,6 +837,7 @@ tasks:
       EKS_VERSION: '{{.EKS_VERSION | default ""}}'
       EKS_NODES: '{{.EKS_NODES | default ""}}'
       EKS_NODE_TYPE: '{{.EKS_NODE_TYPE | default ""}}'
+      OWNER: '{{.OWNER | default ""}}'
 
   eks:delete:
     desc: "Tear down an EKS cluster safely (delete Gateway/LB svcs first → eksctl delete → deregister). CLUSTER=<name> required. Run 'solomog help eks:delete'."

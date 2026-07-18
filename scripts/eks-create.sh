@@ -15,6 +15,7 @@ set -euo pipefail
 #   EKS_VERSION    Kubernetes version           pinned in versions.env (EKS_VERSION), fallback 1.34
 #   EKS_NODES      managed node count           default 2
 #   EKS_NODE_TYPE  instance type                default m5.large
+#   OWNER          owner tag value (from .env)  default "solomog" — attributes the cluster
 #
 # Prereqs: eksctl, aws CLI with creds IN THE SHELL (export AWS_PROFILE + eval export-credentials),
 # kubectl. One-time: `aws configure sso` if you haven't.
@@ -35,6 +36,7 @@ export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 VERSION="${EKS_VERSION:-1.34}"   # normally supplied from versions.env via the task env
 NODES="${EKS_NODES:-2}"
 NODE_TYPE="${EKS_NODE_TYPE:-m5.large}"
+OWNER="${OWNER:-solomog}"        # owner tag (from .env); attributes the cluster in a shared account
 
 command -v eksctl  >/dev/null || { echo "Error: eksctl not found (brew install eksctl)." >&2; exit 1; }
 command -v aws     >/dev/null || { echo "Error: aws CLI not found." >&2; exit 1; }
@@ -48,11 +50,16 @@ echo "==> EKS cluster '${CLUSTER}' in ${REGION} (account ${ACCOUNT}): k8s ${VERS
 
 if aws eks describe-cluster --name "$CLUSTER" --region "$REGION" >/dev/null 2>&1; then
   echo "    cluster already exists — skipping create, just (re)registering the context"
+  # Make sure the owner tag is present even on a pre-existing cluster.
+  CLUSTER_ARN="$(aws eks describe-cluster --name "$CLUSTER" --region "$REGION" --query 'cluster.arn' --output text)"
+  aws eks tag-resource --resource-arn "$CLUSTER_ARN" --tags "owner=${OWNER}" >/dev/null 2>&1 \
+    && echo "    tagged owner=${OWNER}" || echo "    (could not tag owner — check perms)"
 else
-  echo "==> eksctl create cluster (this takes ~15-20 min)"
+  echo "==> eksctl create cluster (this takes ~15-20 min), owner=${OWNER}"
   eksctl create cluster \
     --name "$CLUSTER" --region "$REGION" --version "$VERSION" \
-    --nodes "$NODES" --node-type "$NODE_TYPE" --managed --with-oidc
+    --nodes "$NODES" --node-type "$NODE_TYPE" --managed --with-oidc \
+    --tags "owner=${OWNER}"
 fi
 
 echo "==> registering kube context"
