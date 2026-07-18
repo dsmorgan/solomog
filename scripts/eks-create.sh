@@ -12,7 +12,7 @@ set -euo pipefail
 # Env:
 #   CLUSTER        EKS cluster NAME (required — no vind default here; this makes a real cluster)
 #   AWS_REGION     default us-east-1
-#   EKS_VERSION    Kubernetes version           default 1.31
+#   EKS_VERSION    Kubernetes version           pinned in versions.env (EKS_VERSION), fallback 1.34
 #   EKS_NODES      managed node count           default 2
 #   EKS_NODE_TYPE  instance type                default m5.large
 #
@@ -32,7 +32,7 @@ REGION="${AWS_REGION:-us-east-1}"
 [ -z "$REGION" ] && REGION="us-east-1"
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
-VERSION="${EKS_VERSION:-1.31}"
+VERSION="${EKS_VERSION:-1.34}"   # normally supplied from versions.env via the task env
 NODES="${EKS_NODES:-2}"
 NODE_TYPE="${EKS_NODE_TYPE:-m5.large}"
 
