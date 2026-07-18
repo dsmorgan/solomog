@@ -32,7 +32,19 @@ BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List with: solomog bundles:list}"
 # Auto-detect the gateway (agw/kgw) from the cluster, like expose — so $HOST matches the
 # cert expose minted. Override with GATEWAY=/HOST= for anything non-standard.
 GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
-HOST="${HOST:-${GATEWAY}.${CLUSTER}.test}"
+# HOST default differs by target: vind has an /etc/hosts entry (<gw>.<cluster>.test), but an
+# external (EKS) cluster has none — the reachable host is the Gateway's cloud LB address. (Detect
+# via the resolved CONTEXT: line 30 already reassigned it, so solomog_is_external would always be
+# true here — match the vind context prefix instead.)
+if [ -z "${HOST:-}" ]; then
+  case "$CONTEXT" in
+    vcluster-docker_*) HOST="${GATEWAY}.${CLUSTER}.test" ;;
+    *) HOST="$(kubectl --context "$CONTEXT" get gateways.gateway.networking.k8s.io -A \
+                 -o jsonpath="{.items[?(@.metadata.name=='$GATEWAY')].status.addresses[0].value}" 2>/dev/null || true)"
+       [ -n "$HOST" ] || { echo "Error: no LoadBalancer address for gateway '$GATEWAY' on $CONTEXT." >&2
+                           echo "       Expose it first: solomog expose CLUSTER=$CLUSTER" >&2; exit 1; } ;;
+  esac
+fi
 TS="$(date +%Y%m%d-%H%M%S)"
 
 # Run one bundle's tests, capturing to its own run dir. Echoes "<pass> <fail>" on stdout
