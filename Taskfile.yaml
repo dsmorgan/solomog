@@ -843,10 +843,11 @@ tasks:
       Safely delete an EKS cluster solomog installed onto — the complement to eks:create. Deletes
       the Gateways + LoadBalancer Services FIRST so AWS drops the ELBs (whose ENIs would otherwise
       pin the subnets and fail the VPC delete → orphaned VPC → burned VPC-quota slot), waits for
-      them to drain, then `eksctl delete cluster`, then deregisters from .solomog/contexts. Also
-      self-heals orphans: deletes any LB left in the VPC, and if the control plane is already gone
-      deletes the eksctl-<name>-* CloudFormation stacks directly (disabling termination protection).
-      MUTATES AWS. EKS only.
+      them to drain, then `eksctl delete cluster`, then deregisters from .solomog/contexts and
+      removes the ARN-named kubeconfig entries (eksctl skips those, so dead contexts used to linger
+      in kubectx). Also self-heals orphans: deletes any LB left in the VPC (and the k8s-elb-* SGs the
+      ELB leaves behind), and if the control plane is already gone deletes the eksctl-<name>-*
+      CloudFormation stacks directly (disabling termination protection). MUTATES AWS. EKS only.
 
       Needs aws creds IN THE SHELL (export AWS_PROFILE + eval export-credentials) + eksctl.
 
