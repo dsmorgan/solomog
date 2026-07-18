@@ -51,6 +51,17 @@ echo "==> IRSA for proxy '${GW}' on ${CLUSTER_NAME} (${REGION}), context ${CTX}"
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)" \
   || { echo "Error: 'aws sts get-caller-identity' failed — ensure AWS creds are in the shell" >&2;
        echo "       (export AWS_PROFILE + eval \"\$(aws configure export-credentials --format env)\")." >&2; exit 1; }
+# The proxy Deployment '$GW' is provisioned by the controller in response to a Gateway object —
+# it does NOT exist just from installing agentgateway. If it's missing, the Gateway hasn't been
+# created yet: run `solomog expose` first (agentgateway → expose → eks:irsa → apply).
+if ! kubectl --context "$CTX" -n "$NS" get deploy "$GW" >/dev/null 2>&1; then
+  echo "Error: proxy Deployment '${GW}' not found in ${NS}." >&2
+  echo "  The agentgateway install only lays down the controller + GatewayClass; the '${GW}' proxy" >&2
+  echo "  pod is created by the controller when a Gateway exists. Create it first, then re-run:" >&2
+  echo "        solomog expose   CLUSTER=${CLUSTER}     # creates Gateway/${GW} → provisions the proxy" >&2
+  echo "        solomog eks:irsa CLUSTER=${CLUSTER}" >&2
+  exit 1
+fi
 SA="$(kubectl --context "$CTX" -n "$NS" get deploy "$GW" -o jsonpath='{.spec.template.spec.serviceAccountName}')"
 : "${SA:?could not detect the proxy ServiceAccount from deploy/${GW}}"
 echo "    account=${ACCOUNT}  serviceAccount=${NS}/${SA}"
