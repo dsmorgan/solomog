@@ -144,7 +144,7 @@ wait_for_gateway_address() {   # args: <timeout-seconds>
       echo "       Check: kubectl --context $CTX get gateway $NAME -n $NAMESPACE" >&2
       exit 1
     fi
-    echo "    waiting... (${elapsed}s)"; sleep 5; elapsed=$((elapsed + 5))
+    echo "    waiting... (${elapsed}s)" >&2; sleep 5; elapsed=$((elapsed + 5))
   done
   printf '%s' "$addr"
 }
