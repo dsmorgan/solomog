@@ -46,6 +46,35 @@ solomog_is_external() {   # args: [<cluster>]
   return 1
 }
 
+# Comma-separated list of registered external cluster names (for error hints), or "(none)".
+_solomog_registry_list() {
+  local reg; reg="$(_solomog_registry)"
+  [ -f "$reg" ] || { printf '(none)'; return; }
+  awk '{printf "%s%s", sep, $1; sep=", "} END{ if (NR==0) printf "(none)" }' "$reg"
+}
+
+# Guard for EKS-only tasks: require an external target, with a CLUSTER-first error. Exits 1 if not.
+# CLUSTER is the primary knob; CONTEXT is only the escape hatch for an unregistered context — so the
+# error leads with CLUSTER and names eks:create (which creates AND registers), not "set CONTEXT".
+solomog_require_external() {   # args: <cluster> <task-label>
+  local cluster="${1:-}" task="${2:-this task}"
+  solomog_is_external "$cluster" && return 0
+  {
+    if [ -n "$cluster" ]; then
+      echo "Error: ${task} targets an external (e.g. EKS) cluster, but CLUSTER='${cluster}' isn't one."
+      echo "  • If you haven't created it with solomog yet:"
+      echo "        solomog eks:create CLUSTER=${cluster}          # creates it AND registers the context"
+      echo "  • If it already exists (created elsewhere), point at its kube context once:"
+      echo "        CONTEXT=<kube-context> solomog ${task} CLUSTER=${cluster}"
+    else
+      echo "Error: ${task} targets an external (e.g. EKS) cluster — set CLUSTER=<name>."
+      echo "  Use a cluster registered by eks:create, or CONTEXT=<kube-context> for an unregistered one."
+    fi
+    echo "  Registered external clusters: $(_solomog_registry_list)"
+  } >&2
+  exit 1
+}
+
 # Record a <cluster> → <context> mapping for an external target (e.g. from eks:create). Idempotent:
 # replaces any existing entry for that cluster.
 solomog_register_context() {   # args: <cluster> <context>
