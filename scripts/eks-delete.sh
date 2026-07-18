@@ -7,7 +7,8 @@ set -euo pipefail
 # k8s-elb-* SG) inside the cluster VPC. `eksctl delete cluster` does NOT clean those up, so the
 # ENIs pin the subnets and the VPC delete fails (stack DELETE_FAILED) → orphaned VPC → burns a
 # slot against the account VPC quota. So here we DELETE THE GATEWAYS / LB SERVICES FIRST, wait for
-# AWS to drop the ELBs, THEN eksctl delete — and finally deregister from .solomog/contexts.
+# AWS to drop the ELBs, THEN eksctl delete — then deregister from .solomog/contexts and remove the
+# ARN-named kubeconfig entries (the vcluster-style context cleanup eksctl skips for those).
 #
 # Also self-heals the orphan case: any load balancers still in the cluster's VPC are deleted, and
 # if eksctl can't run (control plane already gone) the eksctl-<name>-* CloudFormation stacks are
@@ -137,6 +138,20 @@ fi
 
 # 5. Deregister from the context registry.
 solomog_deregister_context "$CLUSTER"
+
+# 6. Clean the kubeconfig entries so the dead context stops showing up in kubectx/kubectl. `eksctl
+#    delete` removes its own <user>@<cluster>.<region>.eksctl.io context, but eks-create.sh ALSO runs
+#    `aws eks update-kubeconfig`, which adds the ARN-named context/cluster/user — and eksctl doesn't
+#    touch those, so a deleted cluster's ARN context lingered. (vcluster cleans up on delete; this is
+#    the EKS equivalent.) Keyed by the ARN for all three (that's how update-kubeconfig names them).
+echo "==> removing kubeconfig entries for the deleted cluster"
+if kubectl config delete-context "$CTX" >/dev/null 2>&1; then
+  echo "    deleted kube context ${CTX}"
+else
+  echo "    (kube context ${CTX} not present)"
+fi
+kubectl config delete-cluster "$CTX" >/dev/null 2>&1 || true
+kubectl config delete-user    "$CTX" >/dev/null 2>&1 || true
 
 echo ""
 echo "✓ teardown initiated for '${CLUSTER_NAME}'."
