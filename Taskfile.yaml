@@ -820,7 +820,7 @@ tasks:
       Variables:
         CLUSTER        EKS cluster NAME (required — no default; this makes a real cluster)
         AWS_REGION     region                          default us-east-1
-        EKS_VERSION    Kubernetes version              default 1.31
+        EKS_VERSION    Kubernetes version              pinned in versions.env (1.34); override per-run
         EKS_NODES      managed node count              default 2
         EKS_NODE_TYPE  instance type                   default m5.large
 
