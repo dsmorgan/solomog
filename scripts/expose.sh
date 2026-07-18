@@ -40,7 +40,8 @@ source "$REPO_DIR/scripts/lib/gateway.sh"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
 
-CLUSTER="${CLUSTER:-cluster-one}"
+CLUSTER="${CLUSTER:-}"
+solomog_require_cluster "$CLUSTER" expose
 CTX="$(solomog_context "$CLUSTER")"   # vind default, or CONTEXT verbatim when external (EKS)
 PRODUCT="${PRODUCT:-}"
 

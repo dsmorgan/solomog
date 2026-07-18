@@ -25,7 +25,8 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/target.sh
 . "$REPO_DIR/scripts/lib/target.sh"
 
-CLUSTER="${1:?Usage: routes.sh <cluster> [wide]}"
+CLUSTER="${1:-}"
+solomog_require_cluster "$CLUSTER" routes
 WIDE="${2:-}"
 # Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
 CTX="$(solomog_context "$CLUSTER")"

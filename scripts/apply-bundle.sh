@@ -54,7 +54,8 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
-CLUSTER="${CLUSTER:-cluster-one}"
+CLUSTER="${CLUSTER:-}"
+solomog_require_cluster "$CLUSTER" apply
 CONTEXT="$(solomog_context "$CLUSTER")"   # CONTEXT override → registry (external) → vind default
 BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List options with: solomog bundles:list}"
 DRY_RUN="${DRY_RUN:-false}"

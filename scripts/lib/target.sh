@@ -46,6 +46,22 @@ solomog_is_external() {   # args: [<cluster>]
   return 1
 }
 
+# Require a cluster target — no silent default. Pass the resolved cluster value (positional $1 or
+# env $CLUSTER); passes if that's non-empty OR CONTEXT is set. Fails gracefully otherwise. Catches
+# the common fat-fingers: omitting it entirely, or a lowercase `cluster=` (the task runner only sees
+# the capitalized CLUSTER, so lowercase is silently dropped → empty here).
+solomog_require_cluster() {   # args: <cluster-value> [<task-label>]
+  { [ -n "${1:-}" ] || [ -n "${CONTEXT:-}" ]; } && return 0
+  local task="${2:-this task}"
+  {
+    echo "Error: missing CLUSTER (or CONTEXT) for ${task}."
+    echo "  → set CLUSTER=<name>           e.g. CLUSTER=ea1"
+    echo "    or CONTEXT=<kube-context>    to target an unregistered external context"
+    echo "  (note: it's CLUSTER, capitalized — a lowercase 'cluster=' is ignored by the task runner.)"
+  } >&2
+  exit 1
+}
+
 # Comma-separated list of registered external cluster names (for error hints), or "(none)".
 _solomog_registry_list() {
   local reg; reg="$(_solomog_registry)"

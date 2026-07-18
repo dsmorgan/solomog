@@ -25,7 +25,8 @@ source "$REPO_DIR/scripts/lib/gateway.sh"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
 
-CLUSTER="${1:?Usage: graph.sh <cluster>}"
+CLUSTER="${1:-}"
+solomog_require_cluster "$CLUSTER" graph
 # Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
 CTX="$(solomog_context "$CLUSTER")"
 # For an external target, CLUSTER is only a display label — derive a readable one from the

@@ -45,7 +45,7 @@ tasks:
       changes nothing. Scope is agentgateway today (auto-detected).
 
       Variables:
-        CLUSTER   cluster to inspect (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster to inspect (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         WIDE      true to also show per-rule matchers/filters and the failure
                   reason for any non-active route                          default false
 
@@ -53,7 +53,7 @@ tasks:
         solomog routes CLUSTER=a8
         solomog routes CLUSTER=a8 WIDE=true
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       WIDE: '{{if eq (.WIDE | default "") "true"}}wide{{end}}'
     cmds:
       - bash scripts/routes.sh {{.CLUSTER}} {{.WIDE}}
@@ -68,7 +68,7 @@ tasks:
   # one cluster, in dependency order. Single-product tasks below are shortcuts.
 
   stack:
-    desc: 'Compose products on one cluster: PRODUCTS="istio kgateway" CLUSTER=cluster-one'
+    desc: 'Compose products on one cluster: PRODUCTS="istio kgateway" CLUSTER=<name> (required)'
     summary: |
       Create a cluster and install any combination of products onto it, in dependency
       order (istio → gloo-mesh → kgateway → gloo-gateway → agentgateway), regardless of
@@ -76,7 +76,7 @@ tasks:
 
       Variables:
         PRODUCTS     space-separated products to install (REQUIRED)   istio | gloo-mesh | kgateway | gloo-gateway | agentgateway
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)  default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)  REQUIRED — set CLUSTER (or CONTEXT)
         EDITION      enterprise | community                           default enterprise
         ISTIO_MODE   ambient | sidecar (only affects istio)           default ambient
         TOKEN_EXCHANGE   true to enable the agentgateway STS (only if PRODUCTS includes
@@ -89,7 +89,7 @@ tasks:
         solomog stack PRODUCTS="kgateway" EDITION=community CLUSTER=aaa
         solomog stack PRODUCTS="agentgateway" CLUSTER=aaa TOKEN_EXCHANGE=true
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       PRODUCTS: '{{.PRODUCTS}}'
       ISTIO_MODE: '{{.ISTIO_MODE | default "ambient"}}'
     cmds:
@@ -110,9 +110,9 @@ tasks:
       # Cluster-specific: defaults to the cluster's Solo UI host so it tracks CLUSTER (like
       # OAUTH_ISSUER_HOST). Override in .env only for a non-default gateway/host. Inert unless
       # TOKEN_EXCHANGE=true. Blank .env value → this derived default applies.
-      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
-      OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
+      OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
     preconditions:
       - sh: '[ -n "{{.PRODUCTS}}" ]'
         msg: 'Specify products, e.g. PRODUCTS="istio kgateway agentgateway"'
@@ -127,12 +127,12 @@ tasks:
       use istio:sidecar:single for sidecar).
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION   enterprise | community                            default enterprise
 
       See `solomog help stack` for the full product-install reference.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} istio
     env:
@@ -147,12 +147,12 @@ tasks:
       use istio:ambient:single for ambient).
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION   enterprise | community                            default enterprise
 
       See `solomog help stack` for the full product-install reference.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} istio
     env:
@@ -166,13 +166,13 @@ tasks:
       Shortcut for: stack PRODUCTS="istio gloo-mesh".
 
       Variables:
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION      enterprise | community                            default enterprise
         ISTIO_MODE   ambient | sidecar                                 default ambient
 
       See `solomog help stack` for the full product-install reference.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} istio gloo-mesh
     env:
@@ -384,12 +384,12 @@ tasks:
       Install kgateway on one cluster. Shortcut for: stack PRODUCTS="kgateway".
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION   enterprise | community                            default enterprise
 
       See `solomog help stack` for the full product-install reference.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} kgateway
     env:
@@ -402,12 +402,12 @@ tasks:
       stack PRODUCTS="istio kgateway" ISTIO_MODE=sidecar (mode fixed by this task).
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION   enterprise | community                            default enterprise
 
       See `solomog help stack` for the full product-install reference.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} istio kgateway
     env:
@@ -423,12 +423,12 @@ tasks:
       stack PRODUCTS="gloo-gateway". A distinct product from kgateway.
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION   enterprise | community                            default enterprise
 
       See `solomog help stack` for the full product-install reference.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} gloo-gateway
     env:
@@ -442,7 +442,7 @@ tasks:
       Install agentgateway on one cluster. Shortcut for: stack PRODUCTS="agentgateway".
 
       Variables:
-        CLUSTER          cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER          cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION          enterprise | community                            default enterprise
         TOKEN_EXCHANGE   true to enable the OBO token-exchange STS (and restart the agw
                          proxy). CLI-only — no .env fallback. default false.
@@ -459,7 +459,7 @@ tasks:
         solomog agentgateway CLUSTER=aaa
         solomog agentgateway CLUSTER=aaa TOKEN_EXCHANGE=true
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} agentgateway
     env:
@@ -475,7 +475,7 @@ tasks:
       # Cluster-specific: defaults to the cluster's Solo UI host so it tracks CLUSTER (like
       # OAUTH_ISSUER_HOST). Override in .env only for a non-default gateway/host. Inert unless
       # TOKEN_EXCHANGE=true. Blank .env value → this derived default applies.
-      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
 
@@ -486,7 +486,7 @@ tasks:
       (community is rejected). With ROUTE=true, also routes the UI at ui.<gw>.<cluster>.test.
 
       Variables:
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         ROUTE        true | false — route the UI on a sub-host          default false
         GATEWAY      gateway to target for tracing + routing            default agw
         GATEWAY_NS   gateway namespace                                  default agentgateway-system
@@ -504,7 +504,7 @@ tasks:
         solomog agentgateway:ui CLUSTER=aaa
         solomog agentgateway:ui expose ROUTE=true CLUSTER=aaa
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} agentgateway
       - bash scripts/run.sh "Install agentgateway UI → {{.CLUSTER}}" bash scripts/install-agentgateway-ui.sh vcluster-docker_{{.CLUSTER}}
@@ -520,7 +520,7 @@ tasks:
       # Cluster-specific: defaults to the cluster's Solo UI host so it tracks CLUSTER (like
       # OAUTH_ISSUER_HOST). Override in .env only for a non-default gateway/host. Inert unless
       # TOKEN_EXCHANGE=true. Blank .env value → this derived default applies.
-      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first))}}'
+      TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
       GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'  # empty → script default agentgateway-system
@@ -543,7 +543,7 @@ tasks:
       mkcert CA, which is why self-signed is fine.
 
       Variables:
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         CONTEXT      external kube context (EKS); set → cloud path      default "" (vind)
         PRODUCT      agentgateway | kgateway                           auto-detected from GatewayClasses
         NAME         Gateway name                                      default per PRODUCT (agw / kgw)
@@ -560,11 +560,11 @@ tasks:
         solomog expose HTTP_PORT=9080 HTTPS_PORT=8443 CLUSTER=aaa
         solomog expose CONTEXT=arn:aws:eks:us-east-1:...:cluster/dmorgan-agw   # external EKS
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Expose gateway → {{.CLUSTER}}" bash scripts/expose.sh
     env:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       CONTEXT: '{{.CONTEXT | default ""}}'   # set → external (EKS): public LB + self-signed TLS, no /etc/hosts
       PRODUCT: '{{.PRODUCT | default ""}}'
       NAME: '{{.NAME | default ""}}'
@@ -587,7 +587,7 @@ tasks:
       With ROUTE=true, routes Grafana at grafana.<gw>.<cluster>.test.
 
       Variables:
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         DASHBOARDS   auto | agentgateway | none                         default auto (detect)
         ROUTE        true | false — route Grafana on a sub-host         default false
         GATEWAY      gateway to route Grafana through                   default agw
@@ -598,7 +598,7 @@ tasks:
         solomog monitoring expose ROUTE=true CLUSTER=aaa
         solomog monitoring DASHBOARDS=none CLUSTER=aaa
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Install monitoring → {{.CLUSTER}}" bash scripts/install-monitoring.sh vcluster-docker_{{.CLUSTER}}
     env:
@@ -622,7 +622,7 @@ tasks:
       Variables:
         BUNDLE       bundle name(s) under bundles/ or bundles/private/ (REQUIRED)   see: solomog bundles:list
         BUNDLES      alias for BUNDLE; either may list several (space-separated), applied left-to-right
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)               default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)               REQUIRED — set CLUSTER (or CONTEXT)
         DRY_RUN      true | false — server-side dry-run, writes nothing             default false
         GATEWAY      gateway name for %%GATEWAY%% / %%HOST%%                         auto-detected agw/kgw
         HOST         host for %%HOST%%                                              default <GATEWAY>.<CLUSTER>.test
@@ -632,14 +632,14 @@ tasks:
         solomog apply BUNDLES="llmroute-vertex llmroute-bedrock" CLUSTER=aaa
         solomog apply BUNDLE=agw-dr CLUSTER=aaa DRY_RUN=true
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       # BUNDLE and BUNDLES are interchangeable (like CLUSTER/CLUSTERS); either may name
       # several bundles, applied left-to-right. apply-bundle.sh loops over the list.
       BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
     cmds:
       - bash scripts/run.sh "Apply bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/apply-bundle.sh
     env:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       # CONTEXT is an explicit override; unset → CLUSTER resolves via the registry (external,
       # e.g. EKS) or the vind default. See scripts/lib/target.sh.
       CONTEXT: '{{.CONTEXT | default ""}}'
@@ -666,7 +666,7 @@ tasks:
       that with Enter for a clean exit.
 
       Variables:
-        CLUSTER   cluster to graph (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster to graph (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         OPEN      true | false — open the file in a browser              default true
         SERVE     true — serve on a local port (Enter to stop) instead of opening the file
         OUT       output HTML path                default .solomog/graph/<cluster>-<ts>.html
@@ -677,7 +677,7 @@ tasks:
         solomog graph CLUSTER=a10 OPEN=false
         solomog graph CLUSTER=a10 SERVE=true
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Graph agentgateway config → {{.CLUSTER}}" bash scripts/graph.sh {{.CLUSTER}}
     env:
@@ -753,7 +753,7 @@ tasks:
       Variables:
         BUNDLE       bundle name(s) whose tests/ to run (REQUIRED)         see: solomog bundles:list
         BUNDLES      alias for BUNDLE; either may list several, run in order
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)       default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)       REQUIRED — set CLUSTER (or CONTEXT)
         GATEWAY      gateway name for the $HOST default                    auto-detected agw/kgw
         HOST         base host for curls in tests                          default <GATEWAY>.<CLUSTER>.test
 
@@ -761,13 +761,13 @@ tasks:
         solomog test BUNDLE=llmroute-bedrock CLUSTER=aaa
         solomog test BUNDLES="llmroute-vertex llmroute-bbr" CLUSTER=aaa
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       # BUNDLE/BUNDLES interchangeable; either may name several bundles, tested in order.
       BUNDLES: '{{.BUNDLES | default .BUNDLE}}'
     cmds:
       - bash scripts/run.sh "Test bundle(s) {{.BUNDLES}} → {{.CLUSTER}}" bash scripts/test-bundle.sh
     env:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       # CONTEXT is an explicit override; unset → CLUSTER resolves via the registry (external)
       # or the vind default. See scripts/lib/target.sh.
       CONTEXT: '{{.CONTEXT | default ""}}'
@@ -896,34 +896,34 @@ tasks:
       - bash scripts/run.sh "IRSA for agentgateway proxy" bash scripts/eks-irsa.sh
     env:
       CONTEXT: '{{.CONTEXT | default ""}}'
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       GATEWAY: '{{.GATEWAY | default ""}}'    # empty → script default (agw)
       AWS_REGION: '{{.AWS_REGION | default ""}}'
 
   # ─── Sample apps ─────────────────────────────────────────────────────────
-  # Deployed to CLUSTER (default cluster-one); context is vcluster-docker_<CLUSTER>.
+  # Deployed to CLUSTER (CLUSTER required); context is vcluster-docker_<CLUSTER>.
 
   apps:bookinfo:
-    desc: "Deploy Bookinfo sample app to CLUSTER (default cluster-one)"
+    desc: "Deploy Bookinfo sample app to CLUSTER (CLUSTER required)"
     summary: |
       Deploy the Istio Bookinfo sample app to a cluster.
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Deploy Bookinfo → {{.CLUSTER}}" bash scripts/apps/install-bookinfo.sh vcluster-docker_{{.CLUSTER}}
 
   apps:online-boutique:
-    desc: "Deploy Online Boutique sample app to CLUSTER (default cluster-one)"
+    desc: "Deploy Online Boutique sample app to CLUSTER (CLUSTER required)"
     summary: |
       Deploy the Online Boutique sample app to a cluster.
 
       Variables:
-        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Deploy Online Boutique → {{.CLUSTER}}" helmfile sync -f helmfiles/apps/online-boutique.yaml --kube-context vcluster-docker_{{.CLUSTER}}
 
@@ -935,7 +935,7 @@ tasks:
       an HTTPRoute for httpbin at ROUTE_PATH (URLRewrite strips the prefix).
 
       Variables:
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         ROUTE        true | false — route httpbin                       default false
         ROUTE_PATH   path to route httpbin on                           default /httpbin
         GATEWAY      gateway name                                       auto-detected agw/kgw
@@ -943,7 +943,7 @@ tasks:
 
       Run `solomog expose` so routes program. See `solomog help expose`.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Deploy utils (httpbin, curl, netshoot) → {{.CLUSTER}}" bash scripts/apps/install-utils.sh vcluster-docker_{{.CLUSTER}}
     env:
@@ -963,7 +963,7 @@ tasks:
       HTTPRoute at ROUTE_PATH on the gateway.
 
       Variables:
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         ROUTE        true | false — add the HTTPRoute                   default false
         ROUTE_PATH   path to route on                                   default /openai
         GATEWAY      gateway to route through                          default agw
@@ -971,7 +971,7 @@ tasks:
 
       Run `solomog expose` so routes program. See `solomog help expose`.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Deploy mock OpenAI (vLLM sim) → {{.CLUSTER}}" bash scripts/apps/install-mock-openai.sh vcluster-docker_{{.CLUSTER}}
     env:
@@ -988,14 +988,14 @@ tasks:
       an HTTPRoute at ROUTE_PATH on the gateway.
 
       Variables:
-        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   default cluster-one
+        CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         ROUTE        true | false — add the HTTPRoute                   default false
         ROUTE_PATH   path to route on                                   default /mcp
         GATEWAY      gateway to route through                          default agw
 
       Run `solomog expose` so routes program. See `solomog help expose`.
     vars:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "cluster-one" | splitList " " | first}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/run.sh "Deploy mock MCP (stripe-mock → OpenAPI) → {{.CLUSTER}}" bash scripts/apps/install-mcp-stripe.sh vcluster-docker_{{.CLUSTER}}
     env:
