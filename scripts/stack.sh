@@ -40,6 +40,15 @@ ns_for() {
   esac
 }
 
+# Detect an omitted CLUSTER. The Taskfile passes `<CLUSTER> <product...>`; with CLUSTER unset the
+# args collapse so the first one is actually a product (or nothing). A cluster name is never a bare
+# product keyword, so treat that as "no cluster" and fail with the standard message rather than
+# silently using a product name as the cluster.
+case "${1:-}" in
+  ""|istio|gloo-mesh|kgateway|gloo-gateway|agentgateway)
+    solomog_require_cluster "" "this task (usage: solomog <product> CLUSTER=<name>)" ;;
+esac
+
 if [[ $# -lt 2 ]]; then
   echo "Usage: stack.sh <cluster-name> <product> [<product> ...]" >&2
   # TODO: usage list omits gloo-gateway (it is in CANONICAL_ORDER below).

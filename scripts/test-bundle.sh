@@ -25,7 +25,8 @@ source "$REPO_DIR/scripts/lib/ui.sh"
 source "$REPO_DIR/scripts/lib/gateway.sh"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
-CLUSTER="${CLUSTER:-cluster-one}"
+CLUSTER="${CLUSTER:-}"
+solomog_require_cluster "$CLUSTER" test
 CONTEXT="$(solomog_context "$CLUSTER")"   # CONTEXT override → registry (external) → vind default
 BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List with: solomog bundles:list}"
 # Auto-detect the gateway (agw/kgw) from the cluster, like expose — so $HOST matches the
