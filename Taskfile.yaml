@@ -868,17 +868,19 @@ tasks:
       GATEWAY: '{{.GATEWAY | default ""}}'
 
   eks:irsa:
-    desc: "Give the agentgateway proxy a keyless AWS identity (IRSA) on an EKS CONTEXT — replaces the expiring env-injected creds. Run 'solomog help eks:irsa'."
+    desc: "Give the agentgateway proxy a keyless AWS identity (IRSA) on an EKS CLUSTER — replaces the expiring env-injected creds. Run 'solomog help eks:irsa'."
     summary: |
       Wire the agentgateway proxy ServiceAccount to an IAM role via IRSA (uc05 Trust path A), so
       it signs SigV4 to AgentCore keyless — no more <=12h SSO-cred expiry + rollout dance. Creates
       an IAM invoke policy + web-identity role, annotates the SA, strips the static env creds, and
-      restarts the proxy. Idempotent. EKS only (CONTEXT set). Mutates AWS IAM + the proxy.
+      restarts the proxy. Idempotent. EKS only (CLUSTER registered by eks:create, or CONTEXT set).
+      Mutates AWS IAM + the proxy.
 
       Needs aws creds IN THE SHELL (export AWS_PROFILE + eval export-credentials), plus eksctl.
 
       Variables:
-        CONTEXT     external EKS kube context (required)               e.g. arn:aws:eks:...:cluster/dmorgan-agw
+        CLUSTER     registered EKS cluster name (required)             e.g. dmorgan-agw
+        CONTEXT     override: target an unregistered kube context      e.g. arn:aws:eks:...:cluster/dmorgan-agw
         GATEWAY     proxy Deployment name (SA auto-detected)           default agw
         AWS_REGION  region                                             default: derived from the context ARN
         AGENTCORE_RUNTIME_ARN[_2]  runtimes to scope the policy to (from .env; else runtime/* wildcard)
@@ -886,7 +888,7 @@ tasks:
       Example:
         export AWS_PROFILE=AdministratorAccess-170015905430
         eval "$(aws configure export-credentials --format env)"
-        solomog eks:irsa CONTEXT=arn:aws:eks:us-east-1:170015905430:cluster/dmorgan-agw
+        solomog eks:irsa CLUSTER=dmorgan-agw
     cmds:
       - bash scripts/run.sh "IRSA for agentgateway proxy" bash scripts/eks-irsa.sh
     env:

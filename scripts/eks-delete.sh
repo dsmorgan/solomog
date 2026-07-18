@@ -26,12 +26,8 @@ source "$REPO_DIR/scripts/lib/target.sh"
 
 CLUSTER="${CLUSTER:-}"
 : "${CLUSTER:?set CLUSTER=<eks-cluster-name> — this DELETES a real EKS cluster, so no default}"
+solomog_require_external "$CLUSTER" "eks:delete"
 CTX="$(solomog_context "$CLUSTER")"
-if ! solomog_is_external "$CLUSTER"; then
-  echo "Error: eks:delete is for external EKS clusters (CLUSTER registered via eks:create, or CONTEXT set)." >&2
-  echo "       For vind clusters use teardown/vind-teardown.sh." >&2
-  exit 1
-fi
 
 CLUSTER_NAME="${CTX##*/}"                       # arn:...:cluster/NAME → NAME (the eksctl name)
 REGION="${AWS_REGION:-}"; [ -z "$REGION" ] && REGION="$(printf '%s' "$CTX" | cut -d: -f4)"
