@@ -43,14 +43,12 @@ REGION="${REGION:-us-east-1}"
 # EMPTY AWS_REGION makes the CLI build "sts..amazonaws.com" (Invalid endpoint) — worse than unset.
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
-command -v aws    >/dev/null || { echo "Error: aws CLI not found." >&2; exit 1; }
 command -v eksctl >/dev/null || { echo "Error: eksctl not found (brew install eksctl)." >&2; exit 1; }
 
 echo "==> IRSA for proxy '${GW}' on ${CLUSTER_NAME} (${REGION}), context ${CTX}"
 
-ACCOUNT="$(aws sts get-caller-identity --query Account --output text)" \
-  || { echo "Error: 'aws sts get-caller-identity' failed — ensure AWS creds are in the shell" >&2;
-       echo "       (export AWS_PROFILE + eval \"\$(aws configure export-credentials --format env)\")." >&2; exit 1; }
+solomog_aws_preflight "eks:irsa"   # reloads .env creds over stale shell copies; verifies via sts
+ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 # The proxy Deployment '$GW' is provisioned by the controller in response to a Gateway object —
 # it does NOT exist just from installing agentgateway. If it's missing, the Gateway hasn't been
 # created yet: run `solomog expose` first (agentgateway → expose → eks:irsa → apply).

@@ -62,6 +62,37 @@ solomog_require_cluster() {   # args: <cluster-value> [<task-label>]
   exit 1
 }
 
+# AWS preflight for the eks:* tasks. Ensures a WORKING AWS identity, robust to the #1 footgun:
+# stale AWS_* left exported in the interactive shell SHADOW the fresh creds `aws:refresh` wrote to
+# .env (go-task loads .env as dotenv, but OS-env wins over dotenv — verified). So `aws:refresh`
+# updates .env yet the task still sees the old, expired shell creds. Here we RELOAD the cred vars
+# straight from .env (overriding whatever the shell exported) and drop AWS_CREDENTIAL_EXPIRATION
+# (a stale one poisons EKS get-token — "expired" even with fresh keys; .env never carries it), then
+# verify with sts. Makes `solomog aws:refresh eks:delete CLUSTER=…` reliable regardless of shell state.
+solomog_aws_preflight() {   # args: [<task-label>]
+  local what="${1:-this task}" env_file line var
+  env_file="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.env"
+  unset AWS_CREDENTIAL_EXPIRATION
+  if [ -f "$env_file" ]; then
+    for var in AWS_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do   # NOT AWS_REGION — each script sets that from the cluster context
+      line="$(grep -E "^${var}=" "$env_file" 2>/dev/null | tail -1)"
+      [ -n "$line" ] && export "${line?}"
+    done
+  fi
+  command -v aws >/dev/null 2>&1 || { echo "Error: aws CLI not found." >&2; exit 1; }
+  aws sts get-caller-identity >/dev/null 2>&1 && return 0
+  {
+    echo "Error: no working AWS credentials for ${what}."
+    echo "  Fix (either):"
+    echo "    • solomog aws:refresh            # writes fresh SSO creds to .env, then re-run — or chain:"
+    echo "      solomog aws:refresh ${what} CLUSTER=<name>"
+    echo "    • export AWS_PROFILE=<profile> && eval \"\$(aws configure export-credentials --format env)\""
+    echo "  (Stale AWS_* exported in your shell shadow .env — this preflight reloads .env, but if the"
+    echo "   SSO session itself is expired you must aws:refresh / re-login.)"
+  } >&2
+  exit 1
+}
+
 # Comma-separated list of registered external cluster names (for error hints), or "(none)".
 _solomog_registry_list() {
   local reg; reg="$(_solomog_registry)"
