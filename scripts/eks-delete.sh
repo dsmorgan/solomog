@@ -35,10 +35,8 @@ REGION="${AWS_REGION:-}"; [ -z "$REGION" ] && REGION="$(printf '%s' "$CTX" | cut
 REGION="${REGION:-us-east-1}"
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
-command -v aws    >/dev/null || { echo "Error: aws CLI not found." >&2; exit 1; }
 command -v eksctl >/dev/null || { echo "Error: eksctl not found (brew install eksctl)." >&2; exit 1; }
-aws sts get-caller-identity >/dev/null 2>&1 \
-  || { echo "Error: no AWS creds in the shell (export AWS_PROFILE + eval export-credentials)." >&2; exit 1; }
+solomog_aws_preflight "eks:delete"   # reloads .env creds over stale shell copies; verifies via sts
 
 echo "==> DELETING EKS cluster '${CLUSTER_NAME}' in ${REGION} (context ${CTX})"
 

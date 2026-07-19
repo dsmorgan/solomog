@@ -39,12 +39,10 @@ NODE_TYPE="${EKS_NODE_TYPE:-m5.large}"
 OWNER="${OWNER:-solomog}"        # owner tag (from .env); attributes the cluster in a shared account
 
 command -v eksctl  >/dev/null || { echo "Error: eksctl not found (brew install eksctl)." >&2; exit 1; }
-command -v aws     >/dev/null || { echo "Error: aws CLI not found." >&2; exit 1; }
 command -v kubectl >/dev/null || { echo "Error: kubectl not found." >&2; exit 1; }
 
-ACCOUNT="$(aws sts get-caller-identity --query Account --output text)" \
-  || { echo "Error: 'aws sts get-caller-identity' failed — put AWS creds in the shell first" >&2;
-       echo "       (export AWS_PROFILE + eval \"\$(aws configure export-credentials --format env)\")." >&2; exit 1; }
+solomog_aws_preflight "eks:create"   # reloads .env creds over stale shell copies; verifies via sts
+ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 
 echo "==> EKS cluster '${CLUSTER}' in ${REGION} (account ${ACCOUNT}): k8s ${VERSION}, ${NODES}x ${NODE_TYPE}"
 

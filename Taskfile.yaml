@@ -815,7 +815,7 @@ tasks:
       exists). Provisions REAL infra (~15-20 min, costs $). `--with-oidc` sets up the IAM OIDC
       provider that eks:irsa needs.
 
-      Needs aws creds IN THE SHELL (export AWS_PROFILE + eval export-credentials) + eksctl.
+      Needs AWS creds: `solomog aws:refresh` (writes .env; the task reloads it, robust to stale shell creds) or export them in the shell. Plus eksctl.
 
       Variables:
         CLUSTER        EKS cluster NAME (required — no default; this makes a real cluster)
@@ -851,7 +851,7 @@ tasks:
       ELB leaves behind), and if the control plane is already gone deletes the eksctl-<name>-*
       CloudFormation stacks directly (disabling termination protection). MUTATES AWS. EKS only.
 
-      Needs aws creds IN THE SHELL (export AWS_PROFILE + eval export-credentials) + eksctl.
+      Needs AWS creds: `solomog aws:refresh` (writes .env; the task reloads it, robust to stale shell creds) or export them in the shell. Plus eksctl.
 
       Variables:
         CLUSTER     registered EKS cluster name (required — no default; destructive)
@@ -879,7 +879,7 @@ tasks:
       restarts the proxy. Idempotent. EKS only (CLUSTER registered by eks:create, or CONTEXT set).
       Mutates AWS IAM + the proxy.
 
-      Needs aws creds IN THE SHELL (export AWS_PROFILE + eval export-credentials), plus eksctl.
+      Needs AWS creds: `solomog aws:refresh` (writes .env; the task reloads it, robust to stale shell creds) or export them in the shell. Plus eksctl.
 
       Variables:
         CLUSTER     registered EKS cluster name (required)             e.g. dmorgan-agw
