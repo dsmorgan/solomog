@@ -123,10 +123,10 @@ for t in "${TASKS[@]}"; do
   trc=$?
   t_dur=$((SECONDS - t_start))
   if [ "$trc" -eq 0 ]; then
-    TASK_TIMES+=("$t  —  ${t_dur}s")
+    TASK_TIMES+=("$t  —  $(solomog_dur "$t_dur")")
     AUDIT_TASKS+=("${t}=${t_dur}s")
   else
-    TASK_TIMES+=("$t  —  ${t_dur}s  (FAILED, exit $trc)")
+    TASK_TIMES+=("$t  —  $(solomog_dur "$t_dur")  (FAILED, exit $trc)")
     AUDIT_TASKS+=("${t}=${t_dur}s(rc${trc})")
     rc=$trc
     break   # stop the chain on first failure

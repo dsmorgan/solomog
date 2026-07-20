@@ -18,6 +18,7 @@ set -euo pipefail
 #
 # Env:
 #   CLUSTER    (required) the registered EKS cluster name (or set CONTEXT). No default — destructive.
+#   EKS_REGION explicit cluster-region knob (preferred); falls back to AWS_REGION
 #   AWS_REGION default: derived from the context ARN, else us-east-1
 #   GATEWAY    gateway name (default agw) — informational; all Gateways + LB Services are removed
 
@@ -31,7 +32,8 @@ solomog_require_external "$CLUSTER" "eks:delete"
 CTX="$(solomog_context "$CLUSTER")"
 
 CLUSTER_NAME="${CTX##*/}"                       # arn:...:cluster/NAME → NAME (the eksctl name)
-REGION="${AWS_REGION:-}"; [ -z "$REGION" ] && REGION="$(printf '%s' "$CTX" | cut -d: -f4)"
+# region: prefer EKS_REGION, then AWS_REGION, else field 4 of the context ARN (arn:aws:eks:<region>:…)
+REGION="${EKS_REGION:-${AWS_REGION:-}}"; [ -z "$REGION" ] && REGION="$(printf '%s' "$CTX" | cut -d: -f4)"
 REGION="${REGION:-us-east-1}"
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
