@@ -11,7 +11,8 @@ set -euo pipefail
 #
 # Env:
 #   CLUSTER        EKS cluster NAME (required — no vind default here; this makes a real cluster)
-#   AWS_REGION     default us-east-1
+#   EKS_REGION     region for the cluster       preferred, explicit knob; falls back to AWS_REGION
+#   AWS_REGION     region (fallback)            default us-east-1 if neither is set
 #   EKS_VERSION    Kubernetes version           pinned in versions.env (EKS_VERSION), fallback 1.34
 #   EKS_NODES      managed node count           default 2
 #   EKS_NODE_TYPE  instance type                default m5.large
@@ -27,10 +28,14 @@ source "$REPO_DIR/scripts/lib/target.sh"
 CLUSTER="${CLUSTER:-}"
 : "${CLUSTER:?set CLUSTER=<eks-cluster-name> — this provisions a real EKS cluster, so no default}"
 
-# Resolve + EXPORT region so every aws/eksctl call uses it (the task passes AWS_REGION=""; an empty
-# AWS_REGION makes the CLI build bad endpoints — same trap fixed in eks-irsa.sh).
-REGION="${AWS_REGION:-us-east-1}"
-[ -z "$REGION" ] && REGION="us-east-1"
+# Resolve + EXPORT region so every aws/eksctl call uses it. Prefer EKS_REGION (the explicit
+# cluster-region knob) over AWS_REGION (which also drives the agentcore CLI toward the runtime's
+# region, so we don't want to overload it in .env). The task passes both as "" when unset; an empty
+# AWS_REGION makes the CLI build bad endpoints — same trap fixed in eks-irsa.sh.
+REGION="${EKS_REGION:-${AWS_REGION:-}}"
+if [ -n "${EKS_REGION:-}" ]; then   REGION_SRC="EKS_REGION"
+elif [ -n "${AWS_REGION:-}" ]; then REGION_SRC="AWS_REGION"
+else REGION="us-east-1";            REGION_SRC="DEFAULT (neither EKS_REGION nor AWS_REGION set)"; fi
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
 VERSION="${EKS_VERSION:-1.34}"   # normally supplied from versions.env via the task env
@@ -44,7 +49,7 @@ command -v kubectl >/dev/null || { echo "Error: kubectl not found." >&2; exit 1;
 solomog_aws_preflight "eks:create"   # reloads .env creds over stale shell copies; verifies via sts
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 
-echo "==> EKS cluster '${CLUSTER}' in ${REGION} (account ${ACCOUNT}): k8s ${VERSION}, ${NODES}x ${NODE_TYPE}"
+echo "==> EKS cluster '${CLUSTER}' in ${REGION} [region via ${REGION_SRC}] (account ${ACCOUNT}): k8s ${VERSION}, ${NODES}x ${NODE_TYPE}"
 
 if aws eks describe-cluster --name "$CLUSTER" --region "$REGION" >/dev/null 2>&1; then
   echo "    cluster already exists — skipping create, just (re)registering the context"

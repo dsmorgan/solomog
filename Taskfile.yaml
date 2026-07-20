@@ -819,7 +819,8 @@ tasks:
 
       Variables:
         CLUSTER        EKS cluster NAME (required — no default; this makes a real cluster)
-        AWS_REGION     region                          default us-east-1
+        EKS_REGION     cluster region (preferred)      explicit knob; e.g. EKS_REGION=us-east-2
+        AWS_REGION     cluster region (fallback)       default us-east-1 if neither set
         EKS_VERSION    Kubernetes version              pinned in versions.env (1.34); override per-run
         EKS_NODES      managed node count              default 2
         EKS_NODE_TYPE  instance type                   default m5.large
@@ -833,6 +834,7 @@ tasks:
       - bash scripts/run.sh "Create EKS cluster {{.CLUSTER}}" bash scripts/eks-create.sh
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      EKS_REGION: '{{.EKS_REGION | default ""}}'
       AWS_REGION: '{{.AWS_REGION | default ""}}'
       EKS_VERSION: '{{.EKS_VERSION | default ""}}'
       EKS_NODES: '{{.EKS_NODES | default ""}}'
@@ -855,7 +857,8 @@ tasks:
 
       Variables:
         CLUSTER     registered EKS cluster name (required — no default; destructive)
-        AWS_REGION  region                          default: derived from the context ARN
+        EKS_REGION  cluster region (preferred)      explicit override
+        AWS_REGION  region (fallback)               default: derived from the context ARN
         GATEWAY     gateway name (default agw)       informational; all Gateways + LB svcs are removed
 
       Example:
@@ -867,6 +870,7 @@ tasks:
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
       CONTEXT: '{{.CONTEXT | default ""}}'
+      EKS_REGION: '{{.EKS_REGION | default ""}}'
       AWS_REGION: '{{.AWS_REGION | default ""}}'
       GATEWAY: '{{.GATEWAY | default ""}}'
 
@@ -885,7 +889,8 @@ tasks:
         CLUSTER     registered EKS cluster name (required)             e.g. dmorgan-agw
         CONTEXT     override: target an unregistered kube context      e.g. arn:aws:eks:...:cluster/dmorgan-agw
         GATEWAY     proxy Deployment name (SA auto-detected)           default agw
-        AWS_REGION  region                                             default: derived from the context ARN
+        EKS_REGION  cluster region (preferred)                         explicit override
+        AWS_REGION  region (fallback)                                  default: derived from the context ARN
         AGENTCORE_RUNTIME_ARN[_2]  runtimes to scope the policy to (from .env; else runtime/* wildcard)
 
       Example:
@@ -898,6 +903,7 @@ tasks:
       CONTEXT: '{{.CONTEXT | default ""}}'
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       GATEWAY: '{{.GATEWAY | default ""}}'    # empty → script default (agw)
+      EKS_REGION: '{{.EKS_REGION | default ""}}'
       AWS_REGION: '{{.AWS_REGION | default ""}}'
 
   # ─── Sample apps ─────────────────────────────────────────────────────────

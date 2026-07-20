@@ -76,6 +76,18 @@ _SM_DESTROY_LOSS_QUIPS=(
 # Reset the run timer (uses the bash SECONDS builtin).
 solomog_clock_reset() { SECONDS=0; }
 
+# solomog_dur <seconds> — format a whole-second duration for display. When it's over 60s,
+# append the minute:second equivalent in brackets (e.g. "92s (1:32)", "1205s (20:05)"); 60s
+# or less stays bare ("45s"). Non-integer / bad input falls back to "<val>s" unharmed.
+solomog_dur() {
+  local s="${1:-0}"
+  if [ "$s" -gt 60 ] 2>/dev/null; then
+    printf '%ss (%d:%02d)' "$s" "$((s / 60))" "$((s % 60))"
+  else
+    printf '%ss' "$s"
+  fi
+}
+
 # _solomog_truthy <val> — exit 0 only for affirmative values (1/true/yes/on, any case).
 # Used for the SOLOMOG_SERIOUS mute flag so that the empty/"false"/"0" values people put
 # in .env keep the banter ON — only an explicit affirmative mutes.
@@ -138,6 +150,6 @@ solomog_summary() {
   for line in "$@"; do
     printf '%s     • %s%s\n' "$_SM_P" "$line" "$_SM_R"
   done
-  printf '%s%s  ⏱  total run time: %ss%s\n' "$_SM_P" "$_SM_B" "$SECONDS" "$_SM_R"
+  printf '%s%s  ⏱  total run time: %s%s\n' "$_SM_P" "$_SM_B" "$(solomog_dur "$SECONDS")" "$_SM_R"
   printf '%s%s%s\n'     "$_SM_P" "$_SM_BOT" "$_SM_R"
 }
