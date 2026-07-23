@@ -258,14 +258,23 @@ MANIFESTS="$(jq -n --argjson data "$DATA" --argjson gws "$GW" --argjson rts "$RT
 RAW_YAML="$(printf '%s' "$MANIFESTS" | ruby -ryaml -rjson -e 'h=JSON.parse(STDIN.read);print JSON.generate(h.transform_values{|v| YAML.dump(v)})' 2>/dev/null || echo '{}')"
 if command -v kubectl-neat >/dev/null 2>&1; then
   CLEAN_BY="kubectl-neat"
-  CLEAN_YAML="{}"
+  # kubectl-neat cleans metadata/status noise for copy/paste, but it also PRUNES empty-valued
+  # keys — and under .spec an empty object can be a meaningful selector (e.g.
+  # policies.auth.passthrough: {} chooses JWT passthrough over SigV4). Pruning it silently
+  # changes behavior on re-apply. So neat for the metadata cleanup, then restore .spec verbatim
+  # from the original object. Collect JSON, then one YAML transform (mirrors RAW_YAML / built-in).
+  NEATED="{}"
   while IFS= read -r id; do
     [ -z "$id" ] && continue
-    cy="$(printf '%s' "$MANIFESTS" | jq -c --arg k "$id" '.[$k]' | kubectl-neat -f - -o yaml 2>/dev/null || true)"
-    CLEAN_YAML="$(printf '%s' "$CLEAN_YAML" | jq --arg k "$id" --arg v "$cy" '.[$k]=$v')"
+    obj="$(printf '%s' "$MANIFESTS" | jq -c --arg k "$id" '.[$k]')"
+    n="$(printf '%s' "$obj" | kubectl-neat -f - -o json 2>/dev/null || true)"
+    [ -z "$n" ] && n="$obj"
+    merged="$(jq -cn --argjson n "$n" --argjson o "$obj" '$n | if ($o|has("spec")) then .spec=$o.spec else . end')"
+    NEATED="$(printf '%s' "$NEATED" | jq -c --arg k "$id" --argjson v "$merged" '.[$k]=$v')"
   done <<EOF
 $(printf '%s' "$MANIFESTS" | jq -r 'keys[]')
 EOF
+  CLEAN_YAML="$(printf '%s' "$NEATED" | ruby -ryaml -rjson -e 'h=JSON.parse(STDIN.read);print JSON.generate(h.transform_values{|v| YAML.dump(v)})' 2>/dev/null || echo '{}')"
 else
   CLEAN_BY="built-in strip"
   CLEAN_YAML="$(printf '%s' "$MANIFESTS" | jq '
