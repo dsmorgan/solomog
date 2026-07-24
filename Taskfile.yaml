@@ -33,6 +33,52 @@ tasks:
     cmds: [cat versions.env]
     silent: true
 
+  cluster:list:
+    desc: "List solomog-tracked clusters (vind + EKS/external): type, region, context, status."
+    aliases: ["clusters:list", "clusters", "cluster"]
+    summary: |
+      List clusters solomog knows about from local registries (.solomog/clusters for
+      vind, .solomog/contexts for EKS/external). Soft-checks `vcluster list` (vind)
+      and `aws eks describe-cluster` (EKS, only when AWS creds work — otherwise status
+      stays "—"). No kubectl API calls. The current kubectl context is marked with *
+      (bold green). Cluster-free (discovery only).
+
+      Aliases: clusters:list, clusters, cluster
+
+      Variables:
+        (none)
+
+      Examples:
+        solomog cluster:list
+        solomog cluster:show CLUSTER=a11
+    cmds:
+      - bash scripts/clusters.sh list
+    silent: true
+
+  cluster:show:
+    desc: "Show detail for one tracked cluster: CLUSTER=<name> (alias CLUSTERS)."
+    aliases: ["clusters:show"]
+    summary: |
+      Detail view for one cluster: type, context, region (EKS), status (running/gone
+      for vind; EKS via AWS when creds work, else "—"), certs dir, /etc/hosts entries,
+      whether it is the current kubectl context. Cluster-free (discovery only — does
+      not talk to the Kubernetes API server).
+
+      Aliases: clusters:show
+
+      Variables:
+        CLUSTER    cluster name to inspect (REQUIRED)   see: solomog cluster:list
+        CLUSTERS   alias for CLUSTER (first name used)
+
+      Examples:
+        solomog cluster:show CLUSTER=a11
+        solomog cluster:show CLUSTER=e2a1
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
+    cmds:
+      - bash scripts/clusters.sh show {{.CLUSTER}}
+    silent: true
+
   routes:
     desc: "Show the routing config on a cluster's agentgateway(s): routes, host/path, backends, policies, active status. CLUSTER=<name> [WIDE=true]"
     summary: |
