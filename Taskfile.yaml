@@ -1063,6 +1063,8 @@ tasks:
       Destroy clusters and clean up. Prompts for confirmation first. With no CLUSTER(S),
       targets only the clusters solomog created (tracked in .solomog/clusters) that still
       exist — hand-made clusters are never touched. An explicit name overrides that.
+      Always prunes stale .solomog/clusters entries (tracked but already gone) when
+      `vcluster list` is available, even if there's nothing left to delete.
 
       Variables:
         CLUSTER    single cluster to destroy
