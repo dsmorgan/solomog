@@ -1,0 +1,31 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: logging-healthz
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: %%GATEWAY%%
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /logging/healthz
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: logging-direct-response
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: logging-healthz
+  traffic:
+    directResponse:
+      body: '{"status":"ok","policy":"logging-direct-response"}'
+      status: 200
