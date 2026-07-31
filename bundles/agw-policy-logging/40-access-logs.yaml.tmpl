@@ -1,0 +1,22 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: logging-access-logs
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: %%GATEWAY%%
+  frontend:
+    accessLog:
+      attributes:
+        add:
+          - name: solomog.bundle
+            expression: '"agw-policy-logging"'
+          - name: solomog.request_path
+            expression: request.path
+          - name: solomog.request_method
+            expression: request.method
+          - name: solomog.status_code
+            expression: string(response.code)

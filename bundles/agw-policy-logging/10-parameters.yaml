@@ -1,0 +1,9 @@
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayParameters
+metadata:
+  name: policy-logging
+  namespace: agentgateway-system
+spec:
+  logging:
+    level: info
+    format: json
