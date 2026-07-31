@@ -95,6 +95,12 @@ DATA="$(jq -cn \
       else $default end;
   def backend_key($default_ns; $default_rtype):
     (backend_rtype($default_rtype))+":"+(.namespace // $default_ns)+"/"+.name;
+  def aggregate_refs($relation):
+    group_by(.data.source+"|"+.data.target)
+    | map(length as $n | .[0]
+      | .data.refCount=$n
+      | .data.relation=$relation
+      | .data.rel=($relation+(if $n>1 then " ×"+($n|tostring) else "" end)));
 
   ($gw | map(select(.spec.gatewayClassName|test("agentgateway")))) as $gws
   | ($gws | map(.metadata.name)) as $gwnames
@@ -204,11 +210,12 @@ DATA="$(jq -cn \
             detail:{ resource:(.rtype // "service"), type:(.btype // "-"),
                      declared:(if .cr then "CR" else "route/policy ref" end),
                      conditions:(.conds // []) } }} ]
-        + [ $rt[] | .metadata.namespace as $rns | .metadata.name as $rn
+        + ([ $rt[] | .metadata.namespace as $rns | .metadata.name as $rn
             | .spec.rules[]?.backendRefs[]? | . as $ref
             | {data:{ id:("e:be:"+$rns+":"+$rn+":"+($ref|backend_key($rns; "service"))),
                       source:("httproute:"+$rns+"/"+$rn),
-                      target:("backend:"+($ref|backend_key($rns; "service"))), rel:"backendRef" }} ]
+                      target:("backend:"+($ref|backend_key($rns; "service"))) }} ]
+           | aggregate_refs("backendRef"))
 
         # ── Policy nodes + targetRef edges + backendRef (jwks) edges ──
         + [ $pol[] | {data:{
@@ -227,12 +234,12 @@ DATA="$(jq -cn \
                               elif (.kind|test("Backend")) then "backend:"+(.|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))
                               else "unknown:"+(.namespace // $pns)+"/"+.name end),
                       rel:"targetRef" }} ]
-        + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
+        + ([ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | .. | objects | .backendRef? | select(type=="object" and .name? != null) | . as $ref
             | {data:{ id:("e:polbe:"+$pns+":"+$pn+":"+($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))),
                       source:("policy:"+$pns+"/"+$pn),
-                      target:("backend:"+($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))),
-                      rel:"uses" }} ]
+                      target:("backend:"+($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))) }} ]
+           | aggregate_refs("uses"))
       )
     }')"
 
@@ -401,7 +408,8 @@ HTMLHEAD
       {selector:'node:selected',style:{'border-color':'#fff','border-width':4}},
       {selector:'edge',style:{
         'label':'data(rel)','font-size':8,'color':'#8a97b0','text-background-color':'#0f1420','text-background-opacity':1,
-        'width':1.5,'line-color':'#39435c','target-arrow-color':'#39435c',
+        'width':function(e){return 1.5+Math.min(Math.max(Number(e.data('refCount')||1)-1,0),4)*.9;},
+        'line-color':'#39435c','target-arrow-color':'#39435c',
         'target-arrow-shape':'triangle','curve-style':'bezier','arrow-scale':.8}},
       {selector:'edge[rel="manages"]',style:{'line-style':'dashed','line-color':'#c792ea','target-arrow-color':'#c792ea'}},
       {selector:'edge[rel="controllerName"]',style:{'line-style':'dashed','line-color':'#80cbc4','target-arrow-color':'#80cbc4'}},
@@ -479,6 +487,23 @@ HTMLHEAD
       else v=esc(v==null||v===''?'—':v);
       h+=row(k,v);
     });
+    if(d.kind==='Backend'){
+      var refs=n.incomers('edge').filter(function(e){
+        var r=e.data('relation')||e.data('rel');
+        return r==='uses'||r==='backendRef'||r==='targetRef';
+      });
+      if(refs.length){
+        var total=0, by=[];
+        refs.forEach(function(e){
+          var count=Number(e.data('refCount')||1), src=e.source(), rel=e.data('relation')||e.data('rel');
+          total+=count;
+          by.push(esc((src.data('kind')||src.data('role')||'component')+' '+src.data('name'))
+            +' — '+esc(rel+(count>1?' ×'+count:'')));
+        });
+        h+=row('references',esc(total));
+        h+=row('referenced by',by.join('<br>'));
+      }
+    }
     h+='</table>';
     h+='<div class="k">kubectl</div><pre id="kc">'+esc(d.kubectl)+'</pre>';
     h+='<button onclick="solomogCopy(\'kc\')">Copy kubectl</button><div class="hint" id="cpm"></div>';
@@ -533,7 +558,8 @@ HTMLHEAD
     +'<span>'+sw('rrect',COLOR.GatewayClass)+'class</span>'
     +'<br><b style="color:#8a97b0">status (border):</b> '
     +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>'
-    +'<span><i class="ring dash" style="border-color:#ffb454"></i>unused</span>';
+    +'<span><i class="ring dash" style="border-color:#ffb454"></i>unused</span>'
+    +'<br><b style="color:#8a97b0">references:</b> ×N + thicker line = repeated use';
   // controls
   document.getElementById('unused').addEventListener('change',function(e){applyUnused(e.target.checked);relayout();});
   document.getElementById('aux').addEventListener('change',function(e){applyAux(e.target.checked);relayout();});
