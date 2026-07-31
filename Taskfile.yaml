@@ -792,7 +792,7 @@ tasks:
       - bash scripts/bundles.sh show {{.BUNDLES}}
 
   test:
-    desc: "Run bundle test(s) (BUNDLE=<name> or BUNDLES=\"a b\", tests/*.sh) against CLUSTER; captures results to .solomog/test-runs/."
+    desc: "Run bundle test(s) (BUNDLE=<name> or BUNDLES=\"a b\", tests/*.sh) against CLUSTER; TESTS=\"54 56\" runs a subset; captures results to .solomog/test-runs/."
     summary: |
       Run a bundle's tests (bundles/<name>/tests/*.sh) against a cluster, in sorted order.
       Each test inherits CONTEXT/CLUSTER/GATEWAY/HOST + .env; pass/fail is the exit code.
@@ -801,6 +801,7 @@ tasks:
       Variables:
         BUNDLE       bundle name(s) whose tests/ to run (REQUIRED)         see: solomog bundles:list
         BUNDLES      alias for BUNDLE; either may list several, run in order
+        TESTS        run only tests whose name starts with these prefixes  default all; e.g. "54" or "54 56"
         CLUSTER      cluster name (context vcluster-docker_<CLUSTER>)       REQUIRED — set CLUSTER (or CONTEXT)
         GATEWAY      gateway name for the $HOST default                    auto-detected agw/kgw
         HOST         base host for curls in tests                          default <GATEWAY>.<CLUSTER>.test
@@ -808,6 +809,8 @@ tasks:
       Examples:
         solomog test BUNDLE=llmroute-bedrock CLUSTER=aaa
         solomog test BUNDLES="llmroute-vertex llmroute-bbr" CLUSTER=aaa
+        solomog test BUNDLE=citizens-agentcore-user TESTS="54" CLUSTER=aaa
+        solomog test BUNDLE=citizens-agentcore-user TESTS="54 56" CLUSTER=aaa
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       # BUNDLE/BUNDLES interchangeable; either may name several bundles, tested in order.
@@ -820,6 +823,9 @@ tasks:
       # or the vind default. See scripts/lib/target.sh.
       CONTEXT: '{{.CONTEXT | default ""}}'
       BUNDLE: '{{.BUNDLES}}'
+      # Optional prefix filter — only run tests whose file name starts with one of these
+      # (space-separated). Empty = all. CLI-only knob; not sourced from .env.
+      TESTS: '{{.TESTS | default ""}}'
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → test-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
 

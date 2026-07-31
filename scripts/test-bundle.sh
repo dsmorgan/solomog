@@ -17,6 +17,10 @@ set -euo pipefail
 #   BUNDLE    (required) bundle name(s) whose tests/ to run. Space-separated for several
 #             bundles, run left-to-right (BUNDLE and BUNDLES are interchangeable, like
 #             CLUSTER/CLUSTERS — the Taskfile folds both into BUNDLE).
+#   TESTS     (optional) space-separated list of test-name PREFIXES; only tests whose file
+#             name starts with one of them run (still in sorted order). E.g. TESTS="54" or
+#             TESTS="54 56" or TESTS="54-cid-composite.sh". Unset = run all. Applies to every
+#             bundle in BUNDLE; a prefix that matches nothing is warned about (non-fatal).
 #   GATEWAY   gateway name for $HOST default (default agw)
 #   HOST      base host for curls (default <GATEWAY>.<CLUSTER>.test)
 
@@ -29,6 +33,7 @@ CLUSTER="${CLUSTER:-}"
 solomog_require_cluster "$CLUSTER" test
 CONTEXT="$(solomog_context "$CLUSTER")"   # CONTEXT override → registry (external) → vind default
 BUNDLE="${BUNDLE:?Set BUNDLE=<name>. List with: solomog bundles:list}"
+TESTS="${TESTS:-}"   # optional space-separated test-name prefixes; empty = run all
 # Auto-detect the gateway (agw/kgw) from the cluster, like expose — so $HOST matches the
 # cert expose minted. Override with GATEWAY=/HOST= for anything non-standard.
 GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
@@ -67,6 +72,34 @@ test_one() {
   if [[ -z "$files" ]]; then
     echo "Error: no *.sh tests in $dir" >&2
     return 1
+  fi
+
+  # Optional prefix filter (TESTS="54 56"): keep only tests whose file name starts with one of
+  # the given prefixes, preserving sorted order. Warn (non-fatal) about prefixes that hit nothing
+  # so a typo'd selector doesn't silently run fewer tests than intended.
+  if [[ -n "$TESTS" ]]; then
+    local sel="" line pref keep
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      keep=""
+      for pref in $TESTS; do
+        case "$line" in "$pref"*) keep=1; break ;; esac
+      done
+      [[ -n "$keep" ]] && sel="${sel}${line}"$'\n'
+    done <<EOF
+$files
+EOF
+    for pref in $TESTS; do
+      case "$sel" in
+        "$pref"*|*$'\n'"$pref"*) : ;;   # some selected test starts with this prefix
+        *) echo "    ! TESTS prefix '$pref' matched no test in bundle '$bundle'" >&2 ;;
+      esac
+    done
+    files="${sel%$'\n'}"
+    if [[ -z "$files" ]]; then
+      echo "Error: TESTS='$TESTS' matched no *.sh tests in $dir" >&2
+      return 1
+    fi
   fi
 
   local run_dir="$REPO_DIR/.solomog/test-runs/${bundle}-${TS}"
