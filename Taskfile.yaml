@@ -705,7 +705,8 @@ tasks:
       kind, and by plane (data / control / class) per the legend. Unused routes, backends, and
       policies are hidden by default and available from the unused-components toggle; a second
       toggle shows/hides auxiliary control-plane services. Click any node for its details and a
-      copy-paste kubectl command. Same relationship model as `solomog routes`.
+      copy-paste kubectl command. Repeated references are aggregated into a counted, thicker edge
+      and listed in the backend detail panel. Same relationship model as `solomog routes`.
 
       The HTML is self-contained (graph lib + data inlined) — it works offline and can be
       handed off. By DEFAULT it just opens the file (the task then exits cleanly, nothing to
