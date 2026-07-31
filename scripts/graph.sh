@@ -85,22 +85,37 @@ DATA="$(jq -cn \
   # .status.ancestors[].conditions[] (Accepted + Attached), NOT .status.conditions.
   def pconds: [.status.ancestors[]?.conditions[]?];
   def pstat: pconds as $c | if ($c|length)==0 then "na" elif ($c|any(.status!="True")) then "bad" else "ok" end;
+  def backend_rtype($default):
+    (.group // "") as $g | (.kind // "") as $k
+    | if $g=="enterpriseagentgateway.solo.io" or $k=="EnterpriseAgentgatewayBackend"
+      then "enterpriseagentgatewaybackends.enterpriseagentgateway.solo.io"
+      elif $g=="agentgateway.dev" or $k=="AgentgatewayBackend"
+      then "agentgatewaybackends.agentgateway.dev"
+      elif $k=="Service" or $g=="" or $g=="core" then $default
+      else $default end;
+  def backend_key($default_ns; $default_rtype):
+    (backend_rtype($default_rtype))+":"+(.namespace // $default_ns)+"/"+.name;
 
   ($gw | map(select(.spec.gatewayClassName|test("agentgateway")))) as $gws
   | ($gws | map(.metadata.name)) as $gwnames
   | ($gwnames[0] // "agw") as $gw0
 
-  # Backends: union of CR backends + route backendRefs + policy backendRefs, deduped by ns/name.
-  # CR entries are concatenated LAST so their fields (cr/type/_rtype) win on merge.
+  # Backends: union of CR backends + route backendRefs + policy backendRefs. Full Kubernetes
+  # resource identity keeps same-named enterprise/community CRs as separate graph nodes.
   | ([ ($rt[] | .metadata.namespace as $rns | .spec.rules[]?.backendRefs[]?
-         | {key:((.namespace // $rns)+"/"+.name), ns:(.namespace // $rns), name:.name, cr:false}),
-       ($pol[] | .metadata.namespace as $pns
-         | [paths(scalars) as $p | select($p[-1]=="name" and ($p|index("backendRef"))) | getpath($p)][]
-         | {key:($pns+"/"+.), ns:$pns, name:., cr:false}),
-       ($be[] | {key:(.metadata.namespace+"/"+.metadata.name), ns:.metadata.namespace, name:.metadata.name,
+         | . as $ref
+         | {key:($ref|backend_key($rns; "service")), ns:(.namespace // $rns), name:.name,
+            rtype:($ref|backend_rtype("service")), cr:false}),
+       ($pol[] | .metadata.namespace as $pns | .. | objects | .backendRef?
+         | select(type=="object" and .name? != null) | . as $ref
+         | {key:($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev")),
+            ns:(.namespace // $pns), name:.name,
+            rtype:($ref|backend_rtype("agentgatewaybackends.agentgateway.dev")), cr:false}),
+       ($be[] | {key:(._rtype+":"+.metadata.namespace+"/"+.metadata.name),
+                 ns:.metadata.namespace, name:.metadata.name,
                  cr:true, btype:((.spec|keys|map(select(.!="policies"))|first)//"?"), rtype:._rtype,
                  status:stat("Accepted"), conds:[.status.conditions[]?|(.type+"="+.status)]}) ]
-     | group_by(.key) | map(add)) as $backends
+     | group_by(.key) | map((map(select(.cr)) | first) // add)) as $backends
 
   # control-plane deployments (enterprise-agentgateway + its sidecar services)
   | ($deps | map(select(.metadata.name=="enterprise-agentgateway" or (.metadata.name|endswith("-enterprise-agentgateway"))))) as $cp
@@ -186,12 +201,14 @@ DATA="$(jq -cn \
             status:(.status // "na"), rtype:(.rtype // "service"),
             kubectl:(if .cr then ("kubectl get "+(.rtype)+" "+.name+" -n "+.ns+" -o yaml")
                      else ("kubectl get service "+.name+" -n "+.ns+" -o yaml  # or a backend CR") end),
-            detail:{ type:(.btype // "-"), declared:(if .cr then "CR" else "route ref (Service?)" end),
+            detail:{ resource:(.rtype // "service"), type:(.btype // "-"),
+                     declared:(if .cr then "CR" else "route/policy ref" end),
                      conditions:(.conds // []) } }} ]
         + [ $rt[] | .metadata.namespace as $rns | .metadata.name as $rn
-            | .spec.rules[]?.backendRefs[]?
-            | {data:{ id:("e:be:"+$rns+":"+$rn+":"+.name), source:("httproute:"+$rns+"/"+$rn),
-                      target:("backend:"+((.namespace)//$rns)+"/"+.name), rel:"backendRef" }} ]
+            | .spec.rules[]?.backendRefs[]? | . as $ref
+            | {data:{ id:("e:be:"+$rns+":"+$rn+":"+($ref|backend_key($rns; "service"))),
+                      source:("httproute:"+$rns+"/"+$rn),
+                      target:("backend:"+($ref|backend_key($rns; "service"))), rel:"backendRef" }} ]
 
         # ── Policy nodes + targetRef edges + backendRef (jwks) edges ──
         + [ $pol[] | {data:{
@@ -205,12 +222,17 @@ DATA="$(jq -cn \
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | .spec.targetRefs[]?
             | {data:{ id:("e:target:"+$pns+":"+$pn+":"+.kind+":"+.name), source:("policy:"+$pns+"/"+$pn),
-                      target:((if .kind=="Gateway" then "gateway:" elif .kind=="HTTPRoute" then "httproute:" elif (.kind|test("Backend")) then "backend:" else "unknown:" end)+$pns+"/"+.name),
+                      target:(if .kind=="Gateway" then "gateway:"+(.namespace // $pns)+"/"+.name
+                              elif .kind=="HTTPRoute" then "httproute:"+(.namespace // $pns)+"/"+.name
+                              elif (.kind|test("Backend")) then "backend:"+(.|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))
+                              else "unknown:"+(.namespace // $pns)+"/"+.name end),
                       rel:"targetRef" }} ]
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
-            | [paths(scalars) as $p | select($p[-1]=="name" and ($p|index("backendRef"))) | getpath($p)][]
-            | {data:{ id:("e:polbe:"+$pns+":"+$pn+":"+.), source:("policy:"+$pns+"/"+$pn),
-                      target:("backend:"+$pns+"/"+.), rel:"uses" }} ]
+            | .. | objects | .backendRef? | select(type=="object" and .name? != null) | . as $ref
+            | {data:{ id:("e:polbe:"+$pns+":"+$pn+":"+($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))),
+                      source:("policy:"+$pns+"/"+$pn),
+                      target:("backend:"+($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))),
+                      rel:"uses" }} ]
       )
     }')"
 
@@ -241,7 +263,7 @@ MANIFESTS="$(jq -n --argjson data "$DATA" --argjson gws "$GW" --argjson rts "$RT
            elif $k=="gatewayclass" then first($gcs[]|select(.metadata.name==$nm))
            elif $k=="deploy"       then first($deps[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
            elif $k=="pod"          then first($pods[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
-           elif ($k|test("backend")) then first($bes[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+           elif ($k|test("backend")) then first($bes[]|select(._rtype==$k and .metadata.namespace==$ns and .metadata.name==$nm))
            elif ($k|test("polic"))   then first($pols[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
            else null end ) // null ) as $obj
       # Drop kubectl'"'"'s last-applied-configuration bookkeeping annotation (a redundant
@@ -338,6 +360,7 @@ mkdir -p "$(dirname "$OUT")"
 <div id="side"><h1>solomog graph</h1><div class="sub">cluster ${CLUSTER} · agentgateway (${EDITION})</div>
 <div id="detail"><div class="empty">Click a node to inspect it.</div></div></div></div>
 <div id="controls">
+  <label><input type="checkbox" id="unused"> unused components</label>
   <label><input type="checkbox" id="aux"> control-plane services</label>
   <button id="relayout">re-layout</button>
 </div>
@@ -369,12 +392,12 @@ HTMLHEAD
       // policies' kind is the CR kind (EnterpriseAgentgatewayPolicy / AgentgatewayPolicy),
       // not "Policy", so the kind→COLOR lookup misses — set their fill by role instead.
       {selector:'node[role="policy"]',style:{'shape':'hexagon','background-color':'#f78c6c'}},
-      // orphaned config (not reachable from any Gateway) + the anchor it clusters under
+      // unused config (not reachable from any Gateway) + the anchor it clusters under
       {selector:'node.orphan',style:{'border-color':'#ffb454','border-style':'dashed','border-width':3}},
-      {selector:'node[?isAnchor]',style:{'shape':'round-rectangle','background-color':'#ffb454','background-opacity':0.15,
+      {selector:'node[?isUnusedAnchor]',style:{'shape':'round-rectangle','background-color':'#ffb454','background-opacity':0.15,
         'border-color':'#ffb454','border-width':1,'border-style':'dashed','width':18,'height':18,
         'label':'data(label)','color':'#ffb454','font-size':11,'text-valign':'bottom','text-margin-y':4}},
-      {selector:'edge[rel="unattached"]',style:{'line-style':'dashed','line-color':'#7a5a2a','target-arrow-shape':'none','width':1}},
+      {selector:'edge[rel="unused"]',style:{'line-style':'dashed','line-color':'#7a5a2a','target-arrow-shape':'none','width':1}},
       {selector:'node:selected',style:{'border-color':'#fff','border-width':4}},
       {selector:'edge',style:{
         'label':'data(rel)','font-size':8,'color':'#8a97b0','text-background-color':'#0f1420','text-background-opacity':1,
@@ -392,13 +415,12 @@ HTMLHEAD
   function relayout(){
     var vis=cy.elements(':visible');
     vis.layout({name:'breadthfirst',directed:false,
-      roots:cy.$('node[kind="Gateway"], node[?isAnchor]').filter(':visible'),
+      roots:cy.$('node[kind="Gateway"], node[?isUnusedAnchor]').filter(':visible'),
       spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
     cy.fit(vis,40);
   }
-  // Orphan detection: config (route/backend/policy) not reachable from any Gateway is
-  // "unattached" — the applied-but-not-wired-in case. Flag it and cluster it under a
-  // labelled anchor so it's obvious instead of a lone node drifting at the edge.
+  // Unused detection: config (route/backend/policy) not reachable from any Gateway is
+  // applied but not wired in. Flag it and cluster it under a labelled anchor.
   function markOrphans(){
     var reached={}, frontier=cy.nodes('[kind="Gateway"]').toArray();
     frontier.forEach(function(g){reached[g.id()]=true;});
@@ -413,8 +435,13 @@ HTMLHEAD
     });
     if(!orphans.length) return;
     orphans.addClass('orphan'); orphans.data('orphan',true);
-    cy.add({group:'nodes',data:{id:'__unattached',label:'⚠ unattached',isAnchor:true}});
-    orphans.forEach(function(n){cy.add({group:'edges',data:{id:'oe_'+n.id(),source:'__unattached',target:n.id(),rel:'unattached'}});});
+    cy.add({group:'nodes',data:{id:'__unused',label:'⚠ unused',isUnusedAnchor:true}});
+    orphans.forEach(function(n){cy.add({group:'edges',data:{id:'ue_'+n.id(),source:'__unused',target:n.id(),rel:'unused'}});});
+  }
+  // Unused config is opt-in so the normal graph stays focused on the active request path.
+  function applyUnused(show){
+    var n=cy.nodes('.orphan').union(cy.nodes('[?isUnusedAnchor]')), e=cy.edges('[rel="unused"]');
+    if(show){n.show();e.show();}else{e.hide();n.hide();}
   }
   // Toggle the auxiliary control-plane services (ext-auth / rate-limiter / waf). The core
   // control plane (enterprise-agentgateway) and the data-plane pod always stay.
@@ -445,7 +472,7 @@ HTMLHEAD
     var d=n.data(), det=d.detail||{}, s=d.status||'na';
     var h='<div class="k">'+esc(d.kind)+'</div><div class="name">'+esc(d.name)+'</div>';
     h+='<span class="badge '+s+'">'+(s==='ok'?'✓ active':s==='bad'?'✗ inactive':'—')+'</span>';
-    if(d.orphan) h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ unattached — not reachable from any Gateway (applied, but not wired in)</div>';
+    if(d.orphan) h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ unused — not reachable from any Gateway (applied, but not wired in)</div>';
     h+='<table>'+row('namespace',esc(d.ns||'-'));
     Object.keys(det).forEach(function(k){
       var v=det[k]; if(Array.isArray(v)) v=v.length?v.map(esc).join('<br>'):'—';
@@ -490,7 +517,7 @@ HTMLHEAD
       navigator.clipboard.writeText(t).then(function(){done('copied ✓');},fallback);
     }else fallback();
   };
-  cy.on('tap','node',function(e){ if(e.target.data('isAnchor'))return; render(e.target); });
+  cy.on('tap','node',function(e){ if(e.target.data('isUnusedAnchor'))return; render(e.target); });
   cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it.</div>';}});
   // legend — kinds shown with their canvas SHAPE + fill colour; then the plane grouping the
   // colours encode; then status as a ring (status is the node BORDER on canvas, not the fill).
@@ -506,15 +533,24 @@ HTMLHEAD
     +'<span>'+sw('rrect',COLOR.GatewayClass)+'class</span>'
     +'<br><b style="color:#8a97b0">status (border):</b> '
     +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>'
-    +'<span><i class="ring dash" style="border-color:#ffb454"></i>unattached</span>';
+    +'<span><i class="ring dash" style="border-color:#ffb454"></i>unused</span>';
   // controls
+  document.getElementById('unused').addEventListener('change',function(e){applyUnused(e.target.checked);relayout();});
   document.getElementById('aux').addEventListener('change',function(e){applyAux(e.target.checked);relayout();});
   document.getElementById('relayout').addEventListener('click',relayout);
   markOrphans();     // flag + cluster config not reachable from a Gateway
+  applyUnused(false);// unused config hidden by default
   applyAux(false);   // aux control-plane services hidden by default
   relayout();
   // deep-link: opening #<node-id> selects that node (shareable link to a resource's panel)
-  function pickFromHash(){var id=decodeURIComponent((location.hash||'').slice(1));if(!id)return;var n=cy.getElementById(id);if(n&&n.length){render(n);n.select();}}
+  function pickFromHash(){
+    var id=decodeURIComponent((location.hash||'').slice(1));if(!id)return;
+    var n=cy.getElementById(id);
+    if(n&&n.length){
+      if(n.data('orphan')){document.getElementById('unused').checked=true;applyUnused(true);relayout();}
+      render(n);n.select();
+    }
+  }
   window.addEventListener('hashchange',pickFromHash); pickFromHash();
   // resizable side panel — drag the grip; cy re-fits its canvas to the new width
   var grip=document.getElementById('grip'), side=document.getElementById('side'), dragging=false;

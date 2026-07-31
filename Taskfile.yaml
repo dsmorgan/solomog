@@ -702,9 +702,10 @@ tasks:
       (data plane) → HTTPRoutes → Backends → Policies, with the control plane shown via the
       GatewayClass chain (Gateway → gatewayClassName → GatewayClass → controllerName →
       enterprise-agentgateway → manages → Gateway) and its proxy pod. Nodes are colour-coded by
-      kind, and by plane (data / control / class) per the legend. A toggle shows/hides the
-      auxiliary control-plane services. Click any node for its details and a copy-paste kubectl
-      command. Same relationship model as `solomog routes`.
+      kind, and by plane (data / control / class) per the legend. Unused routes, backends, and
+      policies are hidden by default and available from the unused-components toggle; a second
+      toggle shows/hides auxiliary control-plane services. Click any node for its details and a
+      copy-paste kubectl command. Same relationship model as `solomog routes`.
 
       The HTML is self-contained (graph lib + data inlined) — it works offline and can be
       handed off. By DEFAULT it just opens the file (the task then exits cleanly, nothing to
