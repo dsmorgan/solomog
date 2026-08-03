@@ -31,6 +31,8 @@ These must be present **before** running `bash scripts/setup.sh`:
 | `helm` | Chart installs |
 | `jq` | JSON parsing in scripts |
 | `step` | PKI / shared-CA cert generation for multi-cluster Istio mTLS |
+| `mkcert` | Local CA for gateway TLS (`expose`) |
+| `uv` | Isolated Python deps for some bundle tests |
 
 ---
 
@@ -61,10 +63,10 @@ solomog            # lists every available scenario
 
 ## Assumptions
 
-- **macOS + Docker Desktop.** The flat-network routing
-  ([scripts/networking.sh](scripts/networking.sh)) injects `nftables` rules into
-  the Docker Desktop Linux VM via `nsenter`. These rules are **ephemeral** — re-run
-  the relevant scenario (or just `networking.sh`) after a Docker Desktop restart.
+- **macOS + Docker Desktop.** Inter-cluster routing
+  ([scripts/networking.sh](scripts/networking.sh)) injects rules into the Docker
+  Desktop Linux VM. Those rules are **ephemeral** — after a Docker Desktop restart,
+  recover with `solomog net:repair CLUSTERS="…"` (clusters / Istio / certs survive).
 - **vcluster docker driver.** Clusters are created with `vcluster create --driver
   docker` (vcluster-in-Docker) using default config, then `vcluster connect`ed.
 - **kube context naming.** The docker driver registers contexts as
@@ -142,6 +144,9 @@ the two are interchangeable aliases). Multi-cluster meshes are orchestrated by
 [scripts/mesh.sh](scripts/mesh.sh), which installs the `istio` product module onto
 each cluster with one shared root CA. Per-cluster Istio version overrides
 (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) in `versions.env` enable mixed-version meshes.
+
+After a Docker Desktop restart, host routing between clusters is gone — recover with
+`solomog net:repair CLUSTERS="…"` (auto-detects flat vs gateway; no full mesh re-run).
 
 > **`CLUSTER` / `CLUSTERS` are aliases.** Single-cluster tasks take the first name
 > from whichever you set; multi-cluster tasks take the whole list. So a singular/plural
@@ -227,6 +232,49 @@ solomog apps:mcp-stripe                  # stripe-mock exposed as MCP tools via 
 Both AI/MCP apps need a gateway to be reachable — run `solomog expose` (above) first
 or in the same CLI call.
 
+### Inspect agentgateway config
+
+Two complementary, read-only views of what's on a cluster's agentgateway(s):
+
+```bash
+# Terminal: Gateway → listeners → HTTPRoutes (host/path → backend, policies, ACTIVE?)
+solomog routes CLUSTER=a1
+solomog routes CLUSTER=a1 WIDE=true          # also matchers/filters + failure reasons
+
+# Browser: interactive HTML graph (Gateway → routes → backends → policies + control plane)
+solomog graph CLUSTER=a1
+solomog graph CLUSTER=a1 OPEN=false          # write HTML only
+solomog graph CLUSTER=a1 DUMP=false          # skip proxy /config_dump (faster; no live version)
+```
+
+- **`routes`** is built from kubectl CR `.status` only — so it also shows routes that
+  *aren't* active (`Accepted` / `ResolvedRefs` / `Programmed` = False). The proxy's
+  `/config_dump` omits those.
+- **`graph`** snapshots the same CR relationship model into a self-contained HTML file
+  (Cytoscape). By default it also port-forwards each gateway pod's admin port (`:15000`)
+  on an ephemeral local port and fetches `/config_dump` — that surfaces the live proxy
+  **version** in the subtitle, marks which routes/backends/policies the proxy actually
+  loaded, and embeds the dump (Dump button → summary + download). Soft-fails if the
+  admin port is unreachable (falls back to the dataplane image tag for version).
+  `DUMP=false` skips the fetch entirely.
+
+Both accept a registered external cluster the same way as other tasks
+(`CLUSTER=e2a2` after `eks:create`, or `CONTEXT=…`).
+
+### Clusters & external targets (EKS)
+
+```bash
+solomog cluster:list                         # vind + registered EKS/external
+solomog cluster:show CLUSTER=a1
+
+# Stand up / tear down an EKS cluster and register it for solomog CLUSTER=…
+solomog eks:create CLUSTER=dmorgan-agw
+solomog eks:delete CLUSTER=dmorgan-agw
+```
+
+Once registered (or with `CONTEXT=`), install/expose/graph/routes use that cluster like
+a local vind one — solomog does not create or network it.
+
 ### Custom config bundles (customer repros)
 
 When you need to apply bespoke config that isn't worth generalizing into a product or
@@ -257,7 +305,7 @@ the escape hatch for imperative steps like creating a Secret from a key in `.env
 
 ```bash
 solomog versions:show
-solomog versions:update                  # check GitHub, optionally bump versions.env
+solomog versions:update                  # check GitHub (read-only — does not write versions.env)
 solomog teardown                         # prompts, then destroys all solomog-created clusters
 solomog teardown CLUSTER=cluster-one     # destroy just one cluster
 ```
@@ -279,7 +327,7 @@ AGENTGATEWAY_LICENSE_KEY=...      # overrides for agentgateway
 
 A product-specific key always wins; otherwise the product falls back to
 `SOLO_LICENSE_KEY`. Resolution lives in
-[helmfiles/environments/default.yaml](helmfiles/environments/default.yaml).
+[helmfiles/environments/default.yaml.gotmpl](helmfiles/environments/default.yaml.gotmpl).
 Community editions ignore license keys entirely.
 
 ---
@@ -294,19 +342,24 @@ solomog
 ├── versions.env                # pinned product versions
 ├── scripts/
 │   ├── setup.sh                # install prereqs + link solomog
-│   ├── vind-create.sh          # create vclusters with unique CIDRs
-│   ├── vind-teardown.sh        # destroy clusters (with confirmation)
-│   ├── networking.sh           # flat-network nftables routing (Docker Desktop)
+│   ├── vind-create.sh          # create vclusters (docker driver, default config) + connect
+│   ├── vind-teardown.sh        # destroy solomog-created clusters (with confirmation)
+│   ├── networking.sh           # inter-cluster Docker routing (flat / gateway)
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order
 │   ├── mesh.sh                 # multi-cluster Istio (istio module per cluster, shared CA)
+│   ├── net-repair.sh           # re-apply inter-cluster Docker routing after a Docker restart
 │   ├── expose.sh               # Gateway + TLS + DNS (backfills sub-host /etc/hosts)
 │   ├── route-host.sh           # route a Service on its own sub-host under expose's wildcard
+│   ├── routes.sh               # terminal view of agentgateway routing (CR status)
+│   ├── graph.sh                # interactive HTML graph (+ optional /config_dump enrichment)
+│   ├── clusters.sh             # cluster:list / cluster:show
 │   ├── install-agentgateway-ui.sh  # Solo UI (management chart) + tracing + route
 │   ├── install-monitoring.sh   # Prometheus/Grafana + product dashboards + route
 │   ├── apply-bundle.sh         # apply a custom-config bundle to a cluster, in order
 │   ├── bundles.sh              # list / show available bundles
-│   ├── versions-update.sh      # fetch latest versions from GitHub
+│   ├── versions-update.sh      # check pinned versions against GitHub (read-only)
+│   ├── lib/target.sh           # CLUSTER → kube context (vind / registry / CONTEXT)
 │   └── apps/install-bookinfo.sh
 ├── clusters/                   # vcluster configs (single, multi, multi-3)
 ├── bundles/                    # custom-config bundles (bundles/private/ is gitignored)
@@ -314,7 +367,7 @@ solomog
 ├── helmfiles/
 │   ├── commons.yaml            # shared environment definitions (bases)
 │   ├── environments/           # default + enterprise/community + ambient/sidecar
-│   ├── products/               # one module per product (composable)
+│   ├── products/               # one module per product (*.yaml.gotmpl, composable)
 │   ├── addons/                 # UI (management chart) + monitoring stack
 │   └── apps/                   # sample app helmfiles
 ├── values/                     # per-product Helm values

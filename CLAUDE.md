@@ -102,7 +102,7 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   (whole list). New cluster-scoped tasks should follow the same pattern so the
   singular/plural slip stays harmless.
 - **License resolution** is centralized in
-  [helmfiles/environments/default.yaml](helmfiles/environments/default.yaml):
+  [helmfiles/environments/default.yaml.gotmpl](helmfiles/environments/default.yaml.gotmpl):
   `<product>_license_key` = product-specific env var `| default SOLO_LICENSE_KEY`.
   Never re-implement this per module — just reference the resolved value.
 - **Shared environments** live in [helmfiles/commons.yaml](helmfiles/commons.yaml);
@@ -117,12 +117,12 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 ## How to extend
 
 ### Add a new product
-1. Create `helmfiles/products/<name>.yaml` with `bases: [../commons.yaml]`, a
+1. Create `helmfiles/products/<name>.yaml.gotmpl` with `bases: [../commons.yaml]`, a
    `repositories:` block (gate enterprise/community with
    `{{ if eq .Environment.Name "enterprise" }}`), and `releases:`.
-2. Add license resolution to `default.yaml` if it needs a key; reference
+2. Add license resolution to `default.yaml.gotmpl` if it needs a key; reference
    `.Values.<name>_license_key`.
-3. Add the chart repo URLs to `enterprise.yaml` / `community.yaml`.
+3. Add the chart repo URLs to `enterprise.yaml` / `community.yaml.gotmpl`.
 4. Add `<name>` to `CANONICAL_ORDER` in [scripts/stack.sh](scripts/stack.sh) in the
    correct dependency position.
 5. Optionally add a shortcut task in [Taskfile.yaml](Taskfile.yaml).
@@ -161,6 +161,23 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   so it works on *any* gateway — it auto-detects the gateway name/ns (agw/kgw) like expose,
   and uses a `URLRewrite` filter (ReplacePrefixMatch `/`) so `/httpbin/get` → httpbin's `/get`.
   httpbin is the gateway-agnostic routing smoke test (the only routable sample for kgateway).
+
+### Inspect agentgateway config (`routes` / `graph`)
+Two read-only views over the same CR relationship model (agentgateway only today):
+- **`routes`** ([scripts/routes.sh](scripts/routes.sh)) — terminal table: Gateway → listeners →
+  HTTPRoutes (host/path → backend, attached policies, ACTIVE per `.status`). Deliberately
+  **not** from the proxy `/config_dump` — dump only shows *accepted* config, so rejected
+  routes vanish; CR conditions are the source that surfaces what's *not* active.
+- **`graph`** ([scripts/graph.sh](scripts/graph.sh)) — same edges as Cytoscape elements in a
+  self-contained HTML file (Gateway / control-plane / pods → routes → backends → policies;
+  unused + aux toggles; per-node raw/clean YAML). By default (`DUMP=true`) also port-forwards
+  each gateway dataplane pod's admin port on an **ephemeral local port** (never hardcode
+  host `:15000`) and `curl`s `/config_dump`: subtitle gets the live proxy **version**
+  (`.version.version`; image-tag fallback if unreachable), nodes get `loaded` yes/no from
+  dump name sets, and the dump is embedded (`Dump` button → counts + download). Soft-fail
+  on PF/curl errors; `DUMP=false` skips the fetch (graph still works; version/loaded degrade).
+  Prefer raw PF+curl over requiring `agctl`. Both tasks resolve context via `solomog_context`
+  (vind / `.solomog/contexts` / `CONTEXT=`).
 
 ### Add-ons (UI & monitoring)
 Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modules in
@@ -406,7 +423,7 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
     (prometheus-community) for the monitoring add-on.
   Only the `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
 - Enterprise and community are on **different version lines** for kgateway and
-  agentgateway. `community.yaml` overrides `kgateway_version`/`agentgateway_version`
+  agentgateway. `community.yaml.gotmpl` overrides `kgateway_version`/`agentgateway_version`
   from `*_COMMUNITY_VERSION` env vars — don't assume one version fits both editions.
 - All Gateway-API-based products (istio, kgateway, agentgateway) install the
   **upstream Gateway API CRDs** via a `presync` hook (`kubectl apply --server-side`,
