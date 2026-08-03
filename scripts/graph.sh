@@ -10,15 +10,19 @@ set -euo pipefail
 # The relationship model is the same one `routes` computes (kubectl + jq); this just emits
 # it as Cytoscape.js elements, inlines them + the vendored graph lib into ONE HTML file
 # (self-contained → works offline, shareable, could drop into an `export`), then serves it
-# on an ephemeral local port and opens a browser tab.
+# on an ephemeral local port and opens a browser tab. Optionally enriches with each gateway
+# pod's admin /config_dump (version + which CRs the proxy actually loaded).
 #
 # Usage: graph.sh <cluster>
 # Env:
-#   OPEN    true|false (default true) — open the generated HTML in a browser
-#   SERVE   true (default false) — serve on a local port (Enter to stop) instead of just
-#           opening the self-contained file. localhost gives native clipboard copy.
-#   OUT     output HTML path (default .solomog/graph/<cluster>-<ts>.html)
-#   PORT    serve port, SERVE=true only (default: an ephemeral free port)
+#   OPEN          true|false (default true) — open the generated HTML in a browser
+#   SERVE         true (default false) — serve on a local port (Enter to stop) instead of just
+#                 opening the self-contained file. localhost gives native clipboard copy.
+#   OUT           output HTML path (default .solomog/graph/<cluster>-<ts>.html)
+#   PORT          serve port, SERVE=true only (default: an ephemeral free port)
+#   DUMP          true|false (default true) — port-forward each gateway pod's admin :15000
+#                 and fetch /config_dump (version + loaded enrichment). Soft-fails on error.
+#   DUMP_TIMEOUT  seconds to wait for port-forward/curl (default 15)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
@@ -33,6 +37,8 @@ CTX="$(solomog_context "$CLUSTER")"
 # context (arn:...:cluster/NAME → NAME; plain context name → itself).
 solomog_is_external "$CLUSTER" && CLUSTER="${CTX##*/}"
 SERVE="${SERVE:-false}"
+DUMP="${DUMP:-true}"
+DUMP_TIMEOUT="${DUMP_TIMEOUT:-15}"
 TS="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo graph)"
 OUT="${OUT:-$REPO_DIR/.solomog/graph/${CLUSTER}-${TS}.html}"
 CYTO="$REPO_DIR/scripts/lib/graph/cytoscape.min.js"
@@ -71,10 +77,145 @@ if [ -z "$GWNAMES" ]; then
 fi
 EDITION="community"; echo "$GW" | jq -e '.[]|select(.spec.gatewayClassName=="enterprise-agentgateway")' >/dev/null 2>&1 && EDITION="enterprise"
 
+# ── Proxy admin /config_dump (version + loaded enrichment). Soft-fail. ──────────
+# Docs: each gateway pod serves admin on :15000; /config_dump includes build info
+# (.version) and the runtime-loaded binds/routes/backends/policies. Local port is
+# always ephemeral — never hardcode 15000 on the host (may already be in use).
+_free_port() {
+  python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1]);s.close()' 2>/dev/null || echo ""
+}
+
+# Fetch one pod's /config_dump to stdout. Returns non-zero on failure (stdout empty).
+_fetch_one_dump() {
+  local ns="$1" pod="$2" local_port pf_pid i out=""
+  local_port="$(_free_port)"
+  [ -z "$local_port" ] && return 1
+  kubectl --context "$CTX" port-forward -n "$ns" "pod/${pod}" "${local_port}:15000" >/dev/null 2>&1 &
+  pf_pid=$!
+  i=0
+  while [ "$i" -lt "$DUMP_TIMEOUT" ]; do
+    if out="$(curl -sf -m 2 "http://127.0.0.1:${local_port}/config_dump" 2>/dev/null)" \
+       && printf '%s' "$out" | jq -e 'type=="object"' >/dev/null 2>&1; then
+      printf '%s' "$out"
+      kill "$pf_pid" 2>/dev/null || true
+      wait "$pf_pid" 2>/dev/null || true
+      return 0
+    fi
+    # Bail early if the PF process died.
+    kill -0 "$pf_pid" 2>/dev/null || break
+    i=$((i + 1))
+    sleep 1
+  done
+  kill "$pf_pid" 2>/dev/null || true
+  wait "$pf_pid" 2>/dev/null || true
+  return 1
+}
+
+# Image-tag fallback from a gateway's dataplane pod (no admin port needed).
+_image_version_for_gw() {
+  local gwn="$1"
+  printf '%s' "$PODS" | jq -r --arg g "$gwn" '
+    [.[] | select(.metadata.labels["gateway.networking.k8s.io/gateway-name"] == $g)
+         | .spec.containers[0].image // empty]
+    | first // empty
+    | if . == "" then empty else (split(":")|last) end'
+}
+
+DUMPS='{}'          # { "ns/name": <config_dump>, ... }
+VERSION=""
+VERSION_SOURCE="unknown"
+GIT_REVISION=""
+
+if [ "$DUMP" = "true" ]; then
+  echo "==> Fetching proxy /config_dump (admin :15000)…"
+  while IFS=$'\t' read -r gw_ns gw_name; do
+    [ -z "$gw_name" ] && continue
+    # Prefer a Ready Running pod labelled for this gateway.
+    pod="$(printf '%s' "$PODS" | jq -r --arg g "$gw_name" --arg ns "$gw_ns" '
+      [.[] | select(.metadata.namespace==$ns
+                 and .metadata.labels["gateway.networking.k8s.io/gateway-name"]==$g
+                 and .status.phase=="Running")
+          | .metadata.name] | first // empty')"
+    if [ -z "$pod" ]; then
+      echo "    ${gw_ns}/${gw_name}: no Running dataplane pod — skip dump" >&2
+      continue
+    fi
+    if dump_json="$(_fetch_one_dump "$gw_ns" "$pod")"; then
+      key="${gw_ns}/${gw_name}"
+      DUMPS="$(jq -cn --argjson d "$DUMPS" --arg k "$key" --argjson v "$dump_json" '$d + {($k): $v}')"
+      ver="$(printf '%s' "$dump_json" | jq -r '.version.version // empty')"
+      rev="$(printf '%s' "$dump_json" | jq -r '.version.git_revision // empty')"
+      if [ -n "$ver" ]; then
+        if [ -z "$VERSION" ]; then
+          VERSION="$ver"
+          VERSION_SOURCE="config_dump"
+          GIT_REVISION="$rev"
+        elif [ "$ver" != "$VERSION" ]; then
+          echo "    warn: version skew ${gw_ns}/${gw_name}=${ver} vs ${VERSION}" >&2
+        fi
+      fi
+      echo "    ${gw_ns}/${gw_name} (pod ${pod}): dump ok${ver:+ · ${ver}}"
+    else
+      echo "    ${gw_ns}/${gw_name} (pod ${pod}): dump unavailable — will fall back" >&2
+    fi
+  done <<EOF
+$(echo "$GW" | jq -r '.[]|select(.spec.gatewayClassName|test("agentgateway"))|[.metadata.namespace,.metadata.name]|@tsv')
+EOF
+fi
+
+# Image-tag fallback when dump didn't yield a version.
+if [ -z "$VERSION" ]; then
+  first_gw="$(echo "$GWNAMES" | cut -d, -f1)"
+  img_ver="$(_image_version_for_gw "$first_gw")"
+  if [ -n "$img_ver" ]; then
+    VERSION="$img_ver"
+    VERSION_SOURCE="image"
+    echo "    version from image tag: ${VERSION}"
+  else
+    echo "    version: unknown (no dump, no image tag)" >&2
+  fi
+fi
+
+# Loaded (ns/name) sets from all dumps — union across gateways.
+LOADED="$(jq -cn --argjson dumps "$DUMPS" '
+  def route_keys:
+    [.[] | .binds[]? | (.listeners // {}) | to_entries[]? | (.value.routes // {}) | to_entries[]?
+     | .value | select(.name != null)
+     | ((.namespace // "") + "/" + .name)];
+  def backend_keys:
+    [.[] | .backends[]? | .backend // {} | to_entries[]? | .value
+     | select(type=="object" and (.name|type)=="string")
+     | ((.namespace // "") + "/" + .name)];
+  def policy_keys:
+    [.[] | .policies[]? | . as $p
+     | (
+         (if ($p.name|type)=="object" and ($p.name.name|type)=="string"
+          then [($p.name.namespace // "") + "/" + $p.name.name] else [] end)
+         + ( ($p.key // "") as $k
+             | if ($k|startswith("traffic/")) or ($k|startswith("agw-enterprise-policy/"))
+               then ($k|split(":")[0]|split("/")) as $parts
+                    | if ($parts|length)>=3 then [$parts[1]+"/"+$parts[2]] else [] end
+               elif ($k|test("^[^/]+/[^/]+:"))
+               then ($k|split(":")[0]|split("/")) as $parts
+                    | if ($parts|length)>=2 then [$parts[0]+"/"+$parts[1]] else [] end
+               else [] end)
+       )[] ];
+  ($dumps | [.[]]) as $all
+  | {
+      routes:   ($all | route_keys   | unique),
+      backends: ($all | backend_keys | unique),
+      policies: ($all | policy_keys  | unique),
+      hasDump:  (($dumps|length) > 0)
+    }
+')"
+
 # ── Build Cytoscape elements (nodes + edges) from the snapshot. ─────────────────
 DATA="$(jq -cn \
   --argjson gw "$GW" --argjson rt "$RT" --argjson pol "$POL" --argjson be "$BE" \
-  --argjson pods "$PODS" --argjson deps "$DEPS" --argjson gc "$GC" --arg cluster "$CLUSTER" --arg edition "$EDITION" '
+  --argjson pods "$PODS" --argjson deps "$DEPS" --argjson gc "$GC" \
+  --argjson loaded "$LOADED" \
+  --arg cluster "$CLUSTER" --arg edition "$EDITION" \
+  --arg version "$VERSION" --arg versionSource "$VERSION_SOURCE" --arg gitRevision "$GIT_REVISION" '
   def cond(t): [.status.conditions[]?|select(.type==t).status];
   def stat(t): cond(t) as $c | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end;
   def rstat:
@@ -101,6 +242,13 @@ DATA="$(jq -cn \
       | .data.refCount=$n
       | .data.relation=$relation
       | .data.rel=($relation+(if $n>1 then " ×"+($n|tostring) else "" end)));
+  # Map a node ns/name into loaded=true|false|na from the dump-derived sets.
+  # Capture $id before piping into index — inside index(...), `.` would be $keys.
+  def mark_loaded($keys):
+    (.ns+"/"+ .name) as $id
+    | if ($loaded.hasDump|not) then "na"
+      elif (($keys | index($id)) != null) then "true"
+      else "false" end;
 
   ($gw | map(select(.spec.gatewayClassName|test("agentgateway")))) as $gws
   | ($gws | map(.metadata.name)) as $gwnames
@@ -132,12 +280,13 @@ DATA="$(jq -cn \
 
   | {
       cluster:$cluster, edition:$edition, gateways:$gwnames,
+      version:$version, versionSource:$versionSource, gitRevision:$gitRevision,
       elements: (
         # ── Gateway nodes (data plane) ──
         [ $gws[] | {data:{
             id:("gateway:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"Gateway", role:"dataplane", plane:"data", ns:.metadata.namespace, name:.metadata.name,
-            status:stat("Programmed"), rtype:"gateway",
+            status:stat("Programmed"), rtype:"gateway", loaded:"na",
             kubectl:("kubectl get gateway "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ class:.spec.gatewayClassName, address:(.status.addresses[0].value//"-"),
                      listeners:[.spec.listeners[]|(.protocol+"/"+(.port|tostring)+" ("+(.hostname//"*")+")")],
@@ -149,7 +298,7 @@ DATA="$(jq -cn \
             kind:"Deployment", role:"controlplane", plane:"control", ns:.metadata.namespace, name:.metadata.name,
             aux:(.metadata.name != "enterprise-agentgateway"),
             status:(if (.status.readyReplicas//0)==(.status.replicas//0) and (.status.replicas//0)>0 then "ok" else "bad" end),
-            rtype:"deploy",
+            rtype:"deploy", loaded:"na",
             kubectl:("kubectl get deploy "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ ready:((.status.readyReplicas//0|tostring)+"/"+(.status.replicas//0|tostring)) } }} ]
 
@@ -159,7 +308,7 @@ DATA="$(jq -cn \
             id:("gatewayclass:"+$cn), label:$cn, kind:"GatewayClass", role:"class", name:$cn, ns:"(cluster-scoped)",
             status:( [$gcx.status.conditions[]?|select(.type=="Accepted").status] as $c
                      | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end ),
-            rtype:"gatewayclass", kubectl:("kubectl get gatewayclass "+$cn+" -o yaml"),
+            rtype:"gatewayclass", loaded:"na", kubectl:("kubectl get gatewayclass "+$cn+" -o yaml"),
             detail:{ controllerName:($gcx.spec.controllerName//"-"),
                      conditions:[$gcx.status.conditions[]?|(.type+"="+.status)] } }} ]
         + [ $gws[] | {data:{
@@ -177,7 +326,7 @@ DATA="$(jq -cn \
         + [ $pods[] | select(.metadata.labels["gateway.networking.k8s.io/gateway-name"] as $g | $g != null and ($gwnames|index($g))) | {data:{
             id:("pod:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"Pod", role:"dataplane", plane:"data", ns:.metadata.namespace, name:.metadata.name,
-            status:(if .status.phase=="Running" then "ok" else "bad" end), rtype:"pod",
+            status:(if .status.phase=="Running" then "ok" else "bad" end), rtype:"pod", loaded:"na",
             kubectl:("kubectl get pod "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ phase:.status.phase, node:(.spec.nodeName//"-") } }} ]
         + [ $pods[] | (.metadata.labels["gateway.networking.k8s.io/gateway-name"]) as $g
@@ -191,6 +340,7 @@ DATA="$(jq -cn \
             id:("httproute:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"HTTPRoute", role:"route", ns:.metadata.namespace, name:.metadata.name,
             status:rstat, rtype:"httproute",
+            loaded:({ns:.metadata.namespace, name:.metadata.name} | mark_loaded($loaded.routes)),
             kubectl:("kubectl get httproute "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ hostnames:([.spec.hostnames[]?]|if length==0 then ["*"] else . end),
                      paths:([.spec.rules[]?.matches[]?.path.value]|unique|map(select(.!=null))),
@@ -205,6 +355,7 @@ DATA="$(jq -cn \
             id:("backend:"+.key), label:.name, kind:"Backend",
             role:(if .cr then "backend" else "external" end), ns:.ns, name:.name,
             status:(.status // "na"), rtype:(.rtype // "service"),
+            loaded:({ns:.ns, name:.name} | mark_loaded($loaded.backends)),
             kubectl:(if .cr then ("kubectl get "+(.rtype)+" "+.name+" -n "+.ns+" -o yaml")
                      else ("kubectl get service "+.name+" -n "+.ns+" -o yaml  # or a backend CR") end),
             detail:{ resource:(.rtype // "service"), type:(.btype // "-"),
@@ -222,6 +373,7 @@ DATA="$(jq -cn \
             id:("policy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:.kind, role:"policy", ns:.metadata.namespace, name:.metadata.name,
             status:pstat, rtype:._rtype,
+            loaded:({ns:.metadata.namespace, name:.metadata.name} | mark_loaded($loaded.policies)),
             kubectl:("kubectl get "+._rtype+" "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ targets:[.spec.targetRefs[]?|(.kind+"/"+.name)],
                      conditions:(( [pconds[] | .type+"="+.status+(if .status!="True" then " — "+(.reason//"")+": "+(.message//"") else "" end)] )
@@ -245,7 +397,9 @@ DATA="$(jq -cn \
 
 NODE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source|not)]|length')"
 EDGE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source)]|length')"
-echo "    ${NODE_N} node(s), ${EDGE_N} edge(s)  (edition=${EDITION}, gateways=${GWNAMES})"
+VER_NOTE="${VERSION:-unknown}"
+[ -n "$VERSION_SOURCE" ] && [ "$VERSION_SOURCE" != "unknown" ] && VER_NOTE="${VER_NOTE} (${VERSION_SOURCE})"
+echo "    ${NODE_N} node(s), ${EDGE_N} edge(s)  (edition=${EDITION}, version=${VER_NOTE}, gateways=${GWNAMES})"
 
 # Prune edges whose endpoints don't exist (e.g. a backendRef to a Service we didn't node-ify
 # as a CR still has a node; but a stray targetRef to a missing route would dangle). Keeps
@@ -318,6 +472,24 @@ YAML_MAP="$(jq -n --argjson raw "$RAW_YAML" --argjson clean "$CLEAN_YAML" --arg 
   reduce ($raw|keys[]) as $k ({}; .[$k]={raw:$raw[$k], clean:($clean[$k] // ""), cleanBy:$by})')"
 echo "    manifests embedded for $(printf '%s' "$YAML_MAP" | jq 'length') node(s)  (clean via ${CLEAN_BY})"
 
+# Build a compact dump payload for the HTML (per-gateway dumps + summary counts).
+DUMP_PAYLOAD="$(jq -cn --argjson dumps "$DUMPS" --arg version "$VERSION" --arg versionSource "$VERSION_SOURCE" --arg gitRevision "$GIT_REVISION" '
+  def route_count:
+    [.binds[]? | (.listeners // {}) | to_entries[]? | (.value.routes // {}) | keys[]] | length;
+  ($dumps | [.[]] | {
+    binds:     (map((.binds // []) | length) | add // 0),
+    routes:    (map(route_count) | add // 0),
+    backends:  (map((.backends // []) | length) | add // 0),
+    policies:  (map((.policies // []) | length) | add // 0),
+    gateways:  ($dumps | keys | length)
+  }) as $summary
+  | { version:$version, versionSource:$versionSource, gitRevision:$gitRevision,
+      summary:$summary, gateways:$dumps }
+')"
+
+VERSION_SUB=""
+[ -n "$VERSION" ] && VERSION_SUB=" · ${VERSION}"
+
 # ── Assemble the self-contained HTML (vendored Cytoscape + inlined data + app). ─
 mkdir -p "$(dirname "$OUT")"
 {
@@ -336,8 +508,9 @@ mkdir -p "$(dirname "$OUT")"
   h1{font-size:14px;margin:0 0 4px} .sub{color:var(--dim);font-size:12px;margin-bottom:14px}
   .empty{color:var(--dim)} .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
   .name{font-size:16px;font-weight:600;margin:2px 0 8px;word-break:break-all}
-  .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .badge{display:inline-block;padding:1px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-right:4px}
   .ok{background:#153a25;color:#5fe3a1} .bad{background:#42121a;color:#ff8098} .na{background:#26314a;color:#9fb0d0}
+  .warn{background:#3a2a12;color:#ffb454}
   table{width:100%;border-collapse:collapse;margin:10px 0} td{padding:3px 0;vertical-align:top;font-size:13px}
   td.key{color:var(--dim);width:34%;padding-right:8px} pre{background:#0b0f18;border:1px solid var(--line);border-radius:6px;padding:10px;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
   button{background:var(--accent);color:#0b0f18;border:0;border-radius:6px;padding:6px 12px;font-weight:600;cursor:pointer}
@@ -364,12 +537,13 @@ mkdir -p "$(dirname "$OUT")"
   #controls button{background:transparent;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:12px}
 </style></head><body><div id="wrap"><div id="cy"></div>
 <div id="grip" title="drag to resize"></div>
-<div id="side"><h1>solomog graph</h1><div class="sub">cluster ${CLUSTER} · agentgateway (${EDITION})</div>
-<div id="detail"><div class="empty">Click a node to inspect it.</div></div></div></div>
+<div id="side"><h1>solomog graph</h1><div class="sub">cluster ${CLUSTER} · agentgateway (${EDITION})${VERSION_SUB}</div>
+<div id="detail"><div class="empty">Click a node to inspect it, or open the dump panel.</div></div></div></div>
 <div id="controls">
   <label><input type="checkbox" id="unused"> unused components</label>
   <label><input type="checkbox" id="aux"> control-plane services</label>
   <button id="relayout">re-layout</button>
+  <button id="show-dump" title="proxy /config_dump">dump</button>
 </div>
 <div id="legend"></div>
 <script>
@@ -378,9 +552,11 @@ HTMLHEAD
   echo '</script><script>'
   printf 'window.SOLOMOG_DATA=%s;\n' "$DATA"
   printf 'window.SOLOMOG_YAML=%s;\n' "$YAML_MAP"
+  printf 'window.SOLOMOG_DUMP=%s;\n' "$DUMP_PAYLOAD"
   cat <<'APPJS'
 (function(){
   var D=window.SOLOMOG_DATA;
+  var DUMP=window.SOLOMOG_DUMP||{};
   var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c',GatewayClass:'#80cbc4'};
   function statColor(s){return s==='ok'?'#3fe08f':s==='bad'?'#ff5f7a':'#4a5578';}
   var cy=cytoscape({
@@ -476,12 +652,23 @@ HTMLHEAD
     }).join('\n');
   }
   var CUR=null;  // current node's YAML {raw, clean, cleanBy}
+  function loadedLabel(l){
+    if(l==='true') return {cls:'ok', text:'loaded in proxy'};
+    if(l==='false') return {cls:'bad', text:'not in proxy'};
+    return null;
+  }
   function render(n){
     var d=n.data(), det=d.detail||{}, s=d.status||'na';
     var h='<div class="k">'+esc(d.kind)+'</div><div class="name">'+esc(d.name)+'</div>';
     h+='<span class="badge '+s+'">'+(s==='ok'?'✓ active':s==='bad'?'✗ inactive':'—')+'</span>';
+    var ld=loadedLabel(d.loaded);
+    if(ld) h+='<span class="badge '+ld.cls+'">'+ld.text+'</span>';
     if(d.orphan) h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ unused — not reachable from any Gateway (applied, but not wired in)</div>';
+    if(d.loaded==='false' && s==='ok')
+      h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ CR status is active but this resource is not in the proxy /config_dump</div>';
     h+='<table>'+row('namespace',esc(d.ns||'-'));
+    if(d.loaded && d.loaded!=='na')
+      h+=row('loaded in proxy', d.loaded==='true'?'yes':'no');
     Object.keys(det).forEach(function(k){
       var v=det[k]; if(Array.isArray(v)) v=v.length?v.map(esc).join('<br>'):'—';
       else v=esc(v==null||v===''?'—':v);
@@ -518,6 +705,42 @@ HTMLHEAD
     document.getElementById('detail').innerHTML=h;
     if(CUR) solomogTab('clean');
   }
+  function renderDump(){
+    var s=DUMP.summary||{}, gws=DUMP.gateways||{}, keys=Object.keys(gws);
+    var h='<div class="k">proxy config_dump</div><div class="name">runtime snapshot</div>';
+    if(!keys.length){
+      h+='<div class="empty">No /config_dump fetched (DUMP=false, or admin :15000 unreachable). Version may still come from the image tag.</div>';
+      if(D.version) h+='<table>'+row('version',esc(D.version))
+        +row('source',esc(D.versionSource||'—'))+'</table>';
+      document.getElementById('detail').innerHTML=h;
+      return;
+    }
+    h+='<table>'
+      +row('version',esc(DUMP.version||D.version||'—'))
+      +row('source',esc(DUMP.versionSource||D.versionSource||'—'))
+      +(DUMP.gitRevision?row('git revision',esc(DUMP.gitRevision)):'')
+      +row('gateways dumped',esc(String(s.gateways!=null?s.gateways:keys.length)))
+      +row('binds',esc(String(s.binds!=null?s.binds:0)))
+      +row('routes (in binds)',esc(String(s.routes!=null?s.routes:0)))
+      +row('backends',esc(String(s.backends!=null?s.backends:0)))
+      +row('policies',esc(String(s.policies!=null?s.policies:0)))
+      +'</table>';
+    h+='<div class="k">gateways</div><pre>'+esc(keys.join('\n'))+'</pre>';
+    h+='<button id="dl-dump">Download JSON</button><div class="hint" id="dpm"></div>';
+    h+='<div class="hint" style="margin-top:10px">CR graph is primary; dump marks which routes/backends/policies the proxy actually loaded.</div>';
+    document.getElementById('detail').innerHTML=h;
+    document.getElementById('dl-dump').onclick=function(){
+      try{
+        var blob=new Blob([JSON.stringify(DUMP,null,2)],{type:'application/json'});
+        var a=document.createElement('a');
+        a.href=URL.createObjectURL(blob);
+        a.download='solomog-config_dump-'+(D.cluster||'cluster')+'.json';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+        document.getElementById('dpm').innerText='download started ✓';
+      }catch(e){ document.getElementById('dpm').innerText='download failed'; }
+    };
+  }
   window.solomogTab=function(which){
     if(!CUR)return;
     var txt=which==='raw'?CUR.raw:(CUR.clean||CUR.raw);
@@ -543,7 +766,8 @@ HTMLHEAD
     }else fallback();
   };
   cy.on('tap','node',function(e){ if(e.target.data('isUnusedAnchor'))return; render(e.target); });
-  cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it.</div>';}});
+  cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it, or open the dump panel.</div>';}});
+  document.getElementById('show-dump').addEventListener('click',function(){cy.nodes().unselect();renderDump();});
   // legend — kinds shown with their canvas SHAPE + fill colour; then the plane grouping the
   // colours encode; then status as a ring (status is the node BORDER on canvas, not the fill).
   var SHAPE={Gateway:'rrect',GatewayClass:'tag',Deployment:'rrect',Pod:'ellipse',HTTPRoute:'ellipse',Backend:'diamond',Policy:'hex'};
@@ -571,6 +795,7 @@ HTMLHEAD
   // deep-link: opening #<node-id> selects that node (shareable link to a resource's panel)
   function pickFromHash(){
     var id=decodeURIComponent((location.hash||'').slice(1));if(!id)return;
+    if(id==='dump'){renderDump();return;}
     var n=cy.getElementById(id);
     if(n&&n.length){
       if(n.data('orphan')){document.getElementById('unused').checked=true;applyUnused(true);relayout();}
