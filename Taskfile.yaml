@@ -708,22 +708,31 @@ tasks:
       copy-paste kubectl command. Repeated references are aggregated into a counted, thicker edge
       and listed in the backend detail panel. Same relationship model as `solomog routes`.
 
+      By default also port-forwards each gateway pod's admin port (:15000) on an ephemeral local
+      port and fetches /config_dump — surfaces the live proxy version in the subtitle, marks
+      which routes/backends/policies the proxy actually loaded, and embeds the dump (Dump button
+      → summary + download). Soft-fails if the admin port is unreachable (falls back to the
+      dataplane image tag for version). DUMP=false skips the fetch.
+
       The HTML is self-contained (graph lib + data inlined) — it works offline and can be
       handed off. By DEFAULT it just opens the file (the task then exits cleanly, nothing to
       stop). SERVE=true serves it on a local port instead (nicer clipboard support); stop
       that with Enter for a clean exit.
 
       Variables:
-        CLUSTER   cluster to graph (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
-        OPEN      true | false — open the file in a browser              default true
-        SERVE     true — serve on a local port (Enter to stop) instead of opening the file
-        OUT       output HTML path                default .solomog/graph/<cluster>-<ts>.html
-        PORT      serve port (SERVE=true only)     default an ephemeral free port
+        CLUSTER       cluster to graph (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
+        OPEN          true | false — open the file in a browser              default true
+        SERVE         true — serve on a local port (Enter to stop) instead of opening the file
+        OUT           output HTML path                default .solomog/graph/<cluster>-<ts>.html
+        PORT          serve port (SERVE=true only)     default an ephemeral free port
+        DUMP          true | false — fetch proxy /config_dump               default true
+        DUMP_TIMEOUT  seconds to wait for port-forward/curl                 default 15
 
       Examples:
         solomog graph CLUSTER=a10
         solomog graph CLUSTER=a10 OPEN=false
         solomog graph CLUSTER=a10 SERVE=true
+        solomog graph CLUSTER=a10 DUMP=false
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
@@ -736,6 +745,8 @@ tasks:
       SERVE: '{{.SERVE | default "false"}}'
       OUT: '{{.OUT | default ""}}'
       PORT: '{{.PORT | default ""}}'
+      DUMP: '{{.DUMP | default "true"}}'
+      DUMP_TIMEOUT: '{{.DUMP_TIMEOUT | default "15"}}'
 
   export:
     desc: "Export a bundle as a portable, secret-safe hand-off package: BUNDLE=<name> [OUT=… CLUSTER=… EDITION=…]. Stateless (no cluster)."
