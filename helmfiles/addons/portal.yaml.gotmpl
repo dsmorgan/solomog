@@ -1,0 +1,44 @@
+# Add-on: Solo Portal (developer portal controller) for Solo Enterprise for kgateway.
+#
+# This is the install half of `solomog portal`. Portal is a separate enterprise
+# add-on (own license, own ns) that today requires SEFK (enterprise kgateway) on
+# the cluster — the install script preflights that. Kept as its own task (not
+# folded into `kgateway`) so it can later attach to other Solo products without
+# reshaping the CLI.
+#
+#   ENTERPRISE ONLY. Charts live in the enterprise-kgateway OCI registry
+#   (same as SEFK). There is no community Portal.
+#
+# Charts: portal-crds + portal. Namespace: portal-system.
+# License: licensing.licenseKey ← portal_license_key
+#          (PORTAL_LICENSE_KEY or SOLO_LICENSE_KEY).
+#
+# Verified: https://docs.solo.io/kgateway/2.3.x/portal/setup/
+
+bases:
+  - ../commons.yaml
+
+---
+
+repositories:
+  - name: enterprise-kgateway
+    url: "{{ .Values.helm_repo_kgateway }}"
+    oci: true
+
+releases:
+  - name: portal-crds
+    namespace: portal-system
+    chart: enterprise-kgateway/portal-crds
+    version: "{{ .Values.portal_version }}"
+    wait: true
+
+  - name: portal
+    namespace: portal-system
+    chart: enterprise-kgateway/portal
+    version: "{{ .Values.portal_version }}"
+    wait: true
+    needs:
+      - portal-system/portal-crds
+    values:
+      - licensing:
+          licenseKey: "{{ .Values.portal_license_key }}"
