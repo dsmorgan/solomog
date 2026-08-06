@@ -273,20 +273,26 @@ For bespoke / customer-repro config not worth generalizing into a product or app
 - **Short-lived creds**: `solomog gcp:refresh` ([scripts/gcp-refresh.sh](scripts/gcp-refresh.sh))
   re-fetches a GCP token (`gcloud auth print-access-token`) into `.env` as `GCP_ACCESS_TOKEN`
   (general GCP token, not Vertex-specific) — ONLY updates `.env`; re-run the bundle to push it
-  into the cluster secret. `solomog gcp:refresh apply BUNDLE=… CLUSTER=…` works *because the
-  wrapper runs each task as its own `task` invocation* and go-task re-reads dotenv per
+  into the cluster secret. Writes are **in-place** (via [scripts/lib/envfile.sh](scripts/lib/envfile.sh))
+  so the key stays in its `.env.example` section — never appended at EOF. A timestamped backup
+  lands under `.solomog/env-backups/` first. `solomog gcp:refresh apply BUNDLE=… CLUSTER=…` works
+  *because the wrapper runs each task as its own `task` invocation* and go-task re-reads dotenv per
   invocation, so `apply` sees the freshly written token. (A raw `task gcp:refresh apply` in one
   process reads `.env` once — would miss it.) Token is short-lived (~1h); re-run manually when
   a backend 401s.
   `solomog aws:refresh` ([scripts/aws-refresh.sh](scripts/aws-refresh.sh)) is the **same
   pattern for AWS Bedrock**: SSO issues temporary creds (access key + secret + session token,
   ≤12h), so it runs `aws configure export-credentials` (and `aws sso login` first if the
-  session is stale) and writes the three `AWS_*` vars into `.env`. `AWS_PROFILE` (set in
+  session is stale) and updates the three `AWS_*` vars in place. `AWS_PROFILE` (set in
   `.env`) picks the SSO profile; `AWS_SSO_SESSION` (default `SOlo`) names the session for the
   login fallback. Bundle `bundles/llmroute-bedrock/` consumes them via a `policies.auth.aws.secretRef`
   secret (keys `accessKey`/`secretKey`/`sessionToken`). Creds are short-lived (≤12h) — re-run
   manually when a route 401/403s. Same dotenv-reread chaining: `solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=…`.
-
+- **`.env` hygiene**: `.env.example` is the canonical layout (sections + comments).
+  `solomog env:sync` rebuilds `.env` from the example while overlaying your values;
+  `solomog env:diff` reports key drift (names only); `solomog env:backup` snapshots to
+  `.solomog/env-backups/` (also auto on refresh/sync). Prefer sync after pulling example changes
+  rather than hand-editing section order.
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.

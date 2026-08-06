@@ -41,6 +41,9 @@ These must be present **before** running `bash scripts/setup.sh`:
 ```bash
 # 1. From the repo root, create your local secrets file
 cp .env.example .env
+#    Later: `solomog env:sync` rebuilds .env from .env.example (keeps your values +
+#    section comments); `solomog env:diff` shows key drift; `solomog env:backup`
+#    snapshots to .solomog/env-backups/ (also auto-runs before aws/gcp refresh).
 
 # 2. Add your license key(s) to .env  (see "License keys" below)
 #    For community-only use you can leave these blank.
@@ -338,7 +341,7 @@ Community editions ignore license keys entirely.
 solomog
 ├── solomog                     # CLI wrapper → runs `task` from repo root
 ├── Taskfile.yaml               # all scenarios (the `solomog <scenario>` targets)
-├── .env / .env.example         # license keys (.env is gitignored)
+├── .env / .env.example         # secrets + template (.env gitignored; env:sync aligns them)
 ├── versions.env                # pinned product versions
 ├── scripts/
 │   ├── setup.sh                # install prereqs + link solomog
@@ -354,12 +357,14 @@ solomog
 │   ├── routes.sh               # terminal view of agentgateway routing (CR status)
 │   ├── graph.sh                # interactive HTML graph (+ optional /config_dump enrichment)
 │   ├── clusters.sh             # cluster:list / cluster:show
+│   ├── env-backup.sh / env-sync.sh / env-diff.sh  # .env hygiene (lib/envfile.sh)
 │   ├── install-agentgateway-ui.sh  # Solo UI (management chart) + tracing + route
 │   ├── install-monitoring.sh   # Prometheus/Grafana + product dashboards + route
 │   ├── apply-bundle.sh         # apply a custom-config bundle to a cluster, in order
 │   ├── bundles.sh              # list / show available bundles
 │   ├── versions-update.sh      # check pinned versions against GitHub (read-only)
 │   ├── lib/target.sh           # CLUSTER → kube context (vind / registry / CONTEXT)
+│   ├── lib/envfile.sh          # .env backup / in-place set / sync-from-example
 │   └── apps/install-bookinfo.sh
 ├── clusters/                   # vcluster configs (single, multi, multi-3)
 ├── bundles/                    # custom-config bundles (bundles/private/ is gitignored)
