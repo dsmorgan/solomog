@@ -477,8 +477,10 @@ tasks:
       License: PORTAL_LICENSE_KEY (falls back to SOLO_LICENSE_KEY). Version: PORTAL_VERSION
       in versions.env (tracks the SEFK chart line; pinned independently).
 
-      Does NOT install the demo frontend or gateway routes — see the Portal setup
-      docs / a bundle for ApiDoc/ApiProduct + UI exposure.
+      Does NOT install the demo frontend or gateway routes — apply the
+      `portal-httpbin` bundle for that (httpbin ApiProduct + Solo frontend on
+      portal.<gw>.<cluster>.test / api.<gw>.<cluster>.test). See
+      `solomog bundles:show BUNDLE=portal-httpbin`.
 
       Variables:
         CLUSTER   cluster name (context via solomog_context)   REQUIRED — set CLUSTER (or CONTEXT)
@@ -487,6 +489,7 @@ tasks:
 
       Examples:
         solomog kgateway portal CLUSTER=aaa
+        solomog kgateway portal expose apply BUNDLE=portal-httpbin PRODUCT=kgateway CLUSTER=aaa
         solomog portal CLUSTER=aaa
         solomog portal CLUSTER=dmorgan-agw   # registered external (EKS)
     vars:

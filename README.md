@@ -199,7 +199,9 @@ solomog agentgateway:ui expose ROUTE=true CLUSTER=a1
 # Solo Portal (developer portal) — needs enterprise kgateway already on the cluster.
 # Own license (PORTAL_LICENSE_KEY). Separate task so it can later attach beyond SEFK.
 solomog kgateway portal CLUSTER=a1
-#   → controller + starter Portal in portal-system (frontend/routes via docs/bundle)
+#   → controller + starter Portal in portal-system
+solomog expose apply BUNDLE=portal-httpbin PRODUCT=kgateway CLUSTER=a1
+#   → frontend + httpbin ApiProduct at https://portal.kgw.a1.test/
 
 # Prometheus + Grafana — product-agnostic; auto-installs the agentgateway
 # PodMonitor + dashboard when agentgateway is detected on the cluster
