@@ -9,8 +9,9 @@ agentgateway_version: "{{ env "AGENTGATEWAY_VERSION" }}"
 istio_version: "{{ env "ISTIO_VERSION" }}"
 gateway_api_version: "{{ env "GATEWAY_API_VERSION" | default "1.5.0" }}"
 
-# Add-ons: Solo UI / management plane, and the monitoring stack.
+# Add-ons: Solo UI / management plane, Solo Portal, and the monitoring stack.
 agw_ui_version:         "{{ env "AGW_UI_VERSION" }}"
+portal_version:         "{{ env "PORTAL_VERSION" }}"
 kube_prom_stack_version: "{{ env "KUBE_PROM_STACK_VERSION" }}"
 
 # Cluster-specific Istio version overrides (used by multi-3 scenarios).
@@ -43,6 +44,11 @@ gloo_mesh_license_key:    '{{ env "GLOO_MESH_LICENSE_KEY"    | default (env "SOL
 kgateway_license_key:     '{{ env "KGATEWAY_LICENSE_KEY"     | default (env "SOLO_LICENSE_KEY") | default "" }}'
 gloo_gateway_license_key: '{{ env "GLOO_GATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
 agentgateway_license_key: '{{ env "AGENTGATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
+# Portal has its own entitlement (PORTAL_LICENSE_KEY). Falls back to SOLO_LICENSE_KEY
+# only — not KGATEWAY_LICENSE_KEY — so a kgateway-only key doesn't silently get
+# reused when Portal needs a distinct license. Override secretKey/secretName in
+# values if you intentionally share the SEFK license Secret (chart supports that).
+portal_license_key:       '{{ env "PORTAL_LICENSE_KEY"       | default (env "SOLO_LICENSE_KEY") | default "" }}'
 
 # Enterprise repo URLs are empty by default; overridden by enterprise.yaml
 helm_repo_gloo_operator:  ""

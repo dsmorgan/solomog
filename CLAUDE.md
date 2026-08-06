@@ -179,10 +179,10 @@ Two read-only views over the same CR relationship model (agentgateway only today
   Prefer raw PF+curl over requiring `agctl`. Both tasks resolve context via `solomog_context`
   (vind / `.solomog/contexts` / `CONTEXT=`).
 
-### Add-ons (UI & monitoring)
+### Add-ons (UI, Portal & monitoring)
 Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modules in
 [helmfiles/addons/](helmfiles/addons/), installed by their own scripts (not `stack.sh`'s
-product loop). Two exist:
+product loop). Three exist:
 - **`<product>:ui`** — the Solo UI. It's the **same compound pattern as `kgateway:with-istio`**:
   the task installs the product (`stack.sh`) *then* the UI ([scripts/install-agentgateway-ui.sh](scripts/install-agentgateway-ui.sh)).
   The UI is **one `management` chart** (`helm_repo_solo_enterprise`, ns `agentgateway-system`)
@@ -193,6 +193,14 @@ product loop). Two exist:
   that buys nothing for ephemeral vclusters. **Enterprise only** (no community UI; the script
   rejects `EDITION=community`). The tracing CR (`EnterpriseAgentgatewayPolicy`) is applied by the
   script after sync, targeting the gateway by name (default `agw`) so it attaches once `expose` runs.
+- **`portal`** — Solo Portal (developer portal). Separate task on purpose: today it needs
+  Solo Enterprise for kgateway (SEFK) on the cluster, but keeping it out of `kgateway` /
+  `CANONICAL_ORDER` leaves room to attach it to other Solo products later.
+  [scripts/install-portal.sh](scripts/install-portal.sh) + [helmfiles/addons/portal.yaml.gotmpl](helmfiles/addons/portal.yaml.gotmpl)
+  install `portal-crds` + `portal` (ns `portal-system`, same OCI registry as SEFK), then apply a
+  starter `PortalParameters` (in-memory) + `Portal`. **Own license** (`PORTAL_LICENSE_KEY` →
+  `SOLO_LICENSE_KEY`; version `PORTAL_VERSION` in versions.env). **Enterprise only.** Frontend /
+  ApiProduct / gateway routing stay in docs or a bundle — this task is the controller install.
 - **`monitoring`** — Prometheus + Grafana (kube-prometheus-stack, OSS, **edition-agnostic**),
   ns `monitoring`. Cross-cutting (not under a product) because one stack serves all products.
   [scripts/install-monitoring.sh](scripts/install-monitoring.sh) **auto-detects products** from
@@ -418,9 +426,14 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
     added to validate on 2.3.x (this is why the `bundles/llmroute` backends carry
     `modelAliases`/`promptCaching`). See versions.env.
   - `gloo-gateway` — 1.21.x (classic Helm repos).
-  - `management` (Solo UI add-on) — 0.4.5, `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts`
-    (verified: docs.solo.io/agentgateway/2.3.x/install/ui/setup/). `kube-prometheus-stack` 80.4.2
-    (prometheus-community) for the monitoring add-on.
+  - `management` (Solo UI add-on) — 0.5.3, `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts`
+    (verified: docs.solo.io/agentgateway/2.3.x/install/ui/setup/).
+  - `portal` (Solo Portal add-on) — `portal-crds` + `portal` at `PORTAL_VERSION` (default
+    2.2.4, aligned with enterprise `KGATEWAY_VERSION`), same OCI registry as SEFK
+    (`us-docker.pkg.dev/solo-public/enterprise-kgateway/charts`). License:
+    `licensing.licenseKey` ← `PORTAL_LICENSE_KEY`. Verified:
+    [docs.solo.io/kgateway/2.3.x/portal/setup/](https://docs.solo.io/kgateway/2.3.x/portal/setup/).
+  - `kube-prometheus-stack` 80.4.2 (prometheus-community) for the monitoring add-on.
   Only the `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
 - Enterprise and community are on **different version lines** for kgateway and
   agentgateway. `community.yaml.gotmpl` overrides `kgateway_version`/`agentgateway_version`
