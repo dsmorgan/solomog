@@ -199,8 +199,9 @@ product loop). Three exist:
   [scripts/install-portal.sh](scripts/install-portal.sh) + [helmfiles/addons/portal.yaml.gotmpl](helmfiles/addons/portal.yaml.gotmpl)
   install `portal-crds` + `portal` (ns `portal-system`, same OCI registry as SEFK), then apply a
   starter `PortalParameters` (in-memory) + `Portal`. **Own license** (`PORTAL_LICENSE_KEY` →
-  `SOLO_LICENSE_KEY`; version `PORTAL_VERSION` in versions.env). **Enterprise only.** Frontend /
-  ApiProduct / gateway routing stay in docs or a bundle — this task is the controller install.
+  `SOLO_LICENSE_KEY`; version `PORTAL_VERSION` in versions.env). **Enterprise only.** Demo
+  frontend / httpbin ApiProduct / gateway routes live in the `portal-httpbin` bundle
+  (`solomog expose apply BUNDLE=portal-httpbin PRODUCT=kgateway`).
 - **`monitoring`** — Prometheus + Grafana (kube-prometheus-stack, OSS, **edition-agnostic**),
   ns `monitoring`. Cross-cutting (not under a product) because one stack serves all products.
   [scripts/install-monitoring.sh](scripts/install-monitoring.sh) **auto-detects products** from

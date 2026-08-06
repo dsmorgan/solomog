@@ -1,0 +1,22 @@
+apiVersion: portal.solo.io/v1alpha1
+kind: ApiProduct
+metadata:
+  name: httpbin-api
+  namespace: portal-system
+spec:
+  id: httpbin
+  displayName: "HTTPBin API"
+  customMetadata:
+    category: "Utilities"
+  versions:
+    - name: v1
+      targetRefs:
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          name: httpbin-route
+      openApiMetadata:
+        title: "HTTPBin API"
+        description: "A simple HTTP request/response service for testing"
+        termsOfService: "https://example.com/terms"
+        contact: "support@example.com"
+        license: "Apache-2.0"

@@ -1,0 +1,79 @@
+# Solo docs portal frontend. Browser JS calls VITE_PORTAL_SERVER_URL for the
+# catalog API — must be the public https host (expose's wildcard cert), not an
+# in-cluster DNS name. Login without OIDC shows "Access Issues" (expected).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: portal-ui
+  namespace: portal-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: portal-ui
+  namespace: portal-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: portal-ui
+  template:
+    metadata:
+      labels:
+        app: portal-ui
+    spec:
+      serviceAccountName: portal-ui
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10101
+      containers:
+        - name: portal-ui
+          image: gcr.io/solo-public/docs/portal-frontend:v0.1.8
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          env:
+            - name: VITE_PORTAL_SERVER_URL
+              value: "https://portal.%%HOST%%/v1"
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal-ui
+  namespace: portal-system
+spec:
+  type: ClusterIP
+  ports:
+    - port: 4000
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app: portal-ui

@@ -1,0 +1,55 @@
+apiVersion: portal.solo.io/v1alpha1
+kind: ApiDoc
+metadata:
+  name: httpbin-apidoc
+  namespace: portal-system
+spec:
+  source:
+    manual:
+      content: |
+        {
+          "openapi": "3.0.0",
+          "info": {
+            "title": "HTTPBin API",
+            "version": "1.0.0",
+            "description": "A simple HTTP request/response service"
+          },
+          "paths": {
+            "/get": {
+              "get": {
+                "summary": "Returns GET data",
+                "responses": {
+                  "200": { "description": "Successful response with request details" }
+                }
+              }
+            },
+            "/headers": {
+              "get": {
+                "summary": "Returns request headers",
+                "responses": {
+                  "200": { "description": "Successful response with headers" }
+                }
+              }
+            },
+            "/status/{code}": {
+              "get": {
+                "summary": "Returns given HTTP status code",
+                "parameters": [
+                  {
+                    "name": "code",
+                    "in": "path",
+                    "required": true,
+                    "schema": { "type": "integer" }
+                  }
+                ],
+                "responses": {
+                  "200": { "description": "Successful response" }
+                }
+              }
+            }
+          }
+        }
+  servedBy:
+    name: httpbin
+    namespace: portal-system
+    port: 8080
