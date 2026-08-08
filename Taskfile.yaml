@@ -488,6 +488,47 @@ tasks:
       EDITION: '{{.EDITION}}'
       ISTIO_MODE: sidecar
 
+  # ─── Solo Portal (SEFK add-on; separate task) ──────────────────────────────
+  # Developer portal controller. Own license (PORTAL_LICENSE_KEY). Requires
+  # enterprise kgateway on the cluster today, but kept out of `kgateway` / stack
+  # so it can later attach to other Solo products without reshaping the CLI.
+
+  portal:
+    desc: "Install Solo Portal (portal-crds + controller) on CLUSTER · enterprise only · needs SEFK"
+    summary: |
+      Install Solo Portal (portal-crds + portal controller) into portal-system, then
+      apply a starter PortalParameters (in-memory store) + Portal so a portal web
+      server comes up. Enterprise only. Requires Solo Enterprise for kgateway (SEFK)
+      already on the cluster — install with `solomog kgateway` first. Kept as its own
+      task (not folded into kgateway) so Portal can later attach to other products.
+
+      License: PORTAL_LICENSE_KEY (falls back to SOLO_LICENSE_KEY). Version: PORTAL_VERSION
+      in versions.env (tracks the SEFK chart line; pinned independently).
+
+      Does NOT install the demo frontend or gateway routes — apply the
+      `portal-httpbin` bundle for that (httpbin ApiProduct + Solo frontend on
+      portal.<gw>.<cluster>.test / api.<gw>.<cluster>.test). See
+      `solomog bundles:show BUNDLE=portal-httpbin`.
+
+      Variables:
+        CLUSTER   cluster name (context via solomog_context)   REQUIRED — set CLUSTER (or CONTEXT)
+        CONTEXT   external kube context override               default "" (vind / registry)
+        EDITION   enterprise (community is rejected — no community Portal)
+
+      Examples:
+        solomog kgateway portal CLUSTER=aaa
+        solomog kgateway portal expose apply BUNDLE=portal-httpbin PRODUCT=kgateway CLUSTER=aaa
+        solomog portal CLUSTER=aaa
+        solomog portal CLUSTER=dmorgan-agw   # registered external (EKS)
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
+    cmds:
+      - bash scripts/run.sh "Install Solo Portal → {{.CLUSTER}}" bash scripts/install-portal.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
+      CONTEXT: '{{.CONTEXT | default ""}}'
+      EDITION: '{{.EDITION}}'
+
   # ─── Gloo Gateway (distinct from kgateway) ────────────────────────────────
 
   gloo-gateway:

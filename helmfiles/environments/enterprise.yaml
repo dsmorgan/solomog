@@ -15,7 +15,9 @@ helm_repo_gloo_mesh: "https://storage.googleapis.com/gloo-mesh-enterprise/gloo-m
 
 # Enterprise kgateway (kgateway 2.2.x) — OCI registry.
 # Charts: enterprise-kgateway-crds, enterprise-kgateway. Namespace: kgateway-system.
+# Also hosts Solo Portal charts (portal-crds, portal) used by the `portal` add-on.
 # Verified: https://docs.solo.io/kgateway/2.2.x/install/helm/
+# Portal: https://docs.solo.io/kgateway/2.3.x/portal/setup/
 helm_repo_kgateway: "us-docker.pkg.dev/solo-public/enterprise-kgateway/charts"
 
 # Gloo Gateway Enterprise (1.21.x) — classic Helm repo.
