@@ -128,6 +128,14 @@ tasks:
         TOKEN_EXCHANGE   true to enable the agentgateway STS (only if PRODUCTS includes
                          agentgateway); also restarts the agw proxy. CLI-only, default false.
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
+        KGATEWAY_ELS_CRD true to also install the EnterpriseListenerSet CRD (only if PRODUCTS
+                         includes kgateway; chart defaults it off). CLI-only, default false.
+        KGATEWAY_SKIP_SHARED_CRDS  true when agentgateway already owns the shared ext-auth /
+                         rate-limit / WAF CRDs on this cluster. CLI-only, default false.
+                         NOTE: PRODUCTS="kgateway agentgateway" in ONE run installs kgateway
+                         first, so it is agentgateway that then collides — that direction has
+                         no opt-out wired yet. Install agentgateway first, then kgateway with
+                         this flag.
 
       Examples:
         solomog stack PRODUCTS="agentgateway" CLUSTER=aaa
@@ -149,6 +157,9 @@ tasks:
       # TOKEN_EXCHANGE is CLI-only — no .env fallback — so it can never silently leak
       # into an unrelated cluster's install. See .env.example for why.
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
+      # CLI-only for the same reason (see the kgateway task).
+      KGATEWAY_ELS_CRD: '{{.KGATEWAY_ELS_CRD | default "false"}}'
+      KGATEWAY_SKIP_SHARED_CRDS: '{{.KGATEWAY_SKIP_SHARED_CRDS | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
@@ -432,14 +443,31 @@ tasks:
       Variables:
         CLUSTER   cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
         EDITION   enterprise | community                            default enterprise
+        KGATEWAY_ELS_CRD   true to also install the EnterpriseListenerSet CRD (the chart
+                           defaults it off). Enterprise only. CLI-only, default false.
+                           Precondition for the agentgateway controller RBAC gap — see the
+                           kgateway product module.
+        KGATEWAY_SKIP_SHARED_CRDS  true when agentgateway is ALREADY installed on this
+                           cluster: skips the ext-auth / rate-limit / WAF CRDs, which both
+                           products' crds charts ship and Helm therefore refuses to
+                           re-own. Enterprise only. CLI-only, default false.
 
       See `solomog help stack` for the full product-install reference.
+
+      Examples:
+        solomog kgateway CLUSTER=aaa
+        solomog kgateway CLUSTER=aaa KGATEWAY_ELS_CRD=true
+        solomog kgateway CLUSTER=aaa KGATEWAY_ELS_CRD=true KGATEWAY_SKIP_SHARED_CRDS=true
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
       - bash scripts/stack.sh {{.CLUSTER}} kgateway
     env:
       EDITION: '{{.EDITION}}'
+      # CLI-only (hardcoded default, no .env fallback) so an ELS-CRD repro cluster can never
+      # silently turn the CRD on for an unrelated cluster. Same rationale as TOKEN_EXCHANGE.
+      KGATEWAY_ELS_CRD: '{{.KGATEWAY_ELS_CRD | default "false"}}'
+      KGATEWAY_SKIP_SHARED_CRDS: '{{.KGATEWAY_SKIP_SHARED_CRDS | default "false"}}'
 
   kgateway:with-istio:
     desc: "1 cluster · kgateway + Istio sidecar · EDITION={{.EDITION}}"
