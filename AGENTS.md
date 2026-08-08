@@ -83,8 +83,8 @@ explicitly for bundles (there's no gateway on the node-less cluster to auto-dete
 - Native `overlay2` is unavailable (kernel) — Docker uses `fuse-overlayfs`; k3s needs
   `--snapshotter=fuse-overlayfs`. `containerd-snapshotter` is disabled in `daemon.json`
   so fuse-overlayfs works with Docker 29.
-- `.env` is optional for community/dev use (go-task ignores a missing dotenv); the update
-  script creates it from `.env.example` if absent. Enterprise product installs need real
+- `.env` is optional for community/dev use (go-task ignores a missing dotenv); create it
+  with `cp .env.example .env` (or `solomog env:sync`). Enterprise product installs need real
   Solo license keys in `.env` — and those installs can't complete here anyway (see above).
 - This VM is `x86_64`; CLAUDE.md's "images must be arm64" note is a macOS/Apple-Silicon
   concern and does not apply here.

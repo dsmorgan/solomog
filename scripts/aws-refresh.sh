@@ -20,15 +20,18 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$REPO_DIR/.env"
 SSO_SESSION="${AWS_SSO_SESSION:-SOlo}"
+# shellcheck source=lib/envfile.sh
+source "$REPO_DIR/scripts/lib/envfile.sh"
 
 if ! command -v aws &>/dev/null; then
   echo "Error: aws CLI not found. Install AWS CLI v2: https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html" >&2
   exit 1
 fi
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Error: $ENV_FILE not found. Copy .env.example to .env first." >&2
+  echo "Error: $ENV_FILE not found. Copy .env.example to .env first (or: solomog env:sync)." >&2
   exit 1
 fi
+
 
 # CRITICAL: drop any ambient STATIC creds before talking to AWS. solomog runs via go-task,
 # which loads .env into the environment — and .env holds BOTH AWS_PROFILE *and* the three
@@ -88,18 +91,12 @@ fi
 # Long-term creds have no session token; the bundle still works without one, so warn + allow.
 [[ -z "$TOKEN" ]] && echo "    note: no session token (long-term creds?) — writing empty AWS_SESSION_TOKEN"
 
-# Rewrite .env: drop the three AWS_* lines, append the fresh values. Filter-and-append (not
-# sed s///) so values with /,+,= can't break the rewrite; atomic swap via a 0600 temp file
-# on the same filesystem. Order/format mirror gcp-refresh.sh.
-TMP="$(mktemp "${ENV_FILE}.XXXXXX")"
-chmod 600 "$TMP"
-grep -vE '^(AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)=' "$ENV_FILE" > "$TMP" || true
-{
-  printf 'AWS_ACCESS_KEY_ID=%s\n'     "$AKID"
-  printf 'AWS_SECRET_ACCESS_KEY=%s\n' "$SECRET"
-  printf 'AWS_SESSION_TOKEN=%s\n'     "$TOKEN"
-} >> "$TMP"
-mv "$TMP" "$ENV_FILE"
+# Backup once, then in-place set each key (preserves section position + trailing comments).
+# Never appends at EOF — that was scrambling the file on every refresh.
+envfile_backup "$ENV_FILE" >/dev/null
+envfile_set "$ENV_FILE" AWS_ACCESS_KEY_ID "$AKID"
+envfile_set "$ENV_FILE" AWS_SECRET_ACCESS_KEY "$SECRET"
+envfile_set "$ENV_FILE" AWS_SESSION_TOKEN "$TOKEN"
 
 # Confirm without leaking secrets (access-key prefix + token length only).
 echo "✓ AWS creds updated in .env  (AWS_ACCESS_KEY_ID=${AKID:0:4}…, session token ${#TOKEN} chars)"
