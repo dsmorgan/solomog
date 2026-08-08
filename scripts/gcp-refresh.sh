@@ -17,13 +17,15 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ENV_FILE="$REPO_DIR/.env"
+# shellcheck source=lib/envfile.sh
+source "$REPO_DIR/scripts/lib/envfile.sh"
 
 if ! command -v gcloud &>/dev/null; then
   echo "Error: gcloud not found. Install the Google Cloud CLI: https://cloud.google.com/sdk/docs/install" >&2
   exit 1
 fi
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "Error: $ENV_FILE not found. Copy .env.example to .env first." >&2
+  echo "Error: $ENV_FILE not found. Copy .env.example to .env first (or: solomog env:sync)." >&2
   exit 1
 fi
 
@@ -35,14 +37,10 @@ if [[ -z "$TOKEN" ]]; then
   exit 1
 fi
 
-# Rewrite .env: drop any existing GCP_ACCESS_TOKEN line, append the fresh one. Filter-and-
-# append (not sed s///) so the token value can't break the rewrite; atomic swap via a temp
-# file next to .env (same filesystem). mktemp makes it 0600; keep it that way for a secret.
-TMP="$(mktemp "${ENV_FILE}.XXXXXX")"
-chmod 600 "$TMP"
-grep -v '^GCP_ACCESS_TOKEN=' "$ENV_FILE" > "$TMP" || true
-printf 'GCP_ACCESS_TOKEN=%s\n' "$TOKEN" >> "$TMP"
-mv "$TMP" "$ENV_FILE"
+# Backup then in-place set (preserves section position + trailing comment from .env.example).
+# Never appends at EOF — that was scrambling the file on every refresh.
+envfile_backup "$ENV_FILE" >/dev/null
+envfile_set "$ENV_FILE" GCP_ACCESS_TOKEN "$TOKEN"
 
 # Confirm without leaking the token (prefix + length only).
 echo "✓ GCP_ACCESS_TOKEN updated in .env  (${TOKEN:0:6}…, ${#TOKEN} chars)"

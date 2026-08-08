@@ -915,8 +915,9 @@ tasks:
     desc: "Refresh GCP_ACCESS_TOKEN in .env (~1h), then re-run your bundle. Run 'solomog help gcp:refresh' for details."
     summary: |
       Re-fetch a GCP access token (gcloud auth print-access-token) into .env as
-      GCP_ACCESS_TOKEN. ONLY updates .env — re-run your bundle to push it into the cluster
-      secret. The token is short-lived (~1h); re-run this when a GCP-backed backend 401s.
+      GCP_ACCESS_TOKEN (in-place — stays in its .env.example section; backs up first).
+      ONLY updates .env — re-run your bundle to push it into the cluster secret. The token
+      is short-lived (~1h); re-run this when a GCP-backed backend 401s.
 
       No variables. Uses the active gcloud account. Chain with apply to push it:
         solomog gcp:refresh apply BUNDLE=llmroute-vertex CLUSTER=aaa
@@ -926,10 +927,11 @@ tasks:
   aws:refresh:
     desc: "Refresh AWS creds in .env (SSO export-credentials; sso-login if stale). Re-run your bundle to apply. AWS_PROFILE/AWS_SSO_SESSION overridable."
     summary: |
-      Export AWS SSO credentials (access key + secret + session token) into .env, running
-      `aws sso login` first if the session is stale. ONLY updates .env — re-run your bundle
-      to push them into the cluster secret. SSO creds are short-lived (<=12h); re-run when a
-      Bedrock route 401/403s. One-time setup: `aws configure sso` (session SOlo).
+      Export AWS SSO credentials (access key + secret + session token) into .env (in-place —
+      stays in the Upstream credentials section; backs up first), running `aws sso login`
+      first if the session is stale. ONLY updates .env — re-run your bundle to push them into
+      the cluster secret. SSO creds are short-lived (<=12h); re-run when a Bedrock route
+      401/403s. One-time setup: `aws configure sso` (session SOlo).
 
       Variables (set in .env, not on the command line):
         AWS_PROFILE       SSO profile to export                       the one `aws configure sso` created
@@ -939,6 +941,54 @@ tasks:
         solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=aaa
     cmds:
       - bash scripts/run.sh "Refresh AWS credentials" bash scripts/aws-refresh.sh
+
+  env:backup:
+    desc: "Copy .env → .solomog/env-backups/<timestamp>.env (gitignored). Also runs before refresh/sync."
+    summary: |
+      Snapshot the repo-root .env into .solomog/env-backups/<YYYYMMDD-HHMMSS>.env (mode 600).
+      Keeps the newest 20 backups. aws:refresh / gcp:refresh / env:sync also backup automatically
+      before mutating .env.
+
+      Variables:
+        (none)
+
+      Examples:
+        solomog env:backup
+    cmds:
+      - bash scripts/run.sh "Backup .env" bash scripts/env-backup.sh
+
+  env:sync:
+    desc: "Rebuild .env from .env.example (comments/sections) overlaying your values. Backs up first."
+    summary: |
+      Rebuild .env from .env.example so section order and explanatory comments stay aligned with
+      the template, while keeping your existing values. Keys only in your .env land under a
+      Local-only section (non-destructive). CLI-only flags (TOKEN_EXCHANGE, OAUTH_ISSUER) are
+      dropped with a note. Backs up to .solomog/env-backups/ first.
+
+      Run after pulling .env.example changes, or when the file feels scrambled.
+
+      Variables:
+        (none)
+
+      Examples:
+        solomog env:sync
+        solomog env:diff    # see drift first
+    cmds:
+      - bash scripts/run.sh "Sync .env from .env.example" bash scripts/env-sync.sh
+
+  env:diff:
+    desc: "Show key drift between .env and .env.example (names only — never prints values)."
+    summary: |
+      Compare keys in .env vs .env.example. Reports missing keys (run env:sync), local-only /
+      stale keys, and CLI-only keys that should not persist. Never prints secret values.
+
+      Variables:
+        (none)
+
+      Examples:
+        solomog env:diff
+    cmds:
+      - bash scripts/run.sh "Diff .env vs .env.example" bash scripts/env-diff.sh
 
   eks:create:
     desc: "Create an EKS cluster (eksctl --with-oidc) + register its kube context. CLUSTER=<name> required. Run 'solomog help eks:create'."
