@@ -10,6 +10,13 @@
 #
 # License: kgateway_license_key (KGATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
 # Composed via: solomog stack CLUSTER=... PRODUCTS="kgateway"
+#
+# Env:
+#   KGATEWAY_ELS_CRD   true → also install the EnterpriseListenerSet CRD (chart default is
+#                      false). Enterprise only, CLI-only. See the crds release below.
+#   KGATEWAY_SKIP_SHARED_CRDS  true → don't install the ext-auth / rate-limit / WAF CRDs
+#                      because another Solo chart (agentgateway) already owns them. Required
+#                      when co-installing with agentgateway. Enterprise only, CLI-only.
 
 bases:
   - ../commons.yaml
@@ -37,6 +44,38 @@ releases:
 {{ end }}
     version: "{{ .Values.kgateway_version }}"
     wait: true
+{{- /* EnterpriseListenerSet CRD (enterprise only). The enterprise-kgateway-crds chart defaults
+       installEnterpriseListenerSetCRD to FALSE, so this CRD is absent from a normal install.
+       Opt in with KGATEWAY_ELS_CRD=true. CLI-only — do NOT put it in .env: the whole point is
+       for it to be present on one cluster and absent on the next.
+       Why it exists: it is the precondition for the agentgateway controller RBAC gap. The agw
+       ent-controller watches enterprise.solo.io/enterpriselistenersets through an istio
+       *delayed* client (empty until the CRD is registered), but no enterprise-agentgateway
+       chart version grants a rule for that API group — so the agw controller stays healthy
+       until THIS CRD lands in the cluster, then its list/watch is Forbidden and /readyz never
+       passes. Customer repro: kgateway + agentgateway co-tenanted, ELS CRD on. */ -}}
+{{- /* Shared-CRD ownership. enterprise-kgateway-crds and enterprise-agentgateway-crds BOTH ship
+       authconfigs.extauth.solo.io, the ratelimit.solo.io CRDs, and waf.solo.io_wafpolicies —
+       so whichever installs second dies on Helm ownership ("invalid ownership metadata ...
+       must equal kgateway-crds: current value is agentgateway-crds"). Both charts expose the
+       same opt-outs for exactly this ("Set to false if you already have these installed from
+       another chart"), so the second product must disable them. Set
+       KGATEWAY_SKIP_SHARED_CRDS=true when agentgateway is already on the cluster. Note the
+       shared CRDs then stay at the OTHER product's schema version — fine for repro clusters,
+       watch for skew if you exercise kgateway ext-auth/rate-limit/WAF. */ -}}
+{{- $elsCRD    := and (eq .Environment.Name "enterprise") (eq (env "KGATEWAY_ELS_CRD") "true") }}
+{{- $skipShared := and (eq .Environment.Name "enterprise") (eq (env "KGATEWAY_SKIP_SHARED_CRDS") "true") }}
+{{- if or $elsCRD $skipShared }}
+    values:
+{{- if $elsCRD }}
+      - installEnterpriseListenerSetCRD: true
+{{- end }}
+{{- if $skipShared }}
+      - installExtAuthCRDs: false
+        installRateLimitCRDs: false
+        installWAFPolicyCRD: false
+{{- end }}
+{{- end }}
     # kgateway implements the Gateway API — install its upstream CRDs first.
     hooks:
       - events: ["presync"]
