@@ -1,0 +1,14 @@
+# Updates the starter Portal from `solomog portal` to include the httpbin ApiProduct.
+# PortalParameters (in-memory store) stay as the install task created them.
+apiVersion: portal.solo.io/v1alpha1
+kind: Portal
+metadata:
+  name: my-portal
+  namespace: portal-system
+spec:
+  parametersRef:
+    name: portal-params
+  visibility:
+    public: true
+  apiProductRefs:
+    - name: httpbin-api

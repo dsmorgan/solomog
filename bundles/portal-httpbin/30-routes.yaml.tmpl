@@ -1,0 +1,100 @@
+# Three HTTPRoutes on the expose'd kgateway Gateway:
+#   portal.%%HOST%%  /v1/     → portal-my-portal (catalog/backend API)
+#   portal.%%HOST%%  /        → portal-ui (more-specific /v1/ wins)
+#   api.%%HOST%%     /httpbin → httpbin (URLRewrite strips prefix)
+#
+# Gateway ns is kgateway-system (SEFK). %%GATEWAY%% defaults to kgw when the
+# cluster only has kgateway; pass GATEWAY=kgw if agentgateway is also present.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: my-portal-backend
+  namespace: portal-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: kgateway-system
+  hostnames:
+    - "portal.%%HOST%%"
+  rules:
+    - filters:
+        - type: CORS
+          cors:
+            allowHeaders:
+              - "*"
+            allowMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowOrigins:
+              - "*"
+      matches:
+        - path:
+            type: PathPrefix
+            value: /v1/
+      backendRefs:
+        - name: portal-my-portal
+          namespace: portal-system
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: my-portal-frontend
+  namespace: portal-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: kgateway-system
+  hostnames:
+    - "portal.%%HOST%%"
+  rules:
+    - filters:
+        - type: CORS
+          cors:
+            allowHeaders:
+              - "*"
+            allowMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowOrigins:
+              - "*"
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: portal-ui
+          namespace: portal-system
+          port: 4000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: httpbin-route
+  namespace: portal-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: kgateway-system
+  hostnames:
+    - "api.%%HOST%%"
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /httpbin
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: httpbin
+          port: 8080

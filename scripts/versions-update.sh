@@ -63,6 +63,8 @@ printf "  %-32s %s  (enterprise OCI — not kgateway-dev GitHub latest)\n" \
 printf "  %-32s %s\n" "GLOO_OPERATOR_VERSION" "${GLOO_OPERATOR_VERSION:-?}"
 printf "  %-32s %s\n" "GLOO_GATEWAY_VERSION" "${GLOO_GATEWAY_VERSION:-?}"
 printf "  %-32s %s\n" "AGW_UI_VERSION" "${AGW_UI_VERSION:-?}"
+printf "  %-32s %s  (enterprise-kgateway OCI — SEFK portal charts)\n" \
+  "PORTAL_VERSION" "${PORTAL_VERSION:-?}"
 printf "  %-32s %s\n" "KUBE_PROM_STACK_VERSION" "${KUBE_PROM_STACK_VERSION:-?}"
 printf "  %-32s %s\n" "AGENTGATEWAY_COMMUNITY_VERSION" "${AGENTGATEWAY_COMMUNITY_VERSION:-?}"
 printf "  %-32s %s\n" "GATEWAY_API_VERSION" "${GATEWAY_API_VERSION:-?}"

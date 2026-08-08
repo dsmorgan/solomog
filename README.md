@@ -185,15 +185,23 @@ The hostname defaults to **`<NAME>.<CLUSTER>.test`** (e.g. `agw.a1.test`, `kgw.a
 mDNS/Bonjour and resolves slowly), and including the cluster keeps hostnames unique when
 multiple clusters are up.
 
-### UI & monitoring add-ons
+### UI, Portal & monitoring add-ons
 
-The Solo UI and the metrics stack are **add-ons**, routed onto their own sub-hosts
-nested under `expose`'s wildcard cert (so no extra certs, just `/etc/hosts` lines):
+The Solo UI, Solo Portal, and the metrics stack are **add-ons** (not `stack` products).
+UI and Grafana are routed onto their own sub-hosts nested under `expose`'s wildcard cert
+(so no extra certs, just `/etc/hosts` lines):
 
 ```bash
 # agentgateway + its Solo UI in one shot (enterprise only), then route the UI
 solomog agentgateway:ui expose ROUTE=true CLUSTER=a1
 #   → UI at  https://ui.agw.a1.test/age/   (Solo UI serves under /age/)
+
+# Solo Portal (developer portal) — needs enterprise kgateway already on the cluster.
+# Own license (PORTAL_LICENSE_KEY). Separate task so it can later attach beyond SEFK.
+solomog kgateway portal CLUSTER=a1
+#   → controller + starter Portal in portal-system
+solomog expose apply BUNDLE=portal-httpbin PRODUCT=kgateway CLUSTER=a1
+#   → frontend + httpbin ApiProduct at https://portal.kgw.a1.test/
 
 # Prometheus + Grafana — product-agnostic; auto-installs the agentgateway
 # PodMonitor + dashboard when agentgateway is detected on the cluster
@@ -205,11 +213,16 @@ solomog monitoring expose ROUTE=true CLUSTER=a1
   the product *and* its UI. The Solo UI is one `management` chart with per-product
   toggles, so `agentgateway:ui` enables only the agentgateway product. CRDs are bundled
   in the chart (no separate `management-crds` step). **Enterprise only.**
+- **`portal`** installs Solo Portal (`portal-crds` + `portal` controller) into
+  `portal-system`, then a starter `PortalParameters` + `Portal`. **Enterprise only;**
+  preflights for GatewayClass `enterprise-kgateway`. License: `PORTAL_LICENSE_KEY`
+  (falls back to `SOLO_LICENSE_KEY`). Version pin: `PORTAL_VERSION` in `versions.env`.
+  Not folded into `kgateway` — Portal may attach to other Solo products later.
 - **`monitoring`** is cross-cutting (not under a product) because one Prometheus/Grafana
   serves every product. It auto-detects installed products and loads their dashboards —
   override with `DASHBOARDS="agentgateway"` or `DASHBOARDS=none`. Grafana password defaults
   to `prom-operator`; override via `GRAFANA_ADMIN_PASSWORD` in `.env` if needed.
-- **Routing vs port-forward.** Both default to a port-forward (printed after install).
+- **Routing vs port-forward.** UI/Grafana default to a port-forward (printed after install).
   Adding `ROUTE=true` (with `expose`) routes them host-based at `/` — the UIs each get
   their own host because the Solo UI (`/age/`) and Grafana both assume they own their
   base path, so a path-prefix rewrite would break their assets. Order doesn't matter:
@@ -355,6 +368,7 @@ solomog
 │   ├── graph.sh                # interactive HTML graph (+ optional /config_dump enrichment)
 │   ├── clusters.sh             # cluster:list / cluster:show
 │   ├── install-agentgateway-ui.sh  # Solo UI (management chart) + tracing + route
+│   ├── install-portal.sh       # Solo Portal (portal-crds + controller) + starter Portal
 │   ├── install-monitoring.sh   # Prometheus/Grafana + product dashboards + route
 │   ├── apply-bundle.sh         # apply a custom-config bundle to a cluster, in order
 │   ├── bundles.sh              # list / show available bundles
@@ -368,7 +382,7 @@ solomog
 │   ├── commons.yaml            # shared environment definitions (bases)
 │   ├── environments/           # default + enterprise/community + ambient/sidecar
 │   ├── products/               # one module per product (*.yaml.gotmpl, composable)
-│   ├── addons/                 # UI (management chart) + monitoring stack
+│   ├── addons/                 # UI (management) + Portal + monitoring stack
 │   └── apps/                   # sample app helmfiles
 ├── values/                     # per-product Helm values
 └── charts/
