@@ -229,6 +229,16 @@ vsphere_alloc_lb_ip() {   # args: <cluster> <gateway-name e.g. agw>
     ip="${base}.${i}"
     taken=""
     [ -f "$f" ] && taken="$(awk -F'\t' -v ip="$ip" '$2==ip{print; exit}' "$f")"
+    # Liveness guard: never hand out an IP something already answers on — a live
+    # host in the pool ARP-battles MetalLB and breaks the VIP intermittently
+    # (learned from ds2's 10G interface sitting inside the pool). Recorded VIPs
+    # are skipped above, so a ping reply here means a foreign device.
+    # VSPHERE_LB_PING_CHECK=false disables (tests / ICMP-filtered networks).
+    if [ -z "$taken" ] && [ "${VSPHERE_LB_PING_CHECK:-true}" != "false" ] \
+       && ping -c1 -W300 -t1 "$ip" >/dev/null 2>&1; then
+      echo "    NOTE: skipping ${ip} — something already answers on it (foreign device in VSPHERE_LB_POOL)" >&2
+      taken="live"
+    fi
     if [ -z "$taken" ]; then
       printf '%s\t%s\t%s\n' "$cluster" "$ip" "$role" >> "$f"
       printf '%s' "$ip"

@@ -38,6 +38,7 @@ cleanup() { rm -rf "$WORKDIR"; }
 trap cleanup EXIT
 
 export VSPHERE_POOL_FILE="$WORKDIR/ippool"
+export VSPHERE_LB_PING_CHECK=false   # fixture IPs are fictional — keep the liveness guard out
 export VSPHERE_NODE_POOL_START="10.0.20.50"
 export VSPHERE_NODE_POOL_SIZE="6"
 
