@@ -21,8 +21,9 @@ set -euo pipefail
 #
 # Env:
 #   CLUSTER     cluster name (vind, or registered external); default cluster-one
-#   DNS         local (default) | real. real = vsphere-only: HOST under SOLOMOG_DOMAIN,
-#               LE cert pulled from Certwarden (SANs must cover HOST + *.HOST), no
+#   DNS         local (default) | real. real = vsphere-only: HOST becomes the FLAT
+#               <gw>-<cluster>.$SOLOMOG_DOMAIN (one label — a single *.$SOLOMOG_DOMAIN
+#               wildcard cert covers every cluster), TLS pulled from Certwarden, no
 #               /etc/hosts — expose prints the one-time dnsmasq record instead.
 #               Config: SOLOMOG_DOMAIN + CERTWARDEN_* in .env (see .env.example).
 #   PRODUCT     agentgateway | kgateway — seeds the defaults below. When unset it is
@@ -119,7 +120,10 @@ esac
 if solomog_is_external "$CLUSTER" && ! solomog_is_vsphere "$CLUSTER"; then
   HOST="${HOST:-}"
 elif [[ "$DNS" == "real" ]]; then
-  HOST="${HOST:-${NAME}.${CLUSTER}.${SOLOMOG_DOMAIN}}"
+  # FLAT name (<gw>-<cluster>, one label) so a single *.$SOLOMOG_DOMAIN wildcard
+  # cert covers every cluster/gateway forever — wildcards match one label only, so
+  # the dotted <gw>.<cluster>. form would need per-cluster SANs + reissues.
+  HOST="${HOST:-${NAME}-${CLUSTER}.${SOLOMOG_DOMAIN}}"
 else
   HOST="${HOST:-${NAME}.${CLUSTER}.test}"
 fi
@@ -284,7 +288,7 @@ else
     fi
     if openssl x509 -in "$CERT_DIR/tls.crt" -noout -checkhost "$HOST" 2>/dev/null | grep -qi 'NOT match'; then
       echo "    WARNING: the Certwarden cert does NOT cover ${HOST} —" >&2
-      echo "             add SANs ${HOST} + *.${HOST} to '${CERTWARDEN_CERT_NAME}' in Certwarden and reissue." >&2
+      echo "             give '${CERTWARDEN_CERT_NAME}' the SAN *.${SOLOMOG_DOMAIN} in Certwarden and reissue." >&2
     fi
   else
     echo "==> Generating mkcert TLS cert for ${HOST}, *.${HOST}"
