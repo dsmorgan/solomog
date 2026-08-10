@@ -277,10 +277,10 @@ solomog graph CLUSTER=a1 DUMP=false          # skip proxy /config_dump (faster; 
 Both accept a registered external cluster the same way as other tasks
 (`CLUSTER=e2a2` after `eks:create`, or `CONTEXT=…`).
 
-### Clusters & external targets (EKS)
+### Clusters & external targets (EKS & vSphere homelab)
 
 ```bash
-solomog cluster:list                         # vind + registered EKS/external
+solomog cluster:list                         # vind + registered EKS/vsphere/external, with live status
 solomog cluster:show CLUSTER=a1
 
 # Stand up / tear down an EKS cluster and register it for solomog CLUSTER=…
@@ -290,6 +290,24 @@ solomog eks:delete CLUSTER=dmorgan-agw
 
 Once registered (or with `CONTEXT=`), install/expose/graph/routes use that cluster like
 a local vind one — solomog does not create or network it.
+
+**vSphere homelab (optional):** builds real k3s clusters (1 server + N agent VMs,
+Ubuntu + cloud-init, MetalLB for LoadBalancer IPs) on a vCenter 7.0.x and registers
+them the same way — `expose` then works exactly like vind (mkcert + `/etc/hosts`).
+Entirely opt-in: fill the `VSPHERE_*` section in `.env` and `brew install opentofu`
+(deliberately not a setup.sh prerequisite); without them every `vsphere:*` task fails
+fast with guidance and nothing else is affected. Design/spec:
+[docs/specs/vsphere-provisioner.md](docs/specs/vsphere-provisioner.md).
+
+```bash
+solomog vsphere:init                          # one-time: content library + Ubuntu template + VM folder
+solomog vsphere:create CLUSTER=s1             # ~5 min; NODES=2 agents by default; SNAPSHOT=true → baseline
+solomog agentgateway expose apps:utils ROUTE=true CLUSTER=s1   # …then use it like any cluster
+solomog vsphere:snapshot CLUSTER=s1           # (re)take the baseline snapshot on demand
+solomog vsphere:reset CLUSTER=s1              # revert to baseline — clean cluster in ~VM-boot time
+solomog vsphere:delete CLUSTER=s1             # tofu destroy; keeps the cluster's pinned VIPs
+                                              #   (PURGE_LB=true releases them too)
+```
 
 ### Custom config bundles (customer repros)
 
@@ -381,6 +399,8 @@ solomog
 │   ├── lib/envfile.sh          # .env backup / in-place set / sync-from-example
 │   └── apps/install-bookinfo.sh
 ├── clusters/                   # vcluster configs (single, multi, multi-3)
+├── taskfiles/vsphere.yaml      # OPTIONAL include: all vsphere:* tasks (homelab provisioner)
+├── terraform/                  # OpenTofu roots: vsphere-init (template) + vsphere-k3s (workspace/cluster)
 ├── bundles/                    # custom-config bundles (bundles/private/ is gitignored)
 ├── dashboards/                 # vendored Grafana dashboards (agentgateway-overview.json)
 ├── helmfiles/
