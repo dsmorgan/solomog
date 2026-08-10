@@ -36,7 +36,7 @@ tasks:
       - bash scripts/run.sh "vSphere one-time init (content library + template)" bash scripts/vsphere-init.sh
 
   create:
-    desc: "Create a k3s cluster on the homelab vCenter (1 server + N agents) + register its kube context. CLUSTER=<name> required. Run 'solomog help vsphere:create'. [spec phase 3 pending]"
+    desc: "Create a k3s cluster on the homelab vCenter (1 server + N agents) + register its kube context. CLUSTER=<name> required. Run 'solomog help vsphere:create'."
     summary: |
       Provision a k3s cluster on the homelab vCenter 7.0.3 — the vSphere analog of
       eks:create: OpenTofu clones the Ubuntu template into 1 server + NODES agent VMs
@@ -66,7 +66,7 @@ tasks:
       SNAPSHOT: '{{.SNAPSHOT | default ""}}'
 
   delete:
-    desc: "Tear down a solomog-created vSphere k3s cluster (prompts first). CLUSTER=<name> required. Run 'solomog help vsphere:delete'. [spec phase 3 pending]"
+    desc: "Tear down a solomog-created vSphere k3s cluster (prompts first). CLUSTER=<name> required. Run 'solomog help vsphere:delete'."
     summary: |
       Destroy a vsphere:create cluster: prompt, `tofu destroy` its workspace (only
       state-tracked VMs — never VMs found by name), free its node-IP allocations,
@@ -75,6 +75,7 @@ tasks:
 
       Variables:
         CLUSTER    registered vsphere cluster name (required — no default; destructive)
+        FORCE      true → skip the confirmation prompt (scripted teardown)   default false
 
       Example:
         solomog vsphere:delete CLUSTER=hl1
@@ -82,3 +83,4 @@ tasks:
       - bash scripts/run.sh "Delete vSphere k3s cluster {{.CLUSTER}}" bash scripts/vsphere-delete.sh
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      FORCE: '{{.FORCE | default ""}}'

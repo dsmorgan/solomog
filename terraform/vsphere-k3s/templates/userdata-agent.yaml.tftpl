@@ -1,0 +1,12 @@
+#cloud-config
+hostname: ${hostname}
+users:
+  - name: solomog
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${ssh_pubkey}
+runcmd:
+  - |
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${k3s_version}" \
+      K3S_URL="https://${server_ip}:6443" K3S_TOKEN="${k3s_token}" sh -s - agent
