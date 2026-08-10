@@ -142,6 +142,9 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   therefore pass `PRODUCT` empty (not a default) so the script can detect.
   NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY` default is `agw`
   (the agentgateway apps route there) — keep it in sync with the gw name.
+  expose stamps the reachable hostname on the Gateway as the **`solomog.io/host`
+  annotation** — routes.sh (header display) and test-bundle.sh (`$HOST` default) read
+  it; new consumers should read the annotation, not re-derive hostnames.
   Hostname defaults to `<NAME>.<CLUSTER>.test` — always use **`.test`** (RFC 6761), never
   `.local` (mDNS/Bonjour collision → slow resolution); the cluster component keeps the host
   unique across clusters.
