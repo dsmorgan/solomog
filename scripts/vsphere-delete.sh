@@ -12,6 +12,9 @@ set -euo pipefail
 # Env:
 #   CLUSTER     vsphere cluster name (required — no default; destructive)
 #   FORCE       "true" skips the confirmation prompt (for scripted teardown)
+#   PURGE_LB    "true" also releases the cluster's lb-* VIP reservations (default:
+#               keep them, so a recreated cluster gets the same VIP and its DNS
+#               record stays valid — spec phase 6a)
 #   VSPHERE_*   from .env (full set — destroy re-reads the placement data sources)
 #
 # Prereqs: OpenTofu (brew install opentofu) — lazy-checked, NOT a setup.sh prerequisite.
@@ -35,7 +38,7 @@ if ! "$TOFU" -chdir="$ROOT" workspace list 2>/dev/null | sed 's/^[* ]*//' | grep
   echo "No tofu workspace '${CLUSTER}' — nothing solomog-created to destroy."
   echo "  Workspaces: $("$TOFU" -chdir="$ROOT" workspace list 2>/dev/null | sed 's/^[* ]*//' | grep -v '^default$' | tr '\n' ' ')"
   # Still clean up any leftover registration/allocations from a partial create.
-  vsphere_release_ips "$CLUSTER"
+  vsphere_release_ips "$CLUSTER" "$([ "${PURGE_LB:-false}" = "true" ] && echo all || echo nodes)"
   solomog_deregister_context "$CLUSTER"
   exit 0
 fi
@@ -73,8 +76,15 @@ echo "==> tofu destroy (workspace '${CLUSTER}')"
 "$TOFU" -chdir="$ROOT" workspace delete "$CLUSTER" >/dev/null
 echo "    workspace '${CLUSTER}' destroyed + deleted"
 
-vsphere_release_ips "$CLUSTER"
-echo "    node IPs released"
+if [ "${PURGE_LB:-false}" = "true" ]; then
+  vsphere_release_ips "$CLUSTER" all
+  echo "    node IPs + VIP reservations released"
+else
+  vsphere_release_ips "$CLUSTER"
+  echo "    node IPs released"
+  KEPT="$(vsphere_list_lb_ips "$CLUSTER" | awk -F'\t' '{printf "%s%s=%s", sep, $1, $2; sep="  "}')"
+  [ -n "$KEPT" ] && echo "    VIP reservations kept (name-sticky for DNS): ${KEPT}  — release with PURGE_LB=true"
+fi
 
 # Remove the merged kube entries (created by vsphere-create with one shared name).
 kubectl config delete-context "$CTX" >/dev/null 2>&1 || true

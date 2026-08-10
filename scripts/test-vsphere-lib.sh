@@ -122,6 +122,35 @@ echo "==> allocator: octet-boundary guard"
 export VSPHERE_NODE_POOL_START="10.0.20.250" VSPHERE_NODE_POOL_SIZE="10"
 assert_fails_with "pool crossing .254 refused" "crosses .254" vsphere_alloc_ips oops 2
 
+echo "==> LB VIP allocator (name-sticky, top-of-pool)"
+export VSPHERE_LB_POOL="10.0.20.200-10.0.20.203"
+assert_eq "first VIP from the TOP of the pool" "$(vsphere_alloc_lb_ip s1 agw)" "10.0.20.203"
+assert_eq "sticky on re-alloc" "$(vsphere_alloc_lb_ip s1 agw)" "10.0.20.203"
+assert_eq "second gateway walks down" "$(vsphere_alloc_lb_ip s1 kgw)" "10.0.20.202"
+assert_eq "second cluster walks down" "$(vsphere_alloc_lb_ip hl2 agw)" "10.0.20.201"
+
+echo "==> LB rows never leak into the node view"
+export VSPHERE_NODE_POOL_START="10.0.20.50" VSPHERE_NODE_POOL_SIZE="6"
+GOT="$(vsphere_alloc_ips s1 2)"
+assert_eq "node alloc unaffected by lb rows" "$GOT" "$(printf 'server\t10.0.20.50\nagent-1\t10.0.20.51')"
+GOT="$(vsphere_alloc_ips s1 2)"
+assert_eq "node idempotency unaffected by lb rows" "$GOT" "$(printf 'server\t10.0.20.50\nagent-1\t10.0.20.51')"
+
+echo "==> release: default keeps VIPs sticky; 'all' purges"
+vsphere_release_ips s1
+assert_eq "nodes released" "$(vsphere_list_ips s1)" ""
+assert_eq "VIPs survive default release" "$(vsphere_list_lb_ips s1)" "$(printf 'lb-agw\t10.0.20.203\nlb-kgw\t10.0.20.202')"
+vsphere_release_ips s1 all
+assert_eq "PURGE releases VIPs too" "$(vsphere_list_lb_ips s1)" ""
+
+echo "==> LB pool exhaustion + validation"
+assert_eq "freed VIP reused from top" "$(vsphere_alloc_lb_ip x1 agw)" "10.0.20.203"
+assert_eq "next down" "$(vsphere_alloc_lb_ip x2 agw)" "10.0.20.202"
+assert_eq "skips hl2's .201" "$(vsphere_alloc_lb_ip x3 agw)" "10.0.20.200"
+assert_fails_with "VIP pool exhausted" "no free VIP" vsphere_alloc_lb_ip x4 agw
+VSPHERE_LB_POOL="banana" assert_fails_with "malformed pool refused" "must look like" vsphere_alloc_lb_ip y1 agw
+export VSPHERE_LB_POOL="10.0.20.200-10.0.20.219"
+
 echo "==> context naming"
 assert_eq "context name" "$(vsphere_context_name hl1)" "vsphere_hl1"
 
