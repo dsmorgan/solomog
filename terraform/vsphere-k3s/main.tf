@@ -57,6 +57,7 @@ resource "vsphere_virtual_machine" "server" {
   name             = "solomog-${var.cluster}-server"
   resource_pool_id = data.vsphere_compute_cluster.cc.resource_pool_id
   datastore_id     = data.vsphere_datastore.ds.id
+  folder           = "solomog" # created by vsphere:init (vsphere_folder.solomog)
 
   num_cpus = var.cpus
   memory   = var.memory_gb * 1024
@@ -74,6 +75,14 @@ resource "vsphere_virtual_machine" "server" {
     label            = "disk0"
     size             = var.disk_gb
     thin_provisioned = true
+  }
+
+  # The Ubuntu OVA declares vApp properties in its OVF descriptor; the provider
+  # refuses any day-2 plan without a vApp delivery transport ("requires a client
+  # CDROM device"). An empty client-backed CD-ROM satisfies it; cloud-init still
+  # rides guestinfo, not the OVF environment.
+  cdrom {
+    client_device = true
   }
 
   clone {
@@ -100,6 +109,7 @@ resource "vsphere_virtual_machine" "agents" {
   name             = "solomog-${var.cluster}-agent-${count.index + 1}"
   resource_pool_id = data.vsphere_compute_cluster.cc.resource_pool_id
   datastore_id     = data.vsphere_datastore.ds.id
+  folder           = "solomog" # created by vsphere:init (vsphere_folder.solomog)
 
   num_cpus = var.cpus
   memory   = var.memory_gb * 1024
@@ -115,6 +125,14 @@ resource "vsphere_virtual_machine" "agents" {
     label            = "disk0"
     size             = var.disk_gb
     thin_provisioned = true
+  }
+
+  # The Ubuntu OVA declares vApp properties in its OVF descriptor; the provider
+  # refuses any day-2 plan without a vApp delivery transport ("requires a client
+  # CDROM device"). An empty client-backed CD-ROM satisfies it; cloud-init still
+  # rides guestinfo, not the OVF environment.
+  cdrom {
+    client_device = true
   }
 
   clone {
