@@ -125,6 +125,25 @@ assert_fails_with "pool crossing .254 refused" "crosses .254" vsphere_alloc_ips 
 echo "==> context naming"
 assert_eq "context name" "$(vsphere_context_name hl1)" "vsphere_hl1"
 
+echo "==> solomog_is_vsphere (lib/target.sh — drives expose's local-vs-cloud LB branch)"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+if CONTEXT=vsphere_hl1 solomog_is_vsphere hl1; then
+  pass "vsphere_* context → vsphere"
+else
+  fail "vsphere_* context → vsphere"
+fi
+if CONTEXT="arn:aws:eks:us-east-1:1:cluster/x" solomog_is_vsphere x; then
+  fail "EKS ARN context → not vsphere"
+else
+  pass "EKS ARN context → not vsphere"
+fi
+if CONTEXT= solomog_is_vsphere some-vind-name; then
+  fail "vind default context → not vsphere"
+else
+  pass "vind default context → not vsphere"
+fi
+
 echo ""
 if [ "$FAIL" -eq 0 ]; then
   echo "All vsphere lib tests passed."
