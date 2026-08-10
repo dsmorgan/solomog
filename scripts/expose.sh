@@ -40,6 +40,8 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
+# shellcheck source=lib/hosts.sh
+source "$REPO_DIR/scripts/lib/hosts.sh"
 
 CLUSTER="${CLUSTER:-}"
 solomog_require_cluster "$CLUSTER" expose
@@ -242,15 +244,29 @@ else
   echo "==> Waiting for the LoadBalancer to assign an address..."
   LB_IP="$(wait_for_gateway_address 150)"
   echo "    address: ${LB_IP}"
+  # Re-expose race: on an existing gateway the first status address can be a stale
+  # pre-pin assignment — agentgateway DOES propagate infrastructure annotations to
+  # the LB Service (verified live), but MetalLB re-assigns a beat later. Give it a
+  # settle window before concluding the pin didn't take.
   if [[ -n "$PIN_IP" && "$LB_IP" != "$PIN_IP" ]]; then
-    echo "    NOTE: address differs from the pinned VIP ${PIN_IP} — the gateway impl may not"
-    echo "          propagate spec.infrastructure annotations; proceeding with the actual address."
+    echo "    address ${LB_IP} != pinned VIP ${PIN_IP} — waiting for the pin to reconcile..."
+    settle=0
+    while [[ "$LB_IP" != "$PIN_IP" && $settle -lt 60 ]]; do
+      sleep 5; settle=$((settle + 5))
+      LB_IP="$(kubectl --context "$CTX" get gateway "$NAME" -n "$NAMESPACE" \
+        -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)"
+    done
+    if [[ "$LB_IP" == "$PIN_IP" ]]; then
+      echo "    address settled on the pinned VIP: ${LB_IP}"
+    else
+      echo "    NOTE: still ${LB_IP} after ${settle}s — proceeding with the actual address"
+      echo "          (pin requires the gateway impl to propagate spec.infrastructure annotations)."
+    fi
   fi
 
   # 4. /etc/hosts  (needs sudo) — bare HOST only; wildcards are not supported.
   echo "==> Updating /etc/hosts (sudo)"
-  sudo sed -i '' "/[[:space:]]${HOST}\$/d;/[[:space:]]${HOST}[[:space:]]/d" /etc/hosts 2>/dev/null || true
-  echo "${LB_IP} ${HOST}" | sudo tee -a /etc/hosts >/dev/null
+  solomog_hosts_set "$HOST" "$LB_IP"
 
   # Backfill explicit entries for any sub-host routes already attached to this gateway
   # (e.g. ui.${HOST}, grafana.${HOST} from agentgateway:ui / monitoring with ROUTE=true).
@@ -266,8 +282,7 @@ else
           | .spec.hostnames[]?
           | select(endswith($suffix))' 2>/dev/null | sort -u || true)"
     for h in $SUBHOSTS; do
-      sudo sed -i '' "/[[:space:]]${h}\$/d;/[[:space:]]${h}[[:space:]]/d" /etc/hosts 2>/dev/null || true
-      echo "${LB_IP} ${h}" | sudo tee -a /etc/hosts >/dev/null
+      solomog_hosts_set "$h" "$LB_IP"
       echo "    + sub-host ${h} → ${LB_IP}"
     done
   fi
