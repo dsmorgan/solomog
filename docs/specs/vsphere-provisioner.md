@@ -247,6 +247,77 @@ All on branch `vsphere-k3s-provisioner`; ≥1 commit per phase (more where natur
 | **4 — QoL** | opt-in `SNAPSHOT=true`, `vsphere:reset`, `cluster:list` vsphere labels, README + CLAUDE.md docs | reset → Ready cluster in well under create time; docs follow existing structure. |
 | **5 — mesh (stretch)** | 2× vsphere clusters + `gateway`-topology Istio mesh (existing `mesh-eastwest.sh`; **no** networking.sh analog needed — east-west gateways get real MetalLB IPs) | `istioctl multicluster check` green across two hl clusters. |
 
+## Addendum (2026-08-10): Phase 6 — real DNS + real certs (`DNS=real`)
+
+Post-bring-up decision: `/etc/hosts` + mkcert stays the **default** (`DNS=local` —
+zero network dependencies, works anywhere), and a per-run **toggle** adds
+network-wide resolution + publicly-trusted TLS for homelab clusters:
+`solomog expose CLUSTER=s1 DNS=real`. Rationale: EKS never needed hosts-file
+hacks (public LB hostname); vsphere shouldn't either once real DNS exists — and
+the homelab already runs the two services this needs.
+
+### Decisions
+
+| # | Decision | Choice |
+|---|---|---|
+| 9  | DNS authority | **OPNsense** (dnsmasq), inside the already-delegated `apex.district11.net` zone — clients hit Pi-hole first, which forwards apex to opns1, so **no Pi-hole changes**. Sub-zone name (e.g. `lab.apex.district11.net`) = `SOLOMOG_DOMAIN` in `.env`. |
+| 10 | Record management | **Manual, one line per (cluster, gateway), printed by solomog** — a dnsmasq `address=/agw.s1.<domain>/<VIP>` covers the bare host AND every sub-host (`ui.`, `grafana.`) since dnsmasq matches the whole subtree. Records are effectively permanent because VIPs are name-sticky (below). API/external-dns automation deliberately deferred (see 6b). |
+| 11 | Certificates | **Build on Certwarden** (operational, prod LE via Cloudflare DNS-01) — solomog becomes another pull client, same `X-API-Key` pattern as the existing synology/pihole/unifi pull scripts. No cert-manager, no per-cluster ACME. |
+| 12 | Cert shape | **One shared Certwarden cert object** (e.g. `solomog-lab`), SANs grown per cluster name: `*.s1.<domain>`, `*.agw.s1.<domain>` (+ `*.kgw.s1.<domain>` when used). Wildcards cover one label only, hence per-level SANs. Adding a NEW cluster name = add SANs in Certwarden UI + reissue (~1 min, one-time per name); `.env` carries just two keys (cert + key object). Per-cluster cert objects rejected: N API-key pairs in `.env` for no gain. |
+| 13 | VIP stability | **Name-sticky deterministic VIPs** — the allocator also assigns each (cluster, gateway) a VIP from `VSPHERE_LB_POOL` (recorded in ippool as `lb-agw`/`lb-kgw` roles); expose pins it via the Gateway's `spec.infrastructure.annotations` → `metallb.io/loadBalancerIPs` (fallback: annotate the LB Service). `vsphere:delete` keeps `lb-*` allocations by default so the DNS record survives recreate cycles; `PURGE_LB=true` releases them. |
+| 14 | mkcert default | Unchanged. `DNS=local` remains the default everywhere; `DNS=real` requires a vsphere target (a vind LB IP is Mac-local — unreachable from other devices, so real DNS is pointless there). |
+
+### `DNS=real` expose flow (replaces steps 3–4 of the local flow)
+
+1. Guard: vsphere cluster + `SOLOMOG_DOMAIN` + `CERTWARDEN_*` set (else fail with guidance).
+2. `HOST = <gw>.<cluster>.${SOLOMOG_DOMAIN}` (e.g. `agw.s1.lab.apex.district11.net`).
+3. Pin the gateway VIP from the allocator's `lb-<gw>` record.
+4. Fetch cert + key from Certwarden (`X-API-Key` per object; endpoint paths verified
+   against `~/code/tls-automation/scripts/` at implementation) → `kubectl create
+   secret tls` (same `SECRET` name the Gateway already references).
+5. Create the Gateway (unchanged emit).
+6. **No `/etc/hosts`.** Instead `dig +short $HOST` — resolves to the pinned VIP → done;
+   else print the exact one-time OPNsense line:
+   `address=/<gw>.<cluster>.${SOLOMOG_DOMAIN}/<VIP>` (and where to put it).
+7. Renewal: Certwarden renews centrally; the in-cluster secret refreshes on any
+   `expose DNS=real` re-run (LE's 90 days ≫ typical cluster lifetime; an optional
+   `certs:refresh` task is a stretch item).
+
+`route-host.sh` (UI/Grafana sub-hosts) becomes DNS-mode aware: in real mode it skips
+`/etc/hosts` — the subtree record + `*.agw.<cluster>` SAN already cover sub-hosts.
+
+### `.env` additions
+
+```bash
+SOLOMOG_DOMAIN=""            # e.g. lab.apex.district11.net — presence enables DNS=real
+CERTWARDEN_URL=""            # e.g. https://certwarden.apex.district11.net:4055
+CERTWARDEN_CERT_APIKEY=""    # API key of the shared solomog cert object
+CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
+```
+
+### Sub-phases & acceptance
+
+- **6a — VIP pinning** (prereq, useful on its own): allocator `lb-*` roles + expose
+  pinning + sticky-on-delete. Accept: recreate cycle keeps the same VIP; `DNS=local`
+  behavior otherwise unchanged.
+- **6b — `DNS=real`**: flow above. Accept: from a device that is NOT the Mac (phone,
+  another laptop — no mkcert CA installed), `https://agw.s1.<domain>/httpbin/get`
+  returns httpbin JSON with a green-lock LE cert.
+- **Deferred (recorded, not planned)**: OPNsense API / external-dns automation of the
+  per-cluster record (would need the BIND plugin + RFC2136 or API coupling — revisit
+  only if per-cluster manual lines become real toil); EKS unification (Certwarden
+  cert instead of self-signed mkcert on the cloud path).
+
+### Phase-6 open items (verify at implementation)
+
+- OPNsense: confirm dnsmasq (not Unbound) serves the apex zone, and the wildcard
+  `address=/…/` syntax/placement in its config UI.
+- `Gateway.spec.infrastructure.annotations` propagation to the LB Service by
+  enterprise agentgateway/kgateway — else fall back to annotating the Service.
+- Exact Certwarden download endpoints + object naming (from tls-automation scripts).
+- LE rate limits are a non-issue with the single shared cert (reissues only on SAN
+  changes), but note it if per-cluster certs are ever revisited.
+
 ## Risks / open items
 
 - **cloud-init datasource precedence**: Ubuntu OVAs default to the OVF datasource,
