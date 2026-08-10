@@ -102,6 +102,23 @@ if ! command -v mkcert &>/dev/null; then
   exit 1
 fi
 
+# vsphere: pin a name-sticky VIP for this (cluster, gateway) from VSPHERE_LB_POOL
+# (spec phase 6a — allocation survives vsphere:delete, so a recreated cluster keeps
+# its VIP and any DNS record for it stays valid). Emitted into the Gateway's
+# spec.infrastructure annotations below; best-effort — if the gateway impl doesn't
+# propagate infrastructure annotations to the LB Service we warn and use the actual.
+PIN_IP=""
+if solomog_is_vsphere "$CLUSTER"; then
+  # shellcheck source=lib/vsphere.sh
+  source "$REPO_DIR/scripts/lib/vsphere.sh"
+  if [ -n "${VSPHERE_LB_POOL:-}" ]; then
+    PIN_IP="$(vsphere_alloc_lb_ip "$CLUSTER" "$NAME")"
+    echo "==> Pinned LoadBalancer VIP for ${NAME}: ${PIN_IP} (name-sticky)"
+  else
+    echo "    NOTE: VSPHERE_LB_POOL not set — skipping VIP pinning (MetalLB will auto-assign)."
+  fi
+fi
+
 # Emit the Gateway manifest. $1=yes adds the HTTPS listener (needs the cert secret to exist).
 emit_gateway() {   # args: <include_https: yes|no>
   local https=""
@@ -118,13 +135,20 @@ emit_gateway() {   # args: <include_https: yes|no>
         namespaces:
           from: All"
   fi
+  local infra=""
+  if [[ -n "$PIN_IP" ]]; then
+    infra="
+  infrastructure:
+    annotations:
+      metallb.io/loadBalancerIPs: \"${PIN_IP}\""
+  fi
   cat <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: ${NAME}
   namespace: ${NAMESPACE}
-spec:
+spec:${infra}
   gatewayClassName: ${CLASS}
   listeners:
     - name: http
@@ -218,6 +242,10 @@ else
   echo "==> Waiting for the LoadBalancer to assign an address..."
   LB_IP="$(wait_for_gateway_address 150)"
   echo "    address: ${LB_IP}"
+  if [[ -n "$PIN_IP" && "$LB_IP" != "$PIN_IP" ]]; then
+    echo "    NOTE: address differs from the pinned VIP ${PIN_IP} — the gateway impl may not"
+    echo "          propagate spec.infrastructure annotations; proceeding with the actual address."
+  fi
 
   # 4. /etc/hosts  (needs sudo) — bare HOST only; wildcards are not supported.
   echo "==> Updating /etc/hosts (sudo)"

@@ -117,12 +117,13 @@ _vsphere_pool_ip() {   # args: <index>
   printf '%s.%s' "$base" "$((last + $1))"
 }
 
-# Print a cluster's allocations as "<role>\t<ip>" lines (server first, agents in order).
+# Print a cluster's NODE allocations as "<role>\t<ip>" lines (server first, agents in
+# order). Node view only — lb-* VIP rows (vsphere_alloc_lb_ip) are a separate concern.
 vsphere_list_ips() {   # args: <cluster>
   local f; f="$(_vsphere_pool_file)"
   [ -f "$f" ] || return 0
   awk -F'\t' -v c="$1" '$1==c && $3=="server"{print $3 "\t" $2}' "$f"
-  awk -F'\t' -v c="$1" '$1==c && $3!="server"{print $3 "\t" $2}' "$f" | sort -t- -k2,2n
+  awk -F'\t' -v c="$1" '$1==c && $3 ~ /^agent-/{print $3 "\t" $2}' "$f" | sort -t- -k2,2n
 }
 
 # Allocate <count> IPs (1 server + count-1 agents) for <cluster>; echo "<role>\t<ip>" lines.
@@ -134,7 +135,7 @@ vsphere_alloc_ips() {   # args: <cluster> <count>
   mkdir -p "$(dirname "$f")"
 
   existing_n=0
-  [ -f "$f" ] && existing_n="$(awk -F'\t' -v c="$cluster" '$1==c' "$f" | grep -c . || true)"
+  [ -f "$f" ] && existing_n="$(awk -F'\t' -v c="$cluster" '$1==c && ($3=="server" || $3 ~ /^agent-/)' "$f" | grep -c . || true)"
   if [ "$existing_n" -gt 0 ]; then
     if [ "$existing_n" -eq "$count" ]; then
       vsphere_list_ips "$cluster"
@@ -171,11 +172,77 @@ vsphere_alloc_ips() {   # args: <cluster> <count>
   vsphere_list_ips "$cluster"
 }
 
-# Free a cluster's allocations. No-op if absent; removes the file when it empties.
-vsphere_release_ips() {   # args: <cluster>
-  local f tmp; f="$(_vsphere_pool_file)"; tmp="${f}.tmp"
+# Free a cluster's allocations. Default scope "nodes" KEEPS the lb-* VIP rows —
+# that stickiness is what makes a cluster name's DNS record permanent across
+# recreate cycles (spec decision 13). Pass "all" (vsphere:delete PURGE_LB=true)
+# to release the VIPs too. No-op if absent; removes the file when it empties.
+vsphere_release_ips() {   # args: <cluster> [nodes|all]
+  local f tmp scope="${2:-nodes}"; f="$(_vsphere_pool_file)"; tmp="${f}.tmp"
   [ -f "$f" ] || return 0
-  awk -F'\t' -v c="$1" '$1!=c' "$f" > "$tmp"
+  if [ "$scope" = "all" ]; then
+    awk -F'\t' -v c="$1" '$1!=c' "$f" > "$tmp"
+  else
+    awk -F'\t' -v c="$1" '$1!=c || $3 ~ /^lb-/' "$f" > "$tmp"
+  fi
   mv "$tmp" "$f"
   [ -s "$f" ] || rm -f "$f"
+}
+
+# ── Name-sticky LoadBalancer VIPs (spec phase 6a) ────────────────────────────
+# Each (cluster, gateway) gets a deterministic VIP from VSPHERE_LB_POOL
+# ("<start>-<end>", one /24), recorded as role "lb-<gw>" in the same pool file.
+# Allocation walks from the TOP of the pool downward so it stays clear of
+# MetalLB auto-assign (which takes the lowest free address); expose then pins
+# the VIP via metallb.io/loadBalancerIPs. Rows persist across vsphere:delete
+# (default scope keeps them), so a recreated cluster gets the same VIP and any
+# DNS record for it stays valid.
+
+# Echo "<base> <start-octet> <end-octet>" for VSPHERE_LB_POOL, validating shape.
+_vsphere_lb_pool_bounds() {
+  local start end base_s base_e s e
+  start="${VSPHERE_LB_POOL%-*}"; end="${VSPHERE_LB_POOL#*-}"
+  base_s="${start%.*}"; base_e="${end%.*}"
+  s="${start##*.}"; e="${end##*.}"
+  case "$s$e" in (*[!0-9]*|'')
+    echo "Error: VSPHERE_LB_POOL='${VSPHERE_LB_POOL}' must look like 10.0.20.200-10.0.20.219." >&2
+    return 1 ;;
+  esac
+  if [ "$base_s" != "$base_e" ] || [ "$s" -gt "$e" ]; then
+    echo "Error: VSPHERE_LB_POOL='${VSPHERE_LB_POOL}' must be an ascending range in one /24." >&2
+    return 1
+  fi
+  printf '%s %s %s' "$base_s" "$s" "$e"
+}
+
+# Allocate (or return the sticky existing) VIP for a cluster's gateway; echoes the IP.
+vsphere_alloc_lb_ip() {   # args: <cluster> <gateway-name e.g. agw>
+  local cluster="$1" role="lb-$2" f bounds base s e i ip taken existing
+  f="$(_vsphere_pool_file)"
+  mkdir -p "$(dirname "$f")"
+  existing=""
+  [ -f "$f" ] && existing="$(awk -F'\t' -v c="$cluster" -v r="$role" '$1==c && $3==r{print $2; exit}' "$f")"
+  if [ -n "$existing" ]; then printf '%s' "$existing"; return 0; fi
+  bounds="$(_vsphere_lb_pool_bounds)" || return 1
+  base="${bounds%% *}"; s="$(printf '%s' "$bounds" | awk '{print $2}')"; e="${bounds##* }"
+  i="$e"
+  while [ "$i" -ge "$s" ]; do
+    ip="${base}.${i}"
+    taken=""
+    [ -f "$f" ] && taken="$(awk -F'\t' -v ip="$ip" '$2==ip{print; exit}' "$f")"
+    if [ -z "$taken" ]; then
+      printf '%s\t%s\t%s\n' "$cluster" "$ip" "$role" >> "$f"
+      printf '%s' "$ip"
+      return 0
+    fi
+    i=$((i - 1))
+  done
+  echo "Error: no free VIP in VSPHERE_LB_POOL (${VSPHERE_LB_POOL}) — release with vsphere:delete PURGE_LB=true or grow the pool." >&2
+  return 1
+}
+
+# Print a cluster's VIP reservations as "<role>\t<ip>" lines.
+vsphere_list_lb_ips() {   # args: <cluster>
+  local f; f="$(_vsphere_pool_file)"
+  [ -f "$f" ] || return 0
+  awk -F'\t' -v c="$1" '$1==c && $3 ~ /^lb-/{print $3 "\t" $2}' "$f"
 }

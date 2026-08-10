@@ -310,6 +310,14 @@ CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
 
 ### Phase-6 open items (verify at implementation)
 
+- **Zone choice is deliberately open** — David wants short, memorable fqdns and may
+  use a subdomain of his other TLD `tnkr.fun` (e.g. `s1.lab.tnkr.fun`) instead of
+  nesting under `apex.district11.net`. Both TLDs are Cloudflare-managed publicly;
+  Certwarden's Cloudflare DNS-01 covers either. `SOLOMOG_DOMAIN` stays the single
+  knob either way — the only zone-dependent step is where the internal dnsmasq
+  records/delegation live. **Cloudflare is NOT touched directly in this phase**;
+  driving public Cloudflare records from solomog is a possible future enhancement
+  (most useful for EKS deployments).
 - OPNsense: confirm dnsmasq (not Unbound) serves the apex zone, and the wildcard
   `address=/…/` syntax/placement in its config UI.
 - `Gateway.spec.infrastructure.annotations` propagation to the LB Service by

@@ -76,6 +76,8 @@ tasks:
       Variables:
         CLUSTER    registered vsphere cluster name (required — no default; destructive)
         FORCE      true → skip the confirmation prompt (scripted teardown)   default false
+        PURGE_LB   true → also release the cluster's pinned LoadBalancer VIPs
+                   (default keeps them name-sticky so DNS records survive recreate)
 
       Example:
         solomog vsphere:delete CLUSTER=hl1
@@ -84,3 +86,4 @@ tasks:
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
       FORCE: '{{.FORCE | default ""}}'
+      PURGE_LB: '{{.PURGE_LB | default ""}}'
