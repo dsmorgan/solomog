@@ -72,8 +72,18 @@ else
   fail "full scope ok once configured"
 fi
 
-echo "==> require_init: no state yet"
-assert_fails_with "create before init refused" "solomog vsphere:init" \
+echo "==> require_init (hermetic via VSPHERE_INIT_STATE — a real init state may exist)"
+export VSPHERE_INIT_STATE="$WORKDIR/init.tfstate"
+assert_fails_with "create before init refused (no state)" "solomog vsphere:init" \
+  vsphere_require_init "vsphere:create"
+printf '{"resources": [{"mode": "managed", "type": "vsphere_content_library"}]}\n' > "$VSPHERE_INIT_STATE"
+if vsphere_require_init "vsphere:create" >/dev/null 2>&1; then
+  pass "applied state accepted"
+else
+  fail "applied state accepted"
+fi
+printf '{"resources": []}\n' > "$VSPHERE_INIT_STATE"
+assert_fails_with "destroyed (empty) state refused" "solomog vsphere:init" \
   vsphere_require_init "vsphere:create"
 
 echo "==> allocator: basic allocation"

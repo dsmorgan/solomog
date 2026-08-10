@@ -16,6 +16,7 @@
 #   VSPHERE_TOFU_BIN                                         tofu binary override (default: tofu;
 #                                                            also lets tests stub the tool check)
 #   VSPHERE_POOL_FILE                                        allocator file override (tests only)
+#   VSPHERE_INIT_STATE                                       init-state path override (tests only)
 #
 # Usage:
 #   source "$REPO_DIR/scripts/lib/vsphere.sh"
@@ -71,7 +72,7 @@ vsphere_preflight() {
 # a state emptied by destroy, or no state at all, both mean "not initialized".
 vsphere_require_init() {
   local task="${1:-this task}"
-  local state; state="$(_vsphere_repo_dir)/terraform/vsphere-init/terraform.tfstate"
+  local state; state="${VSPHERE_INIT_STATE:-$(_vsphere_repo_dir)/terraform/vsphere-init/terraform.tfstate}"
   if [ -s "$state" ] && grep -q '"mode": *"managed"' "$state" 2>/dev/null; then
     return 0
   fi
