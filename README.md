@@ -303,6 +303,8 @@ fast with guidance and nothing else is affected. Design/spec:
 solomog vsphere:init                          # one-time: content library + Ubuntu template + VM folder
 solomog vsphere:create CLUSTER=s1             # ~5 min; NODES=2 agents by default; SNAPSHOT=true → baseline
 solomog agentgateway expose apps:utils ROUTE=true CLUSTER=s1   # …then use it like any cluster
+solomog vsphere:stop CLUSTER=s1               # pause: graceful VM shutdown, state kept, host RAM freed
+solomog vsphere:start CLUSTER=s1              # resume exactly where you left off
 solomog vsphere:snapshot CLUSTER=s1           # (re)take the baseline snapshot on demand
 solomog vsphere:reset CLUSTER=s1              # revert to baseline — clean cluster in ~VM-boot time
 solomog vsphere:delete CLUSTER=s1             # tofu destroy; keeps the cluster's pinned VIPs

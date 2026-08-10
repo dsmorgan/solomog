@@ -195,7 +195,12 @@ Pool + L2Advertisement CRs are applied by the script after sync (rendered from
   as `solomog-baseline` (via tofu-invoked provisioner or govc-free API script — 
   implementation picks; no new required tooling).
 - `solomog vsphere:reset CLUSTER=hl1` → revert all VMs to `solomog-baseline`, power on,
-  wait Ready. ~30s clean cluster; errors clearly if no baseline exists.
+  wait Ready. ~30s clean cluster; errors clearly if no baseline exists. Baselines are
+  memory-less, so revert is a clean cold boot of the snapshot's disk state — no
+  suspend-image clock jump; the discarded running state needs no graceful stop.
+- `vsphere:stop` / `vsphere:start` (added post-bring-up) → pause/resume: graceful
+  guest shutdown of all node VMs (hard-off fallback) freeing host CPU/RAM, then
+  power-on + wait Ready. State-preserving, unlike reset's restore-to-baseline.
 
 ### Taskfile include (`taskfiles/vsphere.yaml`)
 
