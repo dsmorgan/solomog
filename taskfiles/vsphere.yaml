@@ -65,6 +65,50 @@ tasks:
       NODES: '{{.NODES | default ""}}'
       SNAPSHOT: '{{.SNAPSHOT | default ""}}'
 
+  snapshot:
+    desc: "Take (or inspect) the baseline snapshot vsphere:reset reverts to. CLUSTER=<name> required. Run 'solomog help vsphere:snapshot'."
+    summary: |
+      (Re)take the "solomog-baseline" snapshot of every node VM — the revert point
+      for vsphere:reset. Replaces any existing baseline, so run it when the current
+      cluster state is the one resets should land on. `vsphere:create SNAPSHOT=true`
+      does this automatically at create time. Uses pyvmomi via uv (a setup.sh
+      prerequisite) — vCenter 7.0.3 has no REST snapshot API.
+
+      Variables:
+        CLUSTER   vsphere cluster name (required)
+        ACTION    take (default) | status — status just lists baseline presence/age
+
+      Example:
+        solomog vsphere:snapshot CLUSTER=hl1
+        solomog vsphere:snapshot CLUSTER=hl1 ACTION=status
+    cmds:
+      - bash scripts/run.sh "Baseline snapshot ({{.ACTION | default "take"}}) → {{.CLUSTER}}" bash scripts/vsphere-snapshot.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      ACTION: '{{.ACTION | default ""}}'
+
+  reset:
+    desc: "Revert a vsphere cluster to its baseline snapshot (~clean cluster in VM-boot time). CLUSTER=<name> required. Run 'solomog help vsphere:reset'."
+    summary: |
+      Revert every node VM to "solomog-baseline" (fresh k3s + MetalLB), power back
+      on, and wait for all nodes Ready — a clean cluster in roughly VM-boot time
+      instead of a full recreate. Everything installed after the baseline (products,
+      gateways, apps) is wiped; the kube context, registry entry, node IPs, and
+      pinned VIPs survive. Prompts first.
+
+      Variables:
+        CLUSTER   vsphere cluster name (required — wipes current cluster state)
+        FORCE     true → skip the confirmation prompt              default false
+
+      Example:
+        solomog vsphere:reset CLUSTER=hl1
+        solomog vsphere:reset agentgateway expose CLUSTER=hl1 ROUTE=true   # reset then rebuild
+    cmds:
+      - bash scripts/run.sh "Reset vSphere cluster {{.CLUSTER}} to baseline" bash scripts/vsphere-reset.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      FORCE: '{{.FORCE | default ""}}'
+
   delete:
     desc: "Tear down a solomog-created vSphere k3s cluster (prompts first). CLUSTER=<name> required. Run 'solomog help vsphere:delete'."
     summary: |
