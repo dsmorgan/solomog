@@ -71,7 +71,8 @@ if [[ -z "$LB_IP" ]]; then
 fi
 
 echo "==> Updating /etc/hosts (sudo): ${HOST} → ${LB_IP}"
-sudo sed -i '' "/[[:space:]]${HOST}\$/d;/[[:space:]]${HOST}[[:space:]]/d" /etc/hosts 2>/dev/null || true
-echo "${LB_IP} ${HOST}" | sudo tee -a /etc/hosts >/dev/null
+# shellcheck source=lib/hosts.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hosts.sh"
+solomog_hosts_set "$HOST" "$LB_IP"
 
 echo "    https://${HOST}/   (mkcert CA trusted; wildcard cert from 'solomog expose')"
