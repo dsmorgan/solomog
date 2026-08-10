@@ -302,6 +302,31 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   `solomog env:diff` reports key drift (names only); `solomog env:backup` snapshots to
   `.solomog/env-backups/` (also auto on refresh/sync). Prefer sync after pulling example changes
   rather than hand-editing section order.
+### vSphere homelab provisioner (optional capability)
+A third cluster provisioner beside vind and EKS: real k3s clusters on David's home
+vCenter 7.0.3. **Spec is the source of truth**: [docs/specs/vsphere-provisioner.md](docs/specs/vsphere-provisioner.md)
+(architecture, decisions record, phases). The short version:
+- **Isolation contract** (do not break): all vsphere logic lives in
+  `taskfiles/vsphere.yaml` (an `optional: true` include — the root Taskfile carries
+  only the includes block), `scripts/vsphere-*.sh` + `scripts/lib/vsphere.sh`,
+  `terraform/vsphere-*`, and `helmfiles/addons/metallb.yaml.gotmpl` (deliberately
+  self-contained — no commons bases, repo URL inline). OpenTofu/uv are lazy-checked
+  (the eksctl precedent) — NEVER add them to setup.sh; missing `VSPHERE_*` config
+  fails every vsphere task fast. There is no feature flag; the preflight is the flag.
+- **Registry seam**: `vsphere:create` registers `<cluster> → vsphere_<cluster>` in
+  `.solomog/contexts`, after which every task works via `CLUSTER=` like any external
+  cluster. `solomog_is_vsphere` (lib/target.sh) identifies them — LB semantics branch
+  on it, lifecycle branches on `solomog_is_external`.
+- **State**: OpenTofu, one workspace per cluster (`terraform/vsphere-k3s/`), state
+  gitignored, lock files committed. IP allocator + name-sticky LB VIPs in
+  `.solomog/vsphere/ippool` (roles `server`/`agent-N`/`lb-<gw>`; node-view functions
+  are role-scoped — keep them that way). `vsphere:delete` keeps `lb-*` rows unless
+  `PURGE_LB=true` so DNS records survive recreates.
+- **Snapshots**: `vsphere-snapshot.py` (pyvmomi via `uv run --with pyvmomi`) — vCenter
+  7.0.3 has no REST snapshot API and the tofu provider can't revert.
+- **Tests**: `bash scripts/test-vsphere-lib.sh` (fixtures, no vCenter needed; keep it
+  hermetic via the `VSPHERE_POOL_FILE`/`VSPHERE_INIT_STATE` overrides).
+
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.
@@ -458,6 +483,25 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 - Enterprise Istio is operator-managed, so there are **no istio base/istiod/cni/
   ztunnel Helm releases** in that path — the `ServiceMeshController` CR drives it.
   Only the community path installs those charts directly.
+- **App/addon scripts must resolve their kube context via `solomog_context`** —
+  seven task call sites once passed a hardcoded `vcluster-docker_<CLUSTER>` arg and
+  broke on every registered external cluster (EKS and vsphere alike). The scripts
+  now resolve `CLUSTER`/`CONTEXT` themselves (positional context arg kept only for
+  back-compat); new cluster-touching scripts must do the same.
+- **vSphere/OVA gotchas** (see the spec for detail): VMs cloned from the Ubuntu OVA
+  need a `cdrom { client_device = true }` block or every day-2 tofu plan fails
+  ("requires a client CDROM device"); the CD-ROM is IDE so it can't hot-add — VMs
+  created without it need one powered-off apply. cloud-init rides the **guestinfo**
+  datasource only because no vApp properties are set on the clone — don't add any.
+  The OVA is **amd64** (homelab vSphere), the opposite of the arm64 rule for vind
+  images. vCenter TLS: prefer `VSPHERE_CACERT` (verified custom CA) over
+  `VSPHERE_ALLOW_UNVERIFIED_SSL`.
+- **expose branches on LB semantics, not lifecycle**: vsphere targets take the
+  local path (mkcert + `/etc/hosts` — a MetalLB VIP is a private IP) via
+  `solomog_is_vsphere`; only hostname-LB clouds (EKS) take the external path. Don't
+  gate exposure behavior on `solomog_is_external`.
+- **bash 3.2 chokes on an apostrophe inside a `${VAR:?message}` word** (parses it
+  as an opening quote → "unexpected EOF"). Keep `:?` messages apostrophe-free.
 
 ## Validating changes without a cluster
 
