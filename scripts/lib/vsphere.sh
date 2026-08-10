@@ -246,3 +246,27 @@ vsphere_list_lb_ips() {   # args: <cluster>
   [ -f "$f" ] || return 0
   awk -F'\t' -v c="$1" '$1==c && $3 ~ /^lb-/{print $3 "\t" $2}' "$f"
 }
+
+# ── Baseline snapshots (spec phase 4) ────────────────────────────────────────
+
+# Echo the cluster's VM names (server first, then agents), derived from the node
+# allocations — the same names terraform/vsphere-k3s builds.
+vsphere_vm_names() {   # args: <cluster>
+  vsphere_list_ips "$1" | awk -F'\t' -v c="$1" \
+    '{ if ($1=="server") print "solomog-" c "-server"; else print "solomog-" c "-" $1 }'
+}
+
+# Run the pyvmomi snapshot tool (take|revert|status) for a cluster's VMs, via uv
+# (a setup.sh prerequisite — no new tooling; vCenter 7.0.3 has no REST snapshot
+# API and tofu can't revert).
+vsphere_snapshot() {   # args: <take|revert|status> <cluster>
+  local names
+  command -v uv >/dev/null 2>&1 || { echo "Error: uv not found (bash scripts/setup.sh installs it)." >&2; return 1; }
+  names="$(vsphere_vm_names "$2")"
+  if [ -z "$names" ]; then
+    echo "Error: no node allocations recorded for '$2' — is it a solomog vsphere cluster?" >&2
+    return 1
+  fi
+  # shellcheck disable=SC2086
+  uv run --with pyvmomi --python 3.12 "$(_vsphere_repo_dir)/scripts/vsphere-snapshot.py" "$1" $names
+}

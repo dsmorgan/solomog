@@ -155,7 +155,8 @@ do
 done
 
 if [ "${SNAPSHOT:-false}" = "true" ]; then
-  echo "    (SNAPSHOT=true noted — baseline snapshots + vsphere:reset land in spec phase 4)"
+  echo "==> Taking baseline snapshots ('solomog-baseline' — enables ~30s resets via vsphere:reset)"
+  vsphere_snapshot take "$CLUSTER"
 fi
 
 # ── 5. Register — from here CLUSTER=<name> works like any vind/EKS cluster ───────
