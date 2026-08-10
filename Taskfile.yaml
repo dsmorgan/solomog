@@ -686,6 +686,7 @@ tasks:
         solomog expose PRODUCT=kgateway CLUSTER=aaa
         solomog expose HTTP_PORT=9080 HTTPS_PORT=8443 CLUSTER=aaa
         solomog expose CONTEXT=arn:aws:eks:us-east-1:...:cluster/dmorgan-agw   # external EKS
+        solomog expose CLUSTER=s1 DNS=real    # vsphere: real DNS + Certwarden LE cert (see .env.example)
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
@@ -701,6 +702,7 @@ tasks:
       SECRET: '{{.SECRET | default ""}}'
       HTTP_PORT: '{{.HTTP_PORT | default ""}}'    # empty → expose.sh default 8080
       HTTPS_PORT: '{{.HTTPS_PORT | default ""}}'  # empty → expose.sh default 443
+      DNS: '{{.DNS | default ""}}'                # empty → local (mkcert + /etc/hosts); real → SOLOMOG_DOMAIN + Certwarden LE cert (vsphere only)
 
   # ─── Monitoring (cross-cutting add-on) ────────────────────────────────────
   # Prometheus + Grafana for any product. Auto-detects product dashboards (like

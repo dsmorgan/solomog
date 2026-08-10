@@ -308,6 +308,13 @@ CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
 - **6b — `DNS=real`**: flow above. Accept: from a device that is NOT the Mac (phone,
   another laptop — no mkcert CA installed), `https://agw.s1.<domain>/httpbin/get`
   returns httpbin JSON with a green-lock LE cert.
+  **IMPLEMENTED (2026-08-10)** in expose.sh (knob `DNS=local|real`, guards, Certwarden
+  pull via the verified `/certwarden/api/v1/download/{certificates,privatekeys}/<name>`
+  endpoints, SAN `-checkhost` warning, dig check + printed dnsmasq record). v1 scope
+  note: **sub-host UIs (route-host.sh — `<x>:ui`, monitoring `ROUTE=true`) still use
+  DNS=local** (.test + /etc/hosts); extending them to the real domain is a follow-up.
+  Live acceptance pending David's one-timers: zone choice → `SOLOMOG_DOMAIN`, the
+  Certwarden cert object (+SANs) and two API keys, the dnsmasq record.
 - **Deferred (recorded, not planned)**: OPNsense API / external-dns automation of the
   per-cluster record (would need the BIND plugin + RFC2136 or API coupling — revisit
   only if per-cluster manual lines become real toil); EKS unification (Certwarden
