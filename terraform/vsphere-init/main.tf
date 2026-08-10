@@ -7,6 +7,15 @@ data "vsphere_datastore" "ds" {
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
+# All solomog node VMs land in this folder (terraform/vsphere-k3s sets folder =
+# "solomog"), keeping them grouped in the vSphere Client instead of loose in the DC.
+# Created here (one-time, shared) so per-cluster workspaces never race to own it.
+resource "vsphere_folder" "solomog" {
+  path          = "solomog"
+  type          = "vm"
+  datacenter_id = data.vsphere_datacenter.dc.id
+}
+
 resource "vsphere_content_library" "solomog" {
   name            = "solomog"
   description     = "solomog vsphere:* provisioner templates (managed by vsphere:init)"
@@ -26,6 +35,11 @@ resource "vsphere_content_library_item" "ubuntu" {
 
 output "library_name" {
   value = vsphere_content_library.solomog.name
+}
+
+output "vm_folder" {
+  description = "VM folder the cluster VMs are placed in"
+  value       = vsphere_folder.solomog.path
 }
 
 output "template_item" {
