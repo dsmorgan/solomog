@@ -6,7 +6,8 @@ set -euo pipefail
 #
 #   1. Generates an mkcert TLS cert for HOST + *.HOST → a tls Secret.
 #   2. Creates a Gateway (http:8080 + https:443/TLS) of the given GatewayClass.
-#   3. Waits for the vcluster LoadBalancer (haproxy) to assign an address.
+#   3. Waits for the LoadBalancer (vind: vcluster haproxy; vsphere: MetalLB) to
+#      assign an address.
 #   4. Updates /etc/hosts so HOST resolves to that address (needs sudo).
 #      (/etc/hosts has no wildcard support — only the bare HOST is written here;
 #       sub-hosts like ui.HOST are backfilled below / via route-host.sh.)
@@ -19,7 +20,7 @@ set -euo pipefail
 # overridden directly (e.g. for istio).
 #
 # Env:
-#   CLUSTER     cluster name (context vcluster-docker_<CLUSTER>); default cluster-one
+#   CLUSTER     cluster name (vind, or registered external); default cluster-one
 #   PRODUCT     agentgateway | kgateway — seeds the defaults below. When unset it is
 #               auto-detected from the cluster's GatewayClasses (one product per
 #               cluster is the common case); falls back to agentgateway if ambiguous.
@@ -76,10 +77,12 @@ _CLASS="$(solomog_resolve_gateway_class "$PRODUCT" "$classes")"
 NAME="${NAME:-$_NAME}"
 NAMESPACE="${NAMESPACE:-$_NS}"
 CLASS="${CLASS:-$_CLASS}"
-# vind: host is the local .test name (known up front). external (EKS): default the host to
-# the cloud LB's public hostname, which we only learn AFTER the Gateway's LB provisions — so
-# leave it empty here and resolve it below (unless the caller pinned a real DNS name via HOST).
-if solomog_is_external "$CLUSTER"; then
+# vind + vsphere: host is the local .test name (known up front; the LB IP is private —
+# vcluster haproxy / MetalLB — so /etc/hosts resolves it). Cloud external (EKS): default
+# the host to the cloud LB's public hostname, which we only learn AFTER the Gateway's LB
+# provisions — so leave it empty here and resolve it below (unless the caller pinned a
+# real DNS name via HOST).
+if solomog_is_external "$CLUSTER" && ! solomog_is_vsphere "$CLUSTER"; then
   HOST="${HOST:-}"
 else
   HOST="${HOST:-${NAME}.${CLUSTER}.test}"
@@ -153,8 +156,11 @@ wait_for_gateway_address() {   # args: <timeout-seconds>
 kubectl --context "$CTX" create namespace "$NAMESPACE" --dry-run=client -o yaml \
   | kubectl --context "$CTX" apply -f -
 
-if solomog_is_external "$CLUSTER"; then
-  # ── EXTERNAL (cloud, e.g. EKS) ────────────────────────────────────────────
+# The branch is LB semantics, not lifecycle: a vsphere cluster is external for
+# create/teardown but its MetalLB VIP is a private IP like vind's haproxy — so it takes
+# the local path (mkcert + /etc/hosts). Only hostname-LB clouds (EKS) take this branch.
+if solomog_is_external "$CLUSTER" && ! solomog_is_vsphere "$CLUSTER"; then
+  # ── EXTERNAL CLOUD (hostname LB, e.g. EKS) ────────────────────────────────
   # Public LB with self-signed TLS, no /etc/hosts. Two-pass: the cert must name the
   # LB's public hostname, which only exists once the Gateway's LB Service provisions.
   # So create the HTTP Gateway → wait for the hostname → mkcert it → re-apply with HTTPS.
@@ -208,8 +214,8 @@ else
   echo "==> Creating Gateway ${NAME}"
   emit_gateway yes | kubectl --context "$CTX" apply -f -
 
-  # 3. Wait for the LoadBalancer address  (ported from my-stuff/02-hosts-update.sh)
-  echo "==> Waiting for the vcluster LoadBalancer to assign an address..."
+  # 3. Wait for the LoadBalancer address  (vind: vcluster haproxy; vsphere: MetalLB)
+  echo "==> Waiting for the LoadBalancer to assign an address..."
   LB_IP="$(wait_for_gateway_address 150)"
   echo "    address: ${LB_IP}"
 
