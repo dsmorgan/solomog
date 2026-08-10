@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Baseline VM snapshots for solomog vsphere clusters (take / revert / status).
+"""VM lifecycle tool for solomog vsphere clusters (snapshots + power).
 
 Run via uv (a solomog setup.sh prerequisite) — never invoked directly:
     uv run --with pyvmomi --python 3.12 scripts/vsphere-snapshot.py <action> <vm> [<vm>...]
@@ -10,9 +10,13 @@ uv gives us pyvmomi ephemerally, matching the repo's bundle-test pattern.
 
 Actions (snapshot name: $SNAPSHOT_NAME, default "solomog-baseline"):
     take    (re)take the baseline on each VM: removes an existing one first,
-            then snapshots WITHOUT memory (small/fast; revert lands powered off
-            and gets powered back on by `revert`).
-    revert  revert each VM to the baseline, then power everything back on.
+            then snapshots WITHOUT memory (small/fast; disk-only, so revert is a
+            clean cold boot — no suspend-image clock jump).
+    revert  revert each VM to the baseline (current state is discarded; the VM
+            lands powered off), then power everything back on.
+    stop    graceful guest shutdown (open-vm-tools), hard power-off fallback
+            after a timeout — pause the cluster, freeing host CPU/RAM.
+    start   power on any VM that is not already running.
     status  one line per VM: power state + baseline presence/creation time.
 
 Env: VSPHERE_SERVER / VSPHERE_USER / VSPHERE_PASSWORD from .env.
@@ -26,6 +30,7 @@ TLS: prefer VERIFIED connections — set VSPHERE_CACERT to a PEM bundle (the vCe
 import os
 import ssl
 import sys
+import time
 
 from pyVim.connect import Disconnect, SmartConnect
 from pyVim.task import WaitForTask
@@ -116,6 +121,39 @@ def do_revert(vms):
             WaitForTask(vm.PowerOnVM_Task())
 
 
+def do_stop(vms):
+    off = vim.VirtualMachinePowerState.poweredOff
+    for vm in vms:
+        if vm.runtime.powerState == off:
+            print(f"    {vm.name}: already powered off")
+            continue
+        try:
+            vm.ShutdownGuest()  # async, graceful (needs open-vm-tools — present in our template)
+            print(f"    {vm.name}: guest shutdown requested")
+        except vim.fault.ToolsUnavailable:
+            print(f"    {vm.name}: no tools — hard power off")
+            WaitForTask(vm.PowerOffVM_Task())
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        if all(vm.runtime.powerState == off for vm in vms):
+            break
+        time.sleep(3)
+    for vm in vms:
+        if vm.runtime.powerState != off:
+            print(f"    {vm.name}: shutdown timed out — hard power off")
+            WaitForTask(vm.PowerOffVM_Task())
+    print("    all VMs powered off")
+
+
+def do_start(vms):
+    for vm in vms:
+        if vm.runtime.powerState == vim.VirtualMachinePowerState.poweredOn:
+            print(f"    {vm.name}: already powered on")
+        else:
+            print(f"    {vm.name}: powering on")
+            WaitForTask(vm.PowerOnVM_Task())
+
+
 def do_status(vms):
     for vm in vms:
         snap = baseline_of(vm)
@@ -125,13 +163,19 @@ def do_status(vms):
 
 
 def main():
-    if len(sys.argv) < 3 or sys.argv[1] not in ("take", "revert", "status"):
-        die("usage: vsphere-snapshot.py <take|revert|status> <vm-name> [<vm-name>...]")
+    actions = {
+        "take": do_take,
+        "revert": do_revert,
+        "stop": do_stop,
+        "start": do_start,
+        "status": do_status,
+    }
+    if len(sys.argv) < 3 or sys.argv[1] not in actions:
+        die("usage: vsphere-snapshot.py <take|revert|stop|start|status> <vm-name> [<vm-name>...]")
     action, names = sys.argv[1], sys.argv[2:]
     si = connect()
     try:
-        vms = find_vms(si, names)
-        {"take": do_take, "revert": do_revert, "status": do_status}[action](vms)
+        actions[action](find_vms(si, names))
     finally:
         Disconnect(si)
 

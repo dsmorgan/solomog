@@ -256,10 +256,10 @@ vsphere_vm_names() {   # args: <cluster>
     '{ if ($1=="server") print "solomog-" c "-server"; else print "solomog-" c "-" $1 }'
 }
 
-# Run the pyvmomi snapshot tool (take|revert|status) for a cluster's VMs, via uv
-# (a setup.sh prerequisite — no new tooling; vCenter 7.0.3 has no REST snapshot
-# API and tofu can't revert).
-vsphere_snapshot() {   # args: <take|revert|status> <cluster>
+# Run the pyvmomi VM tool (take|revert|stop|start|status) for a cluster's VMs, via
+# uv (a setup.sh prerequisite — no new tooling; vCenter 7.0.3 has no REST snapshot
+# API and tofu can't revert or power-cycle).
+vsphere_vm_tool() {   # args: <take|revert|stop|start|status> <cluster>
   local names
   command -v uv >/dev/null 2>&1 || { echo "Error: uv not found (bash scripts/setup.sh installs it)." >&2; return 1; }
   names="$(vsphere_vm_names "$2")"
@@ -269,4 +269,23 @@ vsphere_snapshot() {   # args: <take|revert|status> <cluster>
   fi
   # shellcheck disable=SC2086
   uv run --with pyvmomi --python 3.12 "$(_vsphere_repo_dir)/scripts/vsphere-snapshot.py" "$1" $names
+}
+
+# Poll until <count> nodes report Ready on <context> (used after reset/start).
+vsphere_wait_ready() {   # args: <context> <count> [<timeout-seconds, default 420>]
+  local ctx="$1" want="$2" timeout="${3:-420}" deadline ready
+  deadline=$(( $(date +%s) + timeout ))
+  while :; do
+    ready="$(kubectl --context "$ctx" get nodes --no-headers --request-timeout=3s 2>/dev/null | awk '$2=="Ready"' | grep -c . || true)"
+    if [ "${ready:-0}" -ge "$want" ]; then
+      echo "    ${ready} node(s) Ready"
+      return 0
+    fi
+    if [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "Error: only ${ready:-0}/${want} nodes Ready after ${timeout}s." >&2
+      kubectl --context "$ctx" get nodes >&2 || true
+      return 1
+    fi
+    sleep 5
+  done
 }

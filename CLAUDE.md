@@ -322,8 +322,12 @@ vCenter 7.0.3. **Spec is the source of truth**: [docs/specs/vsphere-provisioner.
   `.solomog/vsphere/ippool` (roles `server`/`agent-N`/`lb-<gw>`; node-view functions
   are role-scoped — keep them that way). `vsphere:delete` keeps `lb-*` rows unless
   `PURGE_LB=true` so DNS records survive recreates.
-- **Snapshots**: `vsphere-snapshot.py` (pyvmomi via `uv run --with pyvmomi`) — vCenter
-  7.0.3 has no REST snapshot API and the tofu provider can't revert.
+- **Snapshots & power**: `vsphere-snapshot.py` (pyvmomi via `uv run --with pyvmomi`,
+  wrapped by `vsphere_vm_tool`) does take/revert/stop/start/status — vCenter 7.0.3
+  has no REST snapshot API and the tofu provider can't revert or power-cycle.
+  Baselines are memory-less (revert = clean cold boot, no suspend clock jump);
+  stop/start = graceful guest shutdown / power-on (pause-resume, state preserved),
+  vs snapshot/reset = savepoint-restore (discards back to baseline).
 - **Tests**: `bash scripts/test-vsphere-lib.sh` (fixtures, no vCenter needed; keep it
   hermetic via the `VSPHERE_POOL_FILE`/`VSPHERE_INIT_STATE` overrides).
 

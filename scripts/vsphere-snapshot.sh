@@ -32,7 +32,7 @@ if [ "$ACTION" = "take" ]; then
 else
   echo "==> Baseline snapshot status for '${CLUSTER}'"
 fi
-vsphere_snapshot "$ACTION" "$CLUSTER"
+vsphere_vm_tool "$ACTION" "$CLUSTER"
 
 if [ "$ACTION" = "take" ]; then
   echo ""

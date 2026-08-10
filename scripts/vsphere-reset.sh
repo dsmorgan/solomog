@@ -41,21 +41,10 @@ if [ "${FORCE:-false}" != "true" ]; then
   [[ "$ANSWER" =~ ^[Yy] ]] || { echo "Aborted — nothing reverted."; exit 1; }
 fi
 
-vsphere_snapshot revert "$CLUSTER"
+vsphere_vm_tool revert "$CLUSTER"
 
 echo "==> waiting for ${NODE_COUNT} Ready node(s)"
-DEADLINE=$(( $(date +%s) + 420 ))
-while :; do
-  READY="$(kubectl --context "$CTX" get nodes --no-headers --request-timeout=3s 2>/dev/null | awk '$2=="Ready"' | grep -c . || true)"
-  [ "${READY:-0}" -ge "$NODE_COUNT" ] && break
-  if [ "$(date +%s)" -ge "$DEADLINE" ]; then
-    echo "Error: only ${READY:-0}/${NODE_COUNT} nodes Ready after 7 min." >&2
-    kubectl --context "$CTX" get nodes >&2 || true
-    exit 1
-  fi
-  sleep 5
-done
-echo "    ${READY} node(s) Ready"
+vsphere_wait_ready "$CTX" "$NODE_COUNT"
 
 echo ""
 echo "✓ '${CLUSTER}' reset to baseline (fresh k3s + MetalLB) — context ${CTX} unchanged."

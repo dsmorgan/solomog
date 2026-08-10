@@ -65,6 +65,41 @@ tasks:
       NODES: '{{.NODES | default ""}}'
       SNAPSHOT: '{{.SNAPSHOT | default ""}}'
 
+  stop:
+    desc: "Pause a vsphere cluster: graceful VM shutdown, state preserved, host RAM/CPU freed. CLUSTER=<name> required."
+    summary: |
+      Gracefully shut down every node VM (open-vm-tools guest shutdown; hard
+      power-off fallback), freeing the host resources the cluster was holding.
+      Everything is preserved exactly as-is — resume with vsphere:start.
+      Non-destructive, so no confirmation prompt.
+
+      Variables:
+        CLUSTER   vsphere cluster name (required)
+
+      Example:
+        solomog vsphere:stop CLUSTER=hl1
+    cmds:
+      - bash scripts/run.sh "Stop vSphere cluster {{.CLUSTER}}" bash scripts/vsphere-stop.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+
+  start:
+    desc: "Resume a stopped vsphere cluster: power on + wait for all nodes Ready. CLUSTER=<name> required."
+    summary: |
+      Power every node VM back on and wait for all nodes Ready — the complement to
+      vsphere:stop. IPs, kubeconfig, pinned VIPs, and everything installed on the
+      cluster come back as you left them (clean boot, no suspend-style clock jump).
+
+      Variables:
+        CLUSTER   vsphere cluster name (required)
+
+      Example:
+        solomog vsphere:start CLUSTER=hl1
+    cmds:
+      - bash scripts/run.sh "Start vSphere cluster {{.CLUSTER}}" bash scripts/vsphere-start.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+
   snapshot:
     desc: "Take (or inspect) the baseline snapshot vsphere:reset reverts to. CLUSTER=<name> required. Run 'solomog help vsphere:snapshot'."
     summary: |
