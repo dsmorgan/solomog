@@ -14,7 +14,7 @@ version: '3'
 tasks:
 
   init:
-    desc: "One-time vSphere setup: content library + Ubuntu template in vCenter. Homelab only. Run 'solomog help vsphere:init'. [spec phase 2 pending]"
+    desc: "One-time vSphere setup: content library + Ubuntu template in vCenter. Homelab only. Run 'solomog help vsphere:init'."
     summary: |
       One-time homelab setup for the vsphere:* provisioner: creates a vCenter content
       library and imports the pinned Ubuntu cloud-image OVA (UBUNTU_OVA_URL in
