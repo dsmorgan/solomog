@@ -21,6 +21,10 @@ set -euo pipefail
 #
 # Env:
 #   CLUSTER     cluster name (vind, or registered external); default cluster-one
+#   DNS         local (default) | real. real = vsphere-only: HOST under SOLOMOG_DOMAIN,
+#               LE cert pulled from Certwarden (SANs must cover HOST + *.HOST), no
+#               /etc/hosts — expose prints the one-time dnsmasq record instead.
+#               Config: SOLOMOG_DOMAIN + CERTWARDEN_* in .env (see .env.example).
 #   PRODUCT     agentgateway | kgateway — seeds the defaults below. When unset it is
 #               auto-detected from the cluster's GatewayClasses (one product per
 #               cluster is the common case); falls back to agentgateway if ambiguous.
@@ -79,13 +83,43 @@ _CLASS="$(solomog_resolve_gateway_class "$PRODUCT" "$classes")"
 NAME="${NAME:-$_NAME}"
 NAMESPACE="${NAMESPACE:-$_NS}"
 CLASS="${CLASS:-$_CLASS}"
+# DNS mode (spec phase 6b). local (default): mkcert + /etc/hosts, works anywhere.
+# real: vsphere-only — HOST under SOLOMOG_DOMAIN (resolved by the homelab DNS, one
+# subtree record per cluster), TLS pulled from Certwarden (publicly-trusted LE), no
+# /etc/hosts and no mkcert CA needed on any device.
+DNS="${DNS:-local}"
+case "$DNS" in
+  local) ;;
+  real)
+    if ! solomog_is_vsphere "$CLUSTER"; then
+      echo "Error: DNS=real is for vsphere homelab clusters (vind LB IPs are Mac-local; EKS has its own hostname flow)." >&2
+      exit 1
+    fi
+    _missing=""
+    for _v in SOLOMOG_DOMAIN CERTWARDEN_URL CERTWARDEN_CERT_APIKEY CERTWARDEN_KEY_APIKEY; do
+      eval "[ -n \"\${${_v}:-}\" ]" || _missing="${_missing} ${_v}"
+    done
+    if [[ -n "$_missing" ]]; then
+      echo "Error: DNS=real needs .env configuration — missing:${_missing}" >&2
+      echo "  → see the 'DNS=real' section in .env.example (zone + Certwarden pull-client keys)." >&2
+      exit 1
+    fi
+    CERTWARDEN_CERT_NAME="${CERTWARDEN_CERT_NAME:-solomog-lab}"
+    CERTWARDEN_KEY_NAME="${CERTWARDEN_KEY_NAME:-$CERTWARDEN_CERT_NAME}"
+    ;;
+  *) echo "Error: DNS='$DNS' — use local (default) or real." >&2; exit 1 ;;
+esac
+
 # vind + vsphere: host is the local .test name (known up front; the LB IP is private —
-# vcluster haproxy / MetalLB — so /etc/hosts resolves it). Cloud external (EKS): default
-# the host to the cloud LB's public hostname, which we only learn AFTER the Gateway's LB
-# provisions — so leave it empty here and resolve it below (unless the caller pinned a
-# real DNS name via HOST).
+# vcluster haproxy / MetalLB — so /etc/hosts resolves it) — or, under DNS=real, the
+# cluster's name in SOLOMOG_DOMAIN. Cloud external (EKS): default the host to the cloud
+# LB's public hostname, which we only learn AFTER the Gateway's LB provisions — so
+# leave it empty here and resolve it below (unless the caller pinned a real DNS name
+# via HOST).
 if solomog_is_external "$CLUSTER" && ! solomog_is_vsphere "$CLUSTER"; then
   HOST="${HOST:-}"
+elif [[ "$DNS" == "real" ]]; then
+  HOST="${HOST:-${NAME}.${CLUSTER}.${SOLOMOG_DOMAIN}}"
 else
   HOST="${HOST:-${NAME}.${CLUSTER}.test}"
 fi
@@ -99,7 +133,7 @@ if [[ -z "$NAME" || -z "$NAMESPACE" || -z "$CLASS" ]]; then
   exit 1
 fi
 
-if ! command -v mkcert &>/dev/null; then
+if [[ "$DNS" != "real" ]] && ! command -v mkcert &>/dev/null; then
   echo "Error: mkcert not found. Install it:  brew install mkcert" >&2
   exit 1
 fi
@@ -226,11 +260,37 @@ else
   echo "==> Exposing gateway '${NAME}' (class ${CLASS}) in ${NAMESPACE} on ${CTX}"
   echo "    host=${HOST}  secret=${SECRET}  http=${HTTP_PORT} https=${HTTPS_PORT}"
 
-  # 1. TLS cert via mkcert → secret  (ported from my-stuff/01-tls-setup.sh)
-  echo "==> Generating mkcert TLS cert for ${HOST}, *.${HOST}"
-  mkcert -install
+  # 1. TLS cert → secret. DNS=local: mkcert (self-signed, CA on this Mac). DNS=real:
+  # pull the shared LE cert from Certwarden (same pull-client pattern as the rest of
+  # the homelab) — its SANs must cover ${HOST} + *.${HOST} (see .env.example).
   CERT_DIR="$(mktemp -d)"
-  mkcert -cert-file "$CERT_DIR/tls.crt" -key-file "$CERT_DIR/tls.key" "$HOST" "*.$HOST"
+  if [[ "$DNS" == "real" ]]; then
+    echo "==> Fetching cert '${CERTWARDEN_CERT_NAME}' + key from Certwarden (${CERTWARDEN_URL})"
+    if ! curl -sSf -H "X-API-Key: ${CERTWARDEN_CERT_APIKEY}" \
+         "${CERTWARDEN_URL}/certwarden/api/v1/download/certificates/${CERTWARDEN_CERT_NAME}" \
+         -o "$CERT_DIR/tls.crt"; then
+      echo "Error: Certwarden cert download failed (404 = wrong CERTWARDEN_CERT_NAME, 401 = wrong CERTWARDEN_CERT_APIKEY)." >&2
+      rm -rf "$CERT_DIR"; exit 1
+    fi
+    if ! curl -sSf -H "X-API-Key: ${CERTWARDEN_KEY_APIKEY}" \
+         "${CERTWARDEN_URL}/certwarden/api/v1/download/privatekeys/${CERTWARDEN_KEY_NAME}" \
+         -o "$CERT_DIR/tls.key"; then
+      echo "Error: Certwarden key download failed (404 = wrong CERTWARDEN_KEY_NAME, 401 = wrong CERTWARDEN_KEY_APIKEY)." >&2
+      rm -rf "$CERT_DIR"; exit 1
+    fi
+    if ! grep -q 'BEGIN CERTIFICATE' "$CERT_DIR/tls.crt" || ! grep -q 'PRIVATE KEY' "$CERT_DIR/tls.key"; then
+      echo "Error: Certwarden response doesn't look like a PEM cert/key pair." >&2
+      rm -rf "$CERT_DIR"; exit 1
+    fi
+    if openssl x509 -in "$CERT_DIR/tls.crt" -noout -checkhost "$HOST" 2>/dev/null | grep -qi 'NOT match'; then
+      echo "    WARNING: the Certwarden cert does NOT cover ${HOST} —" >&2
+      echo "             add SANs ${HOST} + *.${HOST} to '${CERTWARDEN_CERT_NAME}' in Certwarden and reissue." >&2
+    fi
+  else
+    echo "==> Generating mkcert TLS cert for ${HOST}, *.${HOST}"
+    mkcert -install
+    mkcert -cert-file "$CERT_DIR/tls.crt" -key-file "$CERT_DIR/tls.key" "$HOST" "*.$HOST"
+  fi
   kubectl --context "$CTX" create secret tls "$SECRET" \
     --cert="$CERT_DIR/tls.crt" --key="$CERT_DIR/tls.key" -n "$NAMESPACE" \
     --dry-run=client -o yaml | kubectl --context "$CTX" apply -f -
@@ -264,9 +324,27 @@ else
     fi
   fi
 
-  # 4. /etc/hosts  (needs sudo) — bare HOST only; wildcards are not supported.
-  echo "==> Updating /etc/hosts (sudo)"
-  solomog_hosts_set "$HOST" "$LB_IP"
+  # 4. Name resolution. DNS=local: /etc/hosts (needs sudo; bare HOST only — no
+  # wildcard support). DNS=real: never touch /etc/hosts — verify the homelab DNS
+  # resolves HOST to the LB, and print the one-time dnsmasq record if not (a
+  # subtree record, so it also covers every sub-host under HOST).
+  if [[ "$DNS" == "real" ]]; then
+    RESOLVED="$(dig +short "$HOST" 2>/dev/null | tail -1)"
+    if [[ "$RESOLVED" == "$LB_IP" ]]; then
+      echo "==> DNS: ${HOST} resolves to ${LB_IP} ✓ (no /etc/hosts needed)"
+    else
+      echo "==> DNS: ${HOST} resolves to '${RESOLVED:-nothing}' (want ${LB_IP})"
+      echo "    One-time setup — add this dnsmasq record on the DNS server for ${SOLOMOG_DOMAIN}"
+      echo "    (OPNsense: Services → Dnsmasq DNS → custom options), then re-check with dig:"
+      echo ""
+      echo "        address=/${HOST}/${LB_IP}"
+      echo ""
+      echo "    The record is permanent: the VIP is name-sticky across recreates (phase 6a)."
+    fi
+  else
+    echo "==> Updating /etc/hosts (sudo)"
+    solomog_hosts_set "$HOST" "$LB_IP"
+  fi
 
   # Backfill explicit entries for any sub-host routes already attached to this gateway
   # (e.g. ui.${HOST}, grafana.${HOST} from agentgateway:ui / monitoring with ROUTE=true).
@@ -274,7 +352,8 @@ else
   # ordering not matter: route-host.sh adds the entry when the gateway already exists,
   # and expose backfills it when the route was created first. Requires jq (already a
   # solomog dependency).
-  if command -v jq &>/dev/null; then
+  if [[ "$DNS" != "real" ]] && command -v jq &>/dev/null; then
+    # (DNS=real needs no backfill — the subtree record above covers every sub-host.)
     SUBHOSTS="$(kubectl --context "$CTX" get httproute -A -o json 2>/dev/null \
       | jq -r --arg gw "$NAME" --arg suffix ".$HOST" '
           .items[]
@@ -291,6 +370,10 @@ else
   echo "✓ Gateway '${NAME}' reachable as ${HOST} → ${LB_IP}"
   # Show the https port only when it isn't the default 443 (so the common case stays clean).
   if [[ "$HTTPS_PORT" == "443" ]]; then HTTPS_URL="https://${HOST}/"; else HTTPS_URL="https://${HOST}:${HTTPS_PORT}/"; fi
-  echo "  http://${HOST}:${HTTP_PORT}/   and   ${HTTPS_URL}   (mkcert CA trusted)"
+  if [[ "$DNS" == "real" ]]; then
+    echo "  http://${HOST}:${HTTP_PORT}/   and   ${HTTPS_URL}   (Let's Encrypt — trusted on every device)"
+  else
+    echo "  http://${HOST}:${HTTP_PORT}/   and   ${HTTPS_URL}   (mkcert CA trusted)"
+  fi
   echo "  Attach routes with the per-app ROUTE flag, e.g.:  solomog apps:mcp-stripe ROUTE=true CLUSTER=${CLUSTER}"
 fi
