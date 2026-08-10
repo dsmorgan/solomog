@@ -313,12 +313,16 @@ CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
   endpoints, SAN `-checkhost` warning, dig check + printed dnsmasq record). v1 scope
   note: **sub-host UIs (route-host.sh — `<x>:ui`, monitoring `ROUTE=true`) still use
   DNS=local** (.test + /etc/hosts); extending them to the real domain is a follow-up.
-  Live acceptance pending David's one-timers: zone choice → `SOLOMOG_DOMAIN`, the
-  Certwarden cert object (+SANs) and two API keys, the dnsmasq record.
-- **Deferred (recorded, not planned)**: OPNsense API / external-dns automation of the
-  per-cluster record (would need the BIND plugin + RFC2136 or API coupling — revisit
-  only if per-cluster manual lines become real toil); EKS unification (Certwarden
-  cert instead of self-signed mkcert on the cloud path).
+  **ACCEPTED LIVE (2026-08-10)** after David's one-timers (Certwarden `solomog-lab`
+  wildcard object + API keys, dedicated OPNsense API user, Pi-hole zone forward,
+  `.env` fill): Certwarden pull 200/200 (cert = `*.sm.tnkr.fun`, LE prod), OPNsense
+  upsert added `agw-s1.sm.tnkr.fun → 10.11.24.149` (the lib/opnsense.sh MVC
+  endpoint/field-name assumptions verified against the live dnsmasq API — search_host
+  rows carry `uuid/host/domain/ip`; repeat runs hit the "already in place" no-op
+  path), and plain `curl https://agw-s1.sm.tnkr.fun/httpbin/get` through the normal
+  Pi-hole → opns1 chain returns HTTP 200 with OS-trust TLS verification.
+- **Deferred (recorded, not planned)**: EKS unification (Certwarden cert instead of
+  self-signed mkcert on the cloud path); driving public Cloudflare records.
 
 ### Phase-6 open items (verify at implementation)
 
@@ -331,7 +335,10 @@ CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
   driving public Cloudflare records from solomog is a possible future enhancement
   (most useful for EKS deployments).
 - OPNsense: confirm dnsmasq (not Unbound) serves the apex zone, and the wildcard
-  `address=/…/` syntax/placement in its config UI.
+  `address=/…/` syntax/placement in its config UI. **CONFIRMED (2026-08-10)**: opns1
+  runs Dnsmasq and the `/api/dnsmasq/settings/{search_host,add_host,set_host}` +
+  `service/reconfigure` API works as modeled (flat naming made exact-name host
+  overrides sufficient — no `address=/…/` wildcard record needed).
 - ~~`Gateway.spec.infrastructure.annotations` propagation to the LB Service~~
   **VERIFIED live (2026-08-10)**: agentgateway propagates it and MetalLB honors the
   pin — with a reconcile delay on re-expose, which expose handles via a 60s settle
