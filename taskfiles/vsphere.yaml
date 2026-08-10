@@ -1,0 +1,84 @@
+version: '3'
+
+# vSphere homelab provisioner — ALL vsphere:* tasks live here, never in the root
+# Taskfile (which pulls this file in via an `optional: true` include). That keeps the
+# capability physically contained: later vsphere-only phases edit this file, so a typo
+# here can never break the shared Taskfile or the vind/EKS flows.
+# Spec: docs/specs/vsphere-provisioner.md.
+#
+# Tooling (OpenTofu) is deliberately NOT a setup.sh prerequisite — scripts lazy-check
+# it (the eksctl precedent) and fail fast with guidance, as does missing VSPHERE_*
+# config in .env. Verified include semantics (go-task 3.52): tasks run from the repo
+# root, and the root Taskfile's dotenv (.env, versions.env) is inherited.
+
+tasks:
+
+  init:
+    desc: "One-time vSphere setup: content library + Ubuntu template in vCenter. Homelab only. Run 'solomog help vsphere:init'. [spec phase 2 pending]"
+    summary: |
+      One-time homelab setup for the vsphere:* provisioner: creates a vCenter content
+      library and imports the pinned Ubuntu cloud-image OVA (UBUNTU_OVA_URL in
+      versions.env) as the clone template, via the terraform/vsphere-init OpenTofu
+      root. Idempotent — re-running is a no-op apply. vsphere:create refuses to run
+      until this has succeeded.
+
+      Needs the vSphere section of .env filled (see .env.example) and OpenTofu
+      (brew install opentofu) — both checked up front with guidance.
+
+      Variables:
+        VSPHERE_SERVER/USER/PASSWORD/DATACENTER/DATASTORE   from .env (connection + placement)
+        VSPHERE_OVA_LOCAL_PATH   optional local-OVA fallback when vCenter can't reach
+                                 UBUNTU_OVA_URL
+
+      Example:
+        solomog vsphere:init
+    cmds:
+      - bash scripts/run.sh "vSphere one-time init (content library + template)" bash scripts/vsphere-init.sh
+
+  create:
+    desc: "Create a k3s cluster on the homelab vCenter (1 server + N agents) + register its kube context. CLUSTER=<name> required. Run 'solomog help vsphere:create'. [spec phase 3 pending]"
+    summary: |
+      Provision a k3s cluster on the homelab vCenter 7.0.3 — the vSphere analog of
+      eks:create: OpenTofu clones the Ubuntu template into 1 server + NODES agent VMs
+      (static IPs from the .env pool, cloud-init installs pinned k3s), MetalLB serves
+      LoadBalancer IPs from VSPHERE_LB_POOL, and the kube context is registered in
+      .solomog/contexts — so CLUSTER=<name> then works across every solomog task
+      (stack/expose/apply/monitoring/graph/routes), exactly like a vind or EKS cluster.
+
+      Requires `solomog vsphere:init` once beforehand (hard preflight). Provisions
+      REAL VMs on your homelab.
+
+      Variables:
+        CLUSTER    cluster name (required — no default; provisions real VMs)
+        NODES      agent count (VMs = NODES + 1 server)          default 2
+        SNAPSHOT   true → snapshot VMs post-ready as "solomog-baseline" for
+                   vsphere:reset (opt-in)                        default false
+        VSPHERE_*  connection/placement/network from .env (preflight lists any missing)
+
+      Example:
+        solomog vsphere:create CLUSTER=hl1
+        solomog agentgateway expose apps:utils ROUTE=true CLUSTER=hl1
+    cmds:
+      - bash scripts/run.sh "Create vSphere k3s cluster {{.CLUSTER}}" bash scripts/vsphere-create.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      NODES: '{{.NODES | default ""}}'
+      SNAPSHOT: '{{.SNAPSHOT | default ""}}'
+
+  delete:
+    desc: "Tear down a solomog-created vSphere k3s cluster (prompts first). CLUSTER=<name> required. Run 'solomog help vsphere:delete'. [spec phase 3 pending]"
+    summary: |
+      Destroy a vsphere:create cluster: prompt, `tofu destroy` its workspace (only
+      state-tracked VMs — never VMs found by name), free its node-IP allocations,
+      remove the vsphere_<name> kube context, and deregister it from
+      .solomog/contexts. The complement to vsphere:create; destructive.
+
+      Variables:
+        CLUSTER    registered vsphere cluster name (required — no default; destructive)
+
+      Example:
+        solomog vsphere:delete CLUSTER=hl1
+    cmds:
+      - bash scripts/run.sh "Delete vSphere k3s cluster {{.CLUSTER}}" bash scripts/vsphere-delete.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
