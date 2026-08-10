@@ -19,7 +19,14 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=../lib/gateway.sh
 source "$REPO_DIR/scripts/lib/gateway.sh"
-CONTEXT="${1:?Usage: install-utils.sh <kube-context>}"
+# shellcheck source=../lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+# Target: positional context arg (back-compat) → else CLUSTER/CONTEXT via lib/target.sh
+# (registry-aware: vind, EKS, vsphere alike — never hardcode vcluster-docker_).
+if [ -n "${1:-}" ]; then CONTEXT="$1"; else
+  solomog_require_cluster "${CLUSTER:-}" "apps:utils"
+  CONTEXT="$(solomog_context "${CLUSTER:-}")"
+fi
 ROUTE="${ROUTE:-false}"
 ROUTE_PATH="${ROUTE_PATH:-/httpbin}"
 GATEWAY="${GATEWAY:-}"

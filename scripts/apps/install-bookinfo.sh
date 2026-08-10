@@ -6,7 +6,15 @@ set -euo pipefail
 #
 # Usage: install-bookinfo.sh <kube-context>
 
-CONTEXT="${1:?Usage: install-bookinfo.sh <kube-context>}"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=../lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+# Target: positional context arg (back-compat) → else CLUSTER/CONTEXT via lib/target.sh
+# (registry-aware: vind, EKS, vsphere alike — never hardcode vcluster-docker_).
+if [ -n "${1:-}" ]; then CONTEXT="$1"; else
+  solomog_require_cluster "${CLUSTER:-}" "apps:bookinfo"
+  CONTEXT="$(solomog_context "${CLUSTER:-}")"
+fi
 
 # Derive Istio version from the installed istiod
 ISTIO_VERSION=$(

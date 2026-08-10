@@ -19,8 +19,17 @@ set -euo pipefail
 #   GATEWAY_NS gateway namespace (default agentgateway-system)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTEXT="${1:?Usage: install-agentgateway-ui.sh <kube-context>}"
-CLUSTER="${CONTEXT#vcluster-docker_}"   # bare cluster name, for the sub-host
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+# Target: positional context arg (back-compat) → else CLUSTER/CONTEXT via lib/target.sh
+# (registry-aware: vind, EKS, vsphere alike — never hardcode vcluster-docker_).
+if [ -n "${1:-}" ]; then CONTEXT="$1"; else
+  solomog_require_cluster "${CLUSTER:-}" "agentgateway:ui"
+  CONTEXT="$(solomog_context "${CLUSTER:-}")"
+fi
+# Bare cluster name for the sub-host; prefer the CLUSTER env (correct for registered
+# externals), stripping the vind prefix only as a raw-context fallback.
+[ -z "${CLUSTER:-}" ] && CLUSTER="${CONTEXT#vcluster-docker_}"
 EDITION="${EDITION:-enterprise}"
 ROUTE="${ROUTE:-false}"
 GATEWAY="${GATEWAY:-agw}"
