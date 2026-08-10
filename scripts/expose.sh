@@ -47,6 +47,29 @@ source "$REPO_DIR/scripts/lib/gateway.sh"
 source "$REPO_DIR/scripts/lib/target.sh"
 # shellcheck source=lib/hosts.sh
 source "$REPO_DIR/scripts/lib/hosts.sh"
+# shellcheck source=lib/opnsense.sh
+source "$REPO_DIR/scripts/lib/opnsense.sh"
+
+# Manual DNS=real setup instructions — the fallback when the OPNsense API isn't
+# configured (or an upsert fails). Uses HOST/SOLOMOG_DOMAIN/LB_IP from the caller.
+expose_print_dns_setup() {
+  echo "    Setup (each line is one-time):"
+  echo ""
+  echo "    1. OPNsense (authoritative for ${SOLOMOG_DOMAIN}; Services → Dnsmasq DNS → Hosts,"
+  echo "       or custom option) — one record per cluster, permanent (the VIP is name-sticky):"
+  echo ""
+  echo "           address=/${HOST}/${LB_IP}"
+  echo ""
+  echo "    2. Pi-hole (only once for the whole zone, and only if ${SOLOMOG_DOMAIN} isn't"
+  echo "       already forwarded internally) — route the zone to OPNsense, like the apex"
+  echo "       exception (Settings → DNS → conditional forward, or dnsmasq custom config):"
+  echo ""
+  echo "           server=/${SOLOMOG_DOMAIN}/<opnsense-ip>"
+  echo ""
+  echo "    Then re-check:  dig +short ${HOST}   (expect ${LB_IP})"
+  echo "    (Tip: set OPNSENSE_URL/OPNSENSE_API_KEY/OPNSENSE_API_SECRET in .env and expose"
+  echo "     manages step 1 automatically — see .env.example.)"
+}
 
 CLUSTER="${CLUSTER:-}"
 solomog_require_cluster "$CLUSTER" expose
@@ -333,25 +356,35 @@ else
   # resolves HOST to the LB, and print the one-time dnsmasq record if not (a
   # subtree record, so it also covers every sub-host under HOST).
   if [[ "$DNS" == "real" ]]; then
-    RESOLVED="$(dig +short "$HOST" 2>/dev/null | tail -1)"
-    if [[ "$RESOLVED" == "$LB_IP" ]]; then
-      echo "==> DNS: ${HOST} resolves to ${LB_IP} ✓ (no /etc/hosts needed)"
+    DNS_LABEL="${HOST%%.*}"   # agw-s1 (flat, one label under SOLOMOG_DOMAIN)
+    if solomog_opnsense_ready; then
+      echo "==> DNS: upserting ${HOST} → ${LB_IP} via the OPNsense API"
+      if solomog_opnsense_dns_upsert "$DNS_LABEL" "$SOLOMOG_DOMAIN" "$LB_IP" "solomog ${CLUSTER}/${NAME} (DNS=real)"; then
+        OPN_HOST="$(printf '%s' "$OPNSENSE_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')"
+        AUTH="$(dig +short "@${OPN_HOST}" "$HOST" 2>/dev/null | tail -1)"
+        if [[ "$AUTH" == "$LB_IP" ]]; then
+          echo "    verified at the source: ${HOST} → ${LB_IP} (@${OPN_HOST})"
+        else
+          echo "    NOTE: @${OPN_HOST} answered '${AUTH:-nothing}' — check the Dnsmasq host entry in the UI."
+        fi
+        RESOLVED="$(dig +short "$HOST" 2>/dev/null | tail -1)"
+        if [[ "$RESOLVED" != "$LB_IP" ]]; then
+          echo "    NOTE: this machine's resolver answered '${RESOLVED:-nothing}' — if it stays wrong,"
+          echo "          ensure the one-time Pi-hole zone forward exists (server=/${SOLOMOG_DOMAIN}/${OPN_HOST})"
+          echo "          and allow a minute for negative-DNS caches to expire."
+        fi
+      else
+        echo "    WARNING: OPNsense API upsert failed — manual setup instead:"
+        expose_print_dns_setup
+      fi
     else
-      echo "==> DNS: ${HOST} resolves to '${RESOLVED:-nothing}' (want ${LB_IP})"
-      echo "    Setup (each line is one-time):"
-      echo ""
-      echo "    1. OPNsense (authoritative for ${SOLOMOG_DOMAIN}; Services → Dnsmasq DNS → custom"
-      echo "       options) — one line per cluster, permanent (the VIP is name-sticky, phase 6a):"
-      echo ""
-      echo "           address=/${HOST}/${LB_IP}"
-      echo ""
-      echo "    2. Pi-hole (only once for the whole zone, and only if ${SOLOMOG_DOMAIN} isn't"
-      echo "       already forwarded internally) — route the zone to OPNsense, like the apex"
-      echo "       exception (Settings → DNS → conditional forward, or dnsmasq custom config):"
-      echo ""
-      echo "           server=/${SOLOMOG_DOMAIN}/<opnsense-ip>"
-      echo ""
-      echo "    Then re-check:  dig +short ${HOST}   (expect ${LB_IP})"
+      RESOLVED="$(dig +short "$HOST" 2>/dev/null | tail -1)"
+      if [[ "$RESOLVED" == "$LB_IP" ]]; then
+        echo "==> DNS: ${HOST} resolves to ${LB_IP} ✓ (no /etc/hosts needed)"
+      else
+        echo "==> DNS: ${HOST} resolves to '${RESOLVED:-nothing}' (want ${LB_IP}) — no OPNsense API creds in .env:"
+        expose_print_dns_setup
+      fi
     fi
   else
     echo "==> Updating /etc/hosts (sudo)"
