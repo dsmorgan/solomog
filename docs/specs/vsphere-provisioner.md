@@ -325,8 +325,12 @@ CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
   (most useful for EKS deployments).
 - OPNsense: confirm dnsmasq (not Unbound) serves the apex zone, and the wildcard
   `address=/…/` syntax/placement in its config UI.
-- `Gateway.spec.infrastructure.annotations` propagation to the LB Service by
-  enterprise agentgateway/kgateway — else fall back to annotating the Service.
+- ~~`Gateway.spec.infrastructure.annotations` propagation to the LB Service~~
+  **VERIFIED live (2026-08-10)**: agentgateway propagates it and MetalLB honors the
+  pin — with a reconcile delay on re-expose, which expose handles via a 60s settle
+  wait. Also verified live: snapshot/reset (revert → cold boot → Ready → same VIP →
+  HTTP 200) and stop/start (graceful shutdown → resume → HTTP 200, VIP re-announced
+  ~20s after Ready). kgateway propagation still unverified.
 - Exact Certwarden download endpoints + object naming (from tls-automation scripts).
 - LE rate limits are a non-issue with the single shared cert (reissues only on SAN
   changes), but note it if per-cluster certs are ever revisited.
