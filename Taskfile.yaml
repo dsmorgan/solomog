@@ -6,6 +6,16 @@ vars:
   # Override with EDITION=community to use upstream OSS charts (no license key needed)
   EDITION: '{{.EDITION | default "enterprise"}}'
 
+# vSphere homelab provisioner (optional capability — docs/specs/vsphere-provisioner.md).
+# ALL vsphere:* tasks live in the included file; this block is the capability's ONLY
+# footprint here. `optional: true` means the file's absence (or removal of the whole
+# capability) leaves solomog exactly as before. Its tooling (OpenTofu) and VSPHERE_*
+# config are lazy-checked by the scripts — nothing new is required for vind/EKS use.
+includes:
+  vsphere:
+    taskfile: taskfiles/vsphere.yaml
+    optional: true
+
 # CLUSTER and CLUSTERS are interchangeable aliases everywhere:
 #   - single-cluster tasks take the first name from whichever is set
 #   - multi-cluster tasks take the full space-separated list from whichever is set
