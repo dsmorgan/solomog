@@ -1,0 +1,17 @@
+instance-id: ${hostname}
+local-hostname: ${hostname}
+network:
+  version: 2
+  ethernets:
+    primary:
+      match:
+        name: "en*"
+      dhcp4: false
+      addresses:
+        - ${ip}/${prefix}
+      routes:
+        - to: default
+          via: ${gateway}
+      nameservers:
+        addresses:
+          - ${dns}

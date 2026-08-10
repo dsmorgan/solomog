@@ -1,0 +1,19 @@
+#cloud-config
+hostname: ${hostname}
+users:
+  - name: solomog
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${ssh_pubkey}
+runcmd:
+  # traefik would squat on the gateway ports solomog's products own, and klipper-lb
+  # (servicelb) ties LB IPs to node IPs — MetalLB (installed by vsphere-create.sh)
+  # serves LoadBalancer IPs instead. Kubeconfig stays root-only 0600; the create
+  # script reads it via `ssh sudo cat`.
+  - |
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${k3s_version}" sh -s - server \
+      --disable traefik \
+      --disable servicelb \
+      --tls-san ${server_ip} \
+      --token ${k3s_token}
