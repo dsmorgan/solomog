@@ -108,6 +108,10 @@ echo "$GW_ROWS" | while IFS=$'\t' read -r GNS GNAME GCLASS; do
 
   PROG="$(_cond "$GJSON" Programmed)"
   ADDR="$(echo "$GJSON" | jq -r '.status.addresses[0].value // "-"')"
+  # expose stamps the reachable hostname on the Gateway (solomog.io/host) — show
+  # "host → addr" when present (gateways exposed before the stamp show addr only).
+  GHOST="$(echo "$GJSON" | jq -r '.metadata.annotations["solomog.io/host"] // ""')"
+  [ -n "$GHOST" ] && ADDR="${GHOST} → ${ADDR}"
   LISTENERS="$(echo "$GJSON" | jq -r '
     [.spec.listeners[] | "\(.protocol|ascii_downcase) :\(.port)"] | join(" · ")')"
   LHOST="$(echo "$GJSON" | jq -r '[.spec.listeners[].hostname // "*"] | unique | join(",")')"

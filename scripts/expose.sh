@@ -205,12 +205,22 @@ emit_gateway() {   # args: <include_https: yes|no>
     annotations:
       metallb.io/loadBalancerIPs: \"${PIN_IP}\""
   fi
+  # Record the reachable hostname on the Gateway itself — it otherwise exists only
+  # inside this run. routes.sh (header) and test-bundle.sh (HOST default) read it.
+  # Empty on the EKS first pass (HOST is only known once the cloud LB has a hostname);
+  # the second emit_gateway there stamps it.
+  local meta_ann=""
+  if [[ -n "${HOST:-}" ]]; then
+    meta_ann="
+  annotations:
+    solomog.io/host: ${HOST}"
+  fi
   cat <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: ${NAME}
-  namespace: ${NAMESPACE}
+  namespace: ${NAMESPACE}${meta_ann}
 spec:${infra}
   gatewayClassName: ${CLASS}
   listeners:
