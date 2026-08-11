@@ -361,23 +361,29 @@ else
     solomog_hosts_set "$HOST" "$LB_IP"
   fi
 
-  # Backfill explicit entries for any sub-host routes already attached to this gateway
-  # (e.g. ui.${HOST}, grafana.${HOST} from agentgateway:ui / monitoring with ROUTE=true).
-  # /etc/hosts has no wildcard support, so each sub-host needs its own line. This makes
-  # ordering not matter: route-host.sh adds the entry when the gateway already exists,
-  # and expose backfills it when the route was created first. Requires jq (already a
-  # solomog dependency).
-  if [[ "$DNS" != "real" ]] && command -v jq &>/dev/null; then
-    # (DNS=real needs no backfill — the subtree record above covers every sub-host.)
+  # Backfill entries for any sub-host routes already attached to this gateway
+  # (e.g. ui.${HOST} / ui-${HOST} from agentgateway:ui / monitoring with ROUTE=true).
+  # This makes ordering not matter: route-host.sh handles DNS when the gateway
+  # already exists, and expose backfills when the route was created first.
+  # local: each sub-host needs its own /etc/hosts line (no wildcard support there);
+  # real:  each FLAT sub-host (<label>-${HOST}) needs its own dnsmasq record.
+  if command -v jq &>/dev/null; then
+    if [[ "$DNS" == "real" ]]; then SUB_SUFFIX="-$HOST"; else SUB_SUFFIX=".$HOST"; fi
     SUBHOSTS="$(kubectl --context "$CTX" get httproute -A -o json 2>/dev/null \
-      | jq -r --arg gw "$NAME" --arg suffix ".$HOST" '
+      | jq -r --arg gw "$NAME" --arg suffix "$SUB_SUFFIX" '
           .items[]
           | select([.spec.parentRefs[]?.name] | index($gw))
           | .spec.hostnames[]?
           | select(endswith($suffix))' 2>/dev/null | sort -u || true)"
     for h in $SUBHOSTS; do
-      solomog_hosts_set "$h" "$LB_IP"
-      echo "    + sub-host ${h} → ${LB_IP}"
+      if [[ "$DNS" == "real" ]]; then
+        solomog_opnsense_ready \
+          && solomog_opnsense_dns_upsert "${h%%.*}" "${h#*.}" "$LB_IP" "solomog ${CLUSTER}/${h%%-*}-${NAME} (DNS=real)" \
+          || echo "    NOTE: add manually: host=${h%%.*} domain=${h#*.} ip=${LB_IP}"
+      else
+        solomog_hosts_set "$h" "$LB_IP"
+        echo "    + sub-host ${h} → ${LB_IP}"
+      fi
     done
   fi
 

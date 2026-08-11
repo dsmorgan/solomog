@@ -2,21 +2,23 @@
 set -euo pipefail
 #
 # Routes an in-cluster Service through the gateway created by `solomog expose`, on
-# its OWN sub-host nested under expose's wildcard — e.g. ui.agw.<cluster>.test.
+# its OWN sub-host — e.g. ui.agw.<cluster>.test, or ui-agw-<cluster>.<domain> when
+# the gateway was exposed with DNS=real.
 #
 # Why a sub-host instead of a path prefix: the Solo UI (served under /age/) and
 # Grafana both assume they own their base path, so the httpbin-style "match /foo,
 # rewrite prefix to /" trick breaks their assets. Giving each its own host and
 # routing at "/" sidesteps all of that.
 #
-# Two things make this cheap:
-#   * TLS — `expose` already mints a wildcard cert for HOST + *.HOST, so
-#     <label>.agw.<cluster>.test is already covered. No new cert.
-#   * Gateway — expose's listeners set no `hostname` and allow routes from all
-#     namespaces, so they accept any sub-host and any namespace's HTTPRoute.
-#
-# The one catch: /etc/hosts has NO wildcard support (expose only writes the bare
-# HOST). We append an explicit line for this sub-host (same LB IP). Needs sudo.
+# The DNS mode comes from the gateway itself: expose stamps the reachable base host
+# on the Gateway (solomog.io/host annotation), and the sub-host derives from it —
+#   local  agw.<cluster>.test        → <label>.agw.<cluster>.test  (nested under the
+#          mkcert HOST + *.HOST wildcard; /etc/hosts line, sudo)
+#   real   agw-<cluster>.<domain>    → <label>-agw-<cluster>.<domain>  (FLAT — still
+#          one label, so the same *.<domain> LE cert covers it; DNS record upserted
+#          via the OPNsense API like expose does, no /etc/hosts)
+# Either way expose's listeners set no `hostname` and allow all namespaces, so the
+# gateway accepts the sub-host route without changes.
 #
 # Usage: route-host.sh <context> <cluster> <label> <svc> <svc-ns> <svc-port> [gw-name] [gw-ns]
 #   label    sub-host label (e.g. "ui", "grafana")
@@ -32,7 +34,15 @@ SVC_PORT="${6:?service port required}"
 GW_NAME="${7:-agw}"
 GW_NS="${8:-agentgateway-system}"
 
-HOST="${LABEL}.${GW_NAME}.${CLUSTER}.test"
+# Base host: what expose stamped on the Gateway (encodes the DNS mode); fall back
+# to the local default when the gateway/annotation doesn't exist yet.
+GW_HOST="$(kubectl --context "$CONTEXT" get gateway "$GW_NAME" -n "$GW_NS" \
+  -o jsonpath='{.metadata.annotations.solomog\.io/host}' 2>/dev/null || true)"
+[ -n "$GW_HOST" ] || GW_HOST="${GW_NAME}.${CLUSTER}.test"
+case "$GW_HOST" in
+  *.test) DNS_MODE=local; HOST="${LABEL}.${GW_HOST}" ;;
+  *)      DNS_MODE=real;  HOST="${LABEL}-${GW_HOST}" ;;   # flat: one label under *.<domain>
+esac
 
 echo "==> Routing ${SVC}.${SVC_NS}:${SVC_PORT} → ${HOST} (via gateway ${GW_NAME}/${GW_NS}, at /)"
 
@@ -70,9 +80,24 @@ if [[ -z "$LB_IP" ]]; then
   exit 0
 fi
 
-echo "==> Updating /etc/hosts (sudo): ${HOST} → ${LB_IP}"
-# shellcheck source=lib/hosts.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/hosts.sh"
-solomog_hosts_set "$HOST" "$LB_IP"
-
-echo "    https://${HOST}/   (mkcert CA trusted; wildcard cert from 'solomog expose')"
+LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib"
+if [ "$DNS_MODE" = "real" ]; then
+  # Same automation as expose's DNS=real endgame: upsert the record, manual fallback.
+  # The descr prefix "solomog <cluster>/" is what vsphere:delete matches for cleanup.
+  # shellcheck source=lib/opnsense.sh
+  source "$LIB_DIR/opnsense.sh"
+  DNS_LABEL="${HOST%%.*}"; DOMAIN="${HOST#*.}"
+  echo "==> DNS: upserting ${HOST} → ${LB_IP} via the OPNsense API"
+  if ! solomog_opnsense_ready || \
+     ! solomog_opnsense_dns_upsert "$DNS_LABEL" "$DOMAIN" "$LB_IP" "solomog ${CLUSTER}/${LABEL}-${GW_NAME} (DNS=real)"; then
+    echo "    NOTE: OPNsense API unavailable — add the record manually (Services → Dnsmasq DNS → Hosts):"
+    echo "          host=${DNS_LABEL}  domain=${DOMAIN}  ip=${LB_IP}"
+  fi
+  echo "    https://${HOST}/   (covered by the *.${DOMAIN} Let's Encrypt cert from 'solomog expose')"
+else
+  echo "==> Updating /etc/hosts (sudo): ${HOST} → ${LB_IP}"
+  # shellcheck source=lib/hosts.sh
+  source "$LIB_DIR/hosts.sh"
+  solomog_hosts_set "$HOST" "$LB_IP"
+  echo "    https://${HOST}/   (mkcert CA trusted; wildcard cert from 'solomog expose')"
+fi

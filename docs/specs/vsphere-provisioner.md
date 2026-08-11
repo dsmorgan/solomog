@@ -311,9 +311,13 @@ CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
   returns httpbin JSON with a green-lock LE cert.
   **IMPLEMENTED (2026-08-10)** in expose.sh (knob `DNS=local|real`, guards, Certwarden
   pull via the verified `/certwarden/api/v1/download/{certificates,privatekeys}/<name>`
-  endpoints, SAN `-checkhost` warning, dig check + printed dnsmasq record). v1 scope
-  note: **sub-host UIs (route-host.sh — `<x>:ui`, monitoring `ROUTE=true`) still use
-  DNS=local** (.test + /etc/hosts); extending them to the real domain is a follow-up.
+  endpoints, SAN `-checkhost` warning, dig check + printed dnsmasq record).
+  **Sub-host UIs joined DNS=real (2026-08-11)**: route-host.sh reads the base host
+  from the Gateway's `solomog.io/host` annotation (which encodes the DNS mode) and
+  derives `<label>.<base>` locally vs FLAT `<label>-<base>` for real (one label —
+  same `*.<domain>` cert), upserting the record via the OPNsense API; expose's
+  backfill loop does the same for routes created before the gateway. Verified live
+  on s6 (ui-agw-s6 → HTTP 200, public trust; backfill no-op path confirmed).
   **ACCEPTED LIVE (2026-08-10)** after David's one-timers (Certwarden `solomog-lab`
   wildcard object + API keys, dedicated OPNsense API user, Pi-hole zone forward,
   `.env` fill): Certwarden pull 200/200 (cert = `*.sm.tnkr.fun`, LE prod), OPNsense
