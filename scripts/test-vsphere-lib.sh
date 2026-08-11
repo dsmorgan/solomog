@@ -122,6 +122,22 @@ echo "==> allocator: octet-boundary guard"
 export VSPHERE_NODE_POOL_START="10.0.20.250" VSPHERE_NODE_POOL_SIZE="10"
 assert_fails_with "pool crossing .254 refused" "crosses .254" vsphere_alloc_ips oops 2
 
+echo "==> LB slice allocator (per-cluster cuts of VSPHERE_LB_POOL)"
+export VSPHERE_LB_POOL="10.0.20.200-10.0.20.211"   # room for exactly 3 slices of 4
+assert_eq "first slice from the bottom" "$(vsphere_alloc_lb_slice c1)" "10.0.20.200-10.0.20.203"
+assert_eq "idempotent re-alloc" "$(vsphere_alloc_lb_slice c1)" "10.0.20.200-10.0.20.203"
+assert_eq "second cluster gets the next slice" "$(vsphere_alloc_lb_slice c2)" "10.0.20.204-10.0.20.207"
+assert_eq "third slice" "$(vsphere_alloc_lb_slice c3)" "10.0.20.208-10.0.20.211"
+assert_fails_with "pool exhausted" "no free" vsphere_alloc_lb_slice c4
+vsphere_release_ips c2
+assert_eq "freed slice reused first-fit" "$(vsphere_alloc_lb_slice c5)" "10.0.20.204-10.0.20.207"
+VSPHERE_LB_POOL="banana" assert_fails_with "malformed pool refused" "must look like" vsphere_alloc_lb_slice bad1
+vsphere_release_ips c1; vsphere_release_ips c3; vsphere_release_ips c5
+GOT="$(VSPHERE_LB_SLICE_SIZE=2 vsphere_alloc_lb_slice tiny)"
+assert_eq "custom slice size" "$GOT" "10.0.20.200-10.0.20.201"
+vsphere_release_ips tiny
+export VSPHERE_LB_POOL="10.0.20.200-10.0.20.219"
+
 echo "==> context naming"
 assert_eq "context name" "$(vsphere_context_name hl1)" "vsphere_hl1"
 
