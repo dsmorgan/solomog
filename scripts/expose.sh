@@ -75,6 +75,10 @@ expose_print_dns_setup() {
 CLUSTER="${CLUSTER:-}"
 solomog_require_cluster "$CLUSTER" expose
 CTX="$(solomog_context "$CLUSTER")"   # vind default, or CONTEXT verbatim when external (EKS)
+# A bare CONTEXT= override leaves CLUSTER empty, which would leak into hostnames
+# (agw..test / agw-.<domain>), the TLS SANs, and the DNS descr stamps — derive the
+# display name from the context, same as routes.sh/graph.sh.
+CLUSTER="$(solomog_display_name "$CLUSTER" "$CTX")"
 PRODUCT="${PRODUCT:-}"
 
 classes="$(solomog_gateway_classes "$CTX")"
@@ -329,26 +333,37 @@ else
     DNS_LABEL="${HOST%%.*}"   # agw-s1 (flat, one label under SOLOMOG_DOMAIN)
     if solomog_opnsense_ready; then
       echo "==> DNS: upserting ${HOST} → ${LB_IP} via the OPNsense API"
-      if solomog_opnsense_dns_upsert "$DNS_LABEL" "$SOLOMOG_DOMAIN" "$LB_IP" "solomog ${CLUSTER}/${NAME} (DNS=real)"; then
+      UPSERT_RC=0
+      solomog_opnsense_dns_upsert "$DNS_LABEL" "$SOLOMOG_DOMAIN" "$LB_IP" "solomog ${CLUSTER}/${NAME} (DNS=real)" || UPSERT_RC=$?
+      if [[ "$UPSERT_RC" -eq 0 ]]; then
         OPN_HOST="$(printf '%s' "$OPNSENSE_URL" | sed -E 's#^[a-z]+://##; s#[:/].*$##')"
-        AUTH="$(dig +short "@${OPN_HOST}" "$HOST" 2>/dev/null | tail -1)"
+        # `|| true` on every dig: a server that doesn't answer exits 9 (NXDOMAIN is 0),
+        # and pipefail would abort the whole run over what is only a verification step.
+        # The grep keeps IPs only — a timed-out dig prints its ';; connection timed
+        # out' banner on STDOUT, which would otherwise be captured as the "answer".
+        AUTH="$(dig +short "@${OPN_HOST}" "$HOST" 2>/dev/null | grep -E '^[0-9.]+$' | tail -1 || true)"
         if [[ "$AUTH" == "$LB_IP" ]]; then
           echo "    verified at the source: ${HOST} → ${LB_IP} (@${OPN_HOST})"
         else
           echo "    NOTE: @${OPN_HOST} answered '${AUTH:-nothing}' — check the Dnsmasq host entry in the UI."
         fi
-        RESOLVED="$(dig +short "$HOST" 2>/dev/null | tail -1)"
+        RESOLVED="$(dig +short "$HOST" 2>/dev/null | grep -E '^[0-9.]+$' | tail -1 || true)"
         if [[ "$RESOLVED" != "$LB_IP" ]]; then
           echo "    NOTE: this machine's resolver answered '${RESOLVED:-nothing}' — if it stays wrong,"
           echo "          ensure the one-time Pi-hole zone forward exists (server=/${SOLOMOG_DOMAIN}/${OPN_HOST})"
           echo "          and allow a minute for negative-DNS caches to expire."
         fi
+      elif [[ "$UPSERT_RC" -eq 2 ]]; then
+        # The record exists; only the dnsmasq apply is pending — do NOT dump the
+        # "create the record" instructions for a record that was just saved.
+        echo "    WARNING: record saved but not yet applied — press Apply in the OPNsense UI"
+        echo "             (Services → Dnsmasq DNS), or re-run expose to retry the apply."
       else
         echo "    WARNING: OPNsense API upsert failed — manual setup instead:"
         expose_print_dns_setup
       fi
     else
-      RESOLVED="$(dig +short "$HOST" 2>/dev/null | tail -1)"
+      RESOLVED="$(dig +short "$HOST" 2>/dev/null | grep -E '^[0-9.]+$' | tail -1 || true)"   # dig exits 9 on no-answer; see above
       if [[ "$RESOLVED" == "$LB_IP" ]]; then
         echo "==> DNS: ${HOST} resolves to ${LB_IP} ✓ (no /etc/hosts needed)"
       else
@@ -377,9 +392,17 @@ else
           | select(endswith($suffix))' 2>/dev/null | sort -u || true)"
     for h in $SUBHOSTS; do
       if [[ "$DNS" == "real" ]]; then
-        solomog_opnsense_ready \
-          && solomog_opnsense_dns_upsert "${h%%.*}" "${h#*.}" "$LB_IP" "solomog ${CLUSTER}/${h%%-*}-${NAME} (DNS=real)" \
-          || echo "    NOTE: add manually: host=${h%%.*} domain=${h#*.} ip=${LB_IP}"
+        SUB_RC=0
+        if solomog_opnsense_ready; then
+          solomog_opnsense_dns_upsert "${h%%.*}" "${h#*.}" "$LB_IP" "solomog ${CLUSTER}/${h%%-*}-${NAME} (DNS=real)" || SUB_RC=$?
+        else
+          SUB_RC=1
+        fi
+        if [[ "$SUB_RC" -eq 2 ]]; then
+          echo "    NOTE: ${h} saved but not applied — Apply in the OPNsense UI, or re-run expose."
+        elif [[ "$SUB_RC" -ne 0 ]]; then
+          echo "    NOTE: add manually: host=${h%%.*} domain=${h#*.} ip=${LB_IP}"
+        fi
       else
         solomog_hosts_set "$h" "$LB_IP"
         echo "    + sub-host ${h} → ${LB_IP}"

@@ -44,9 +44,12 @@ GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
 # name (<gw>.<cluster>.test); anything else uses the Gateway's LB address (right for
 # EKS hostname LBs; a vsphere VIP *IP* will fail strict TLS — re-expose to stamp).
 if [ -z "${HOST:-}" ]; then
+  # `|| true` matters: with no Gateway API CRDs (pod-free hello-world flow) kubectl
+  # exits 1 and pipefail would kill the script before the fallbacks below can run.
   HOST="$(kubectl --context "$CONTEXT" get gateways.gateway.networking.k8s.io -A -o json 2>/dev/null \
     | jq -r --arg gw "$GATEWAY" \
-        '[.items[] | select(.metadata.name==$gw) | .metadata.annotations["solomog.io/host"] // empty] | first // ""')"
+        '[.items[] | select(.metadata.name==$gw) | .metadata.annotations["solomog.io/host"] // empty] | first // ""' \
+    || true)"
 fi
 if [ -z "${HOST:-}" ]; then
   case "$CONTEXT" in

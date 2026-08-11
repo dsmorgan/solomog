@@ -7,6 +7,9 @@ users:
     ssh_authorized_keys:
       - ${ssh_pubkey}
 runcmd:
+  # Download-then-run (NOT curl|sh) — see userdata-server.yaml.tftpl: runcmd has no
+  # pipefail, so a curl|sh download failure would read as cloud-init success.
   - |
-    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${k3s_version}" \
-      K3S_URL="https://${server_ip}:6443" K3S_TOKEN="${k3s_token}" sh -s - agent
+    curl -sfL -o /tmp/k3s-install.sh https://get.k3s.io &&
+    INSTALL_K3S_VERSION="${k3s_version}" \
+      K3S_URL="https://${server_ip}:6443" K3S_TOKEN="${k3s_token}" sh /tmp/k3s-install.sh agent

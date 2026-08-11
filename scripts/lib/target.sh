@@ -58,15 +58,17 @@ solomog_is_vsphere() {   # args: [<cluster>]
   esac
 }
 
-# Human-readable cluster label for display (routes/graph headers, filenames).
-# A user-supplied CLUSTER is already the right label — only derive one when it's
-# empty (bare CONTEXT= override): vsphere_<name> → <name>, ARN-ish → last /-part.
+# Human-readable cluster label for display (routes/graph headers, filenames) and
+# for hostname/descr derivation in expose. A user-supplied CLUSTER is already the
+# right label — only derive one when it's empty (bare CONTEXT= override):
+# vsphere_<name> → <name>, vcluster-docker_<name> → <name>, ARN-ish → last /-part.
 solomog_display_name() {   # args: <cluster-or-empty> <context>
   if [ -n "${1:-}" ]; then printf '%s' "$1"; return 0; fi
   case "${2:-}" in
-    vsphere_*) printf '%s' "${2#vsphere_}" ;;
-    */*)       printf '%s' "${2##*/}" ;;
-    *)         printf '%s' "${2:-}" ;;
+    vsphere_*)         printf '%s' "${2#vsphere_}" ;;
+    vcluster-docker_*) printf '%s' "${2#vcluster-docker_}" ;;
+    */*)               printf '%s' "${2##*/}" ;;
+    *)                 printf '%s' "${2:-}" ;;
   esac
 }
 

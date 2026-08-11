@@ -170,9 +170,21 @@ EOF
       [ -n "$token" ] && break; sleep 2; n=$((n + 1))
     done
     [ -n "$token" ] || { echo "ERROR: istio-reader token for '$1' never populated" >&2; return 1; }
-    ca="$(kubectl --context "$ctx" get secret istio-reader-token-solomog -n istio-system -o jsonpath='{.data.ca\.crt}')"
+    # ca gets the same non-empty check as token/server: an empty ca.crt yields a
+    # kubeconfig that APPLIES cleanly but only fails later as istiod TLS errors
+    # reading the peer API — miserable to trace back here.
+    ca="$(kubectl --context "$ctx" get secret istio-reader-token-solomog -n istio-system -o jsonpath='{.data.ca\.crt}' 2>/dev/null || true)"
+    [ -n "$ca" ] || { echo "ERROR: istio-reader ca.crt for '$1' is empty — cannot build a working remote secret" >&2; return 1; }
     server="$(kubectl config view -o jsonpath="{.clusters[?(@.name=='$ctx')].cluster.server}")"
     [ -n "$server" ] || { echo "ERROR: no kubeconfig cluster entry '$ctx'" >&2; return 1; }
+    # vind's docker driver writes a Mac-local API address into the kubeconfig; a peer
+    # istiod can't reach it, so discovery would come up silently broken. Warn loudly.
+    case "$server" in
+      *127.0.0.1*|*localhost*)
+        echo "    WARNING: '$1' API server is ${server} — a local-only address that peer istiods" >&2
+        echo "             likely cannot reach. If cross-cluster discovery stays broken (check with" >&2
+        echo "             'istioctl remote-clusters'), this is why." >&2 ;;
+    esac
     cat <<EOF
 apiVersion: v1
 kind: Config

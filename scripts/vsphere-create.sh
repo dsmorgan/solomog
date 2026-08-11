@@ -157,13 +157,20 @@ do
   echo "    MetalLB webhook not ready yet — retrying ($i/5)"; sleep 5
 done
 
+# ── 5. Register — from here CLUSTER=<name> works like any vind/EKS cluster ───────
+# Registration comes BEFORE the snapshot: the cluster is fully working at this point,
+# and registration is pure local bookkeeping — if the (fragile, optional) snapshot
+# step aborted first, the cluster would be left orphaned from the registry and every
+# CLUSTER=<name> task would resolve to a nonexistent vind context.
+solomog_register_context "$CLUSTER" "$CTX"
+
 if [ "${SNAPSHOT:-false}" = "true" ]; then
   echo "==> Taking baseline snapshots ('solomog-baseline' — enables ~30s resets via vsphere:reset)"
-  vsphere_vm_tool take "$CLUSTER"
+  vsphere_vm_tool take "$CLUSTER" || {
+    echo "    WARNING: baseline snapshot failed — the cluster itself is fine." >&2
+    echo "             Retake with: solomog vsphere:snapshot CLUSTER=${CLUSTER}" >&2
+  }
 fi
-
-# ── 5. Register — from here CLUSTER=<name> works like any vind/EKS cluster ───────
-solomog_register_context "$CLUSTER" "$CTX"
 
 echo ""
 echo "✓ vSphere k3s cluster ready — context: ${CTX}"
