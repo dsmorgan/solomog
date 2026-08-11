@@ -221,7 +221,10 @@ Reason: the Solo UI (served under `/age/`) and Grafana both assume they own thei
 prefix-stripping rewrite breaks their assets — give each its own host instead.
 - The sub-host is **nested under expose's wildcard cert** (`*.agw.<cluster>.test`), so TLS is free —
   no new cert. The expose Gateway sets no listener `hostname` and allows routes from all namespaces,
-  so it accepts any sub-host.
+  so it accepts any sub-host. **DNS mode follows the gateway**: route-host.sh reads expose's
+  `solomog.io/host` annotation — a `.test` base nests (`ui.agw.<c>.test`, /etc/hosts), a DNS=real
+  base flattens (`ui-agw-<c>.<domain>` — still one label, same `*.<domain>` LE cert; record
+  upserted via the OPNsense API). Don't derive sub-host names any other way.
 - **`/etc/hosts` has no wildcard support**, so each sub-host needs its own explicit line. Ordering is
   handled both ways: `route-host.sh` adds the line immediately if the gateway already exists, and
   `expose.sh` **backfills** entries for any sub-host HTTPRoute already attached to its gateway (jq over
