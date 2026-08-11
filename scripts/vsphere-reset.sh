@@ -14,7 +14,7 @@ set -euo pipefail
 # Spec: docs/specs/vsphere-provisioner.md (phase 4).
 #
 # Env:
-#   CLUSTER     vsphere cluster name (required — no default; wipes cluster state)
+#   CLUSTER     vsphere cluster name(s), space-separated (required — no default; wipes cluster state)
 #   FORCE       "true" skips the confirmation prompt
 #   VSPHERE_*   vCenter connection from .env
 
@@ -22,20 +22,21 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/vsphere.sh
 source "$REPO_DIR/scripts/lib/vsphere.sh"
 
-CLUSTER="${CLUSTER:-}"
-: "${CLUSTER:?set CLUSTER=<name> — this wipes current cluster state, so no default}"
+CLUSTERS="${CLUSTER:-}"
+: "${CLUSTERS:?set CLUSTER=<name> — this wipes current cluster state, so no default}"
 
 vsphere_preflight "vsphere:reset" conn
 command -v kubectl >/dev/null || { echo "Error: kubectl not found." >&2; exit 1; }
 
-CTX="$(vsphere_context_name "$CLUSTER")"
-NODE_COUNT="$(vsphere_list_ips "$CLUSTER" | grep -c . || true)"
-if [ "${NODE_COUNT:-0}" -eq 0 ]; then
-  echo "Error: no node allocations recorded for '${CLUSTER}' — is it a solomog vsphere cluster?" >&2
-  exit 1
-fi
+# Validate every name before reverting anything — fail whole-batch, not mid-way.
+for CLUSTER in $CLUSTERS; do
+  if [ "$(vsphere_list_ips "$CLUSTER" | grep -c . || true)" -eq 0 ]; then
+    echo "Error: no node allocations recorded for '${CLUSTER}' — is it a solomog vsphere cluster?" >&2
+    exit 1
+  fi
+done
 
-echo "About to REVERT '${CLUSTER}' (${NODE_COUNT} VMs) to the 'solomog-baseline' snapshot."
+echo "About to REVERT to the 'solomog-baseline' snapshot: ${CLUSTERS}"
 echo "  Everything installed after the baseline (products, gateways, apps) will be wiped."
 if [ "${FORCE:-false}" != "true" ]; then
   printf "Proceed? [y/N] "
@@ -43,11 +44,15 @@ if [ "${FORCE:-false}" != "true" ]; then
   [[ "$ANSWER" =~ ^[Yy] ]] || { echo "Aborted — nothing reverted."; exit 1; }
 fi
 
-vsphere_vm_tool revert "$CLUSTER"
-
-echo "==> waiting for ${NODE_COUNT} Ready node(s)"
-vsphere_wait_ready "$CTX" "$NODE_COUNT"
+for CLUSTER in $CLUSTERS; do
+  CTX="$(vsphere_context_name "$CLUSTER")"
+  NODE_COUNT="$(vsphere_list_ips "$CLUSTER" | grep -c . || true)"
+  echo "==> Reverting '${CLUSTER}' (${NODE_COUNT} VMs)"
+  vsphere_vm_tool revert "$CLUSTER"
+  echo "==> waiting for ${NODE_COUNT} Ready node(s)"
+  vsphere_wait_ready "$CTX" "$NODE_COUNT"
+done
 
 echo ""
-echo "✓ '${CLUSTER}' reset to baseline (fresh k3s + MetalLB) — context ${CTX} unchanged."
-echo "  Rebuild from here, e.g.:  solomog agentgateway expose apps:utils ROUTE=true CLUSTER=${CLUSTER}"
+echo "✓ Reset to baseline (fresh k3s + MetalLB): ${CLUSTERS}"
+echo "  Rebuild from here, e.g.:  solomog agentgateway expose apps:utils ROUTE=true CLUSTER=${CLUSTERS%% *}"
