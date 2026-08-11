@@ -1,0 +1,160 @@
+# Product module: kagent.
+#
+#   enterprise → singleton management chart + kagent-enterprise-crds +
+#                kagent-enterprise, version 0.5.x.
+#                repos:
+#                  us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts
+#                  us-docker.pkg.dev/solo-public/kagent-enterprise-helm/charts
+#                license: KAGENT_LICENSE_KEY (or SOLO_LICENSE_KEY)
+#                Experimental in solomog until the documented Istio/agw matrix
+#                is aligned with the repository's default pins.
+#   community  → kagent-crds + kagent from ghcr.io/kagent-dev/kagent/helm.
+#
+# Both editions install the kagent runtime into namespace kagent. Enterprise
+# reuses solomog's one management release in agentgateway-system; installing a
+# second management release is unsupported because its bundled CRDs conflict.
+#
+# Verified:
+#   https://docs.solo.io/kagent/latest/quickstart/
+#   https://kagent.dev/docs/kagent/introduction/installation
+
+bases:
+  - ../commons.yaml
+
+---
+
+{{- $provider := env "KAGENT_PROVIDER" | default "openAI" }}
+{{- $model := env "KAGENT_MODEL" }}
+{{- $autoauth := eq (env "KAGENT_AUTOAUTH") "true" }}
+{{- $oidcIssuer := ternary "http://solo-enterprise-ui.agentgateway-system.svc.cluster.local:5556" (env "KAGENT_OIDC_ISSUER" | default (env "SOLO_UI_OIDC_ISSUER") | default "http://solo-enterprise-ui.agentgateway-system.svc.cluster.local:5556") $autoauth }}
+
+repositories:
+  - name: kagent
+    url: "{{ .Values.helm_repo_kagent }}"
+    oci: true
+{{ if eq .Environment.Name "enterprise" }}
+  - name: solo-enterprise
+    url: "{{ .Values.helm_repo_solo_enterprise }}"
+    oci: true
+{{ end }}
+
+releases:
+{{ if eq .Environment.Name "enterprise" }}
+  # One management chart per cluster. reuseValues preserves an existing
+  # agentgateway UI configuration while this release enables kagent.
+  - name: management
+    namespace: agentgateway-system
+    chart: solo-enterprise/management
+    version: "{{ .Values.management_version }}"
+    wait: true
+    reuseValues: true
+    values:
+      - cluster: "{{ env "SOLO_CLUSTER" | default "mgmt-cluster" }}"
+        licensing:
+          licenseKey: "{{ .Values.management_license_key }}"
+        global:
+          imagePullPolicy: IfNotPresent
+        service:
+          type: ClusterIP
+        products:
+          kagent:
+            enabled: true
+            namespace: kagent
+        clickhouse:
+          enabled: true
+        tracing:
+          verbose: true
+{{- /* Explicit autoauth values clear any external OIDC values preserved by
+       reuseValues. Otherwise use the same external shape as agentgateway:ui. */ -}}
+{{- if $autoauth }}
+        oidc:
+          issuer: ""
+          additionalScopes: []
+        rbac:
+          roleMapping:
+            roleMapper: 'has(claims.Groups) ? claims.Groups.transformList(i, v, v in rolesMap, rolesMap[v]) : []'
+        ui:
+          backend:
+            oidc:
+              clientId: kagent-backend
+              secretRef: ui-backend-oidc-secret
+              secret: ""
+              secretKey: clientSecret
+          frontend:
+            oidc:
+              clientId: kagent-ui
+{{- else if env "SOLO_UI_OIDC_ISSUER" }}
+        oidc:
+          issuer: "{{ env "SOLO_UI_OIDC_ISSUER" }}"
+          additionalScopes: {{ env "SOLO_UI_OIDC_ADDITIONAL_SCOPES" | default "[\"profile\",\"email\"]" }}
+        rbac:
+          roleMapping:
+            roleMapper: '{{ env "SOLO_UI_OIDC_ROLE_MAPPER" | default "[\"global.Admin\"]" }}'
+        ui:
+          backend:
+            oidc:
+              clientId: "{{ env "SOLO_UI_OIDC_BACKEND_CLIENT_ID" }}"
+              secret: "{{ env "SOLO_UI_OIDC_BACKEND_CLIENT_SECRET" }}"
+              secretKey: clientSecret
+          frontend:
+            oidc:
+              clientId: "{{ env "SOLO_UI_OIDC_FRONTEND_CLIENT_ID" }}"
+{{- end }}
+{{ end }}
+
+  - name: kagent-crds
+    namespace: kagent
+    chart: kagent/{{ if eq .Environment.Name "enterprise" }}kagent-enterprise-crds{{ else }}kagent-crds{{ end }}
+    version: "{{ .Values.kagent_version }}"
+    wait: true
+{{ if eq .Environment.Name "enterprise" }}
+    needs:
+      - agentgateway-system/management
+{{ end }}
+
+  - name: kagent
+    namespace: kagent
+    chart: kagent/{{ if eq .Environment.Name "enterprise" }}kagent-enterprise{{ else }}kagent{{ end }}
+    version: "{{ .Values.kagent_version }}"
+    wait: true
+    needs:
+      - kagent/kagent-crds
+    values:
+      - ../../values/kagent/values.yaml
+{{ if eq .Environment.Name "enterprise" }}
+      - licensing:
+          licenseKey: "{{ .Values.kagent_license_key }}"
+        otel:
+          tracing:
+            enabled: true
+            exporter:
+              otlp:
+                endpoint: solo-enterprise-telemetry-collector.agentgateway-system.svc.cluster.local:4317
+                insecure: true
+        oidc:
+          issuer: "{{ $oidcIssuer }}"
+          clientId: "{{ env "KAGENT_OIDC_CLIENT_ID" | default "kagent-enterprise" }}"
+          secretRef: kagent-enterprise-oidc-secret
+{{ end }}
+      - providers:
+          default: "{{ $provider }}"
+{{ if eq $provider "openAI" }}
+          openAI:
+            apiKey: "{{ env "OPENAI_API_KEY" }}"
+{{- if $model }}
+            model: "{{ $model }}"
+{{- end }}
+{{ else if eq $provider "anthropic" }}
+          anthropic:
+            apiKey: "{{ env "CLAUDE_API_KEY" }}"
+{{- if $model }}
+            model: "{{ $model }}"
+{{- end }}
+{{ else if eq $provider "ollama" }}
+          ollama:
+            config:
+              host: "{{ env "KAGENT_OLLAMA_HOST" | default "host.docker.internal:11434" }}"
+{{- if $model }}
+            model: "{{ $model }}"
+{{- end }}
+{{ end }}

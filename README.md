@@ -5,7 +5,7 @@ environments with Solo.io products and sample apps preinstalled — so you can s
 the setup and get to the work that matters: testing, validating configs, and
 reproducing customer issues.
 
-Supports **agentgateway**, **kgateway**, and **Istio** (ambient + sidecar), in
+Supports **agentgateway**, **kagent**, **kgateway**, and **Istio** (ambient + sidecar), in
 both **Solo enterprise** and **community/OSS** editions, on single or multi-cluster
 topologies.
 
@@ -84,19 +84,25 @@ solomog            # lists every available scenario
   versions you actually run (search for `TODO`).
 - **Short-lived clusters.** Designed for create → use for hours/days → tear down.
   Teardown always prompts before destroying anything.
+- **Enterprise kagent is resource-heavy and experimental.** Solo recommends at
+  least 2 vCPU / 8 GB per cluster; the bundled management plane includes
+  ClickHouse and PostgreSQL. Its secured Istio/agentgateway topology has a
+  narrower compatibility matrix than solomog's general product defaults.
 
 ---
 
 ## Concepts
 
 - **Products** are composable helmfile modules in [helmfiles/products/](helmfiles/products/):
-  `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`.
+  `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`, `kagent`.
   - `istio` = enterprise installs **Solo managed Istio** via the **Gloo Operator** +
     a `ServiceMeshController` CR (`dataplaneMode` Ambient/Sidecar); community installs
     upstream Istio Helm charts.
   - `kgateway` = **enterprise kgateway** (kgateway 2.2.x) / upstream kgateway in community.
   - `gloo-gateway` = **Gloo Gateway** (gloo-ee 1.21.x) — a *separate* product, not the same as kgateway.
   - `agentgateway` = **enterprise agentgateway** (CalVer default; override for SemVer customer pins) / OSS agentgateway in community.
+  - `kagent` = stable **OSS kagent** in community; the **Solo Enterprise build**
+    plus the shared management/UI plane in enterprise (experimental in solomog).
   - `gloo-mesh` = optional **Gloo Mesh Enterprise** management plane (repo unverified — TODO).
 
   Enterprise and community use different registries and version lines; the right
@@ -127,10 +133,30 @@ solomog kgateway                         # enterprise kgateway 2.2.x
 solomog kgateway:with-istio
 solomog gloo-gateway                     # Gloo Gateway 1.21.x (separate product)
 solomog agentgateway
+solomog kagent                           # Enterprise evaluation topology (experimental)
 
 # Community editions (no license key needed)
 solomog kgateway EDITION=community
 solomog gloo-gateway EDITION=community
+solomog kagent EDITION=community         # Stable OSS kagent
+solomog kagent EDITION=community KAGENT_PROVIDER=ollama
+```
+
+Kagent defaults to `KAGENT_PROVIDER=openAI` and reads `OPENAI_API_KEY`; use
+`anthropic` with `CLAUDE_API_KEY`, or `ollama` with no API key. Both editions
+install a bundled PostgreSQL suitable for short PoVs. The install summary prints
+the relevant UI port-forward command. Enterprise inherits `SOLO_UI_OIDC_*` when
+configured; use the CLI-only `KAGENT_AUTOAUTH=true` for a disposable standalone
+cluster that should use the bundled IdP instead.
+
+Enterprise kagent 0.5.x documents Kubernetes 1.32–1.36, Gateway API 1.5.0,
+agentgateway 2026.7.0, and Istio 1.26–1.29. Standalone evaluation is allowed.
+Composition with agentgateway warns when pins differ, and composition with Istio
+is rejected until `ISTIO_VERSION` is explicitly set to a supported release:
+
+```bash
+solomog stack PRODUCTS="agentgateway kagent" CLUSTER=a1
+solomog stack PRODUCTS="istio agentgateway kagent" CLUSTER=a1 ISTIO_VERSION=1.29.6
 ```
 
 ### Multi-cluster Istio
@@ -188,11 +214,16 @@ The hostname defaults to **`<NAME>.<CLUSTER>.test`** (e.g. `agw.a1.test`, `kgw.a
 mDNS/Bonjour and resolves slowly), and including the cluster keeps hostnames unique when
 multiple clusters are up.
 
-### UI, Portal & monitoring add-ons
+### Shared Solo UI, Portal & monitoring add-ons
 
-The Solo UI, Solo Portal, and the metrics stack are **add-ons** (not `stack` products).
-UI and Grafana are routed onto their own sub-hosts nested under `expose`'s wildcard cert
-(so no extra certs, just `/etc/hosts` lines):
+The Solo UI is one singleton `management` Helm release. `agentgateway:ui` enables
+agentgateway on it; Enterprise `kagent` enables kagent on that same release and
+preserves any existing product values. Never install a second management release:
+its bundled cluster-scoped CRDs would have conflicting Helm owners. Portal and
+monitoring remain separate add-ons. When kagent is present, `agentgateway:ui`
+also preserves the shared release's OIDC mode so it cannot change kagent's issuer
+out from under the controller. Routed UIs use sub-hosts nested under
+`expose`'s wildcard cert:
 
 ```bash
 # agentgateway + its Solo UI in one shot (enterprise only), then route the UI
@@ -212,10 +243,10 @@ solomog monitoring expose ROUTE=true CLUSTER=a1
 #   → Grafana at  https://grafana.agw.a1.test/   (admin / prom-operator)
 ```
 
-- **`<product>:ui`** is the same compound pattern as `kgateway:with-istio` — it installs
-  the product *and* its UI. The Solo UI is one `management` chart with per-product
-  toggles, so `agentgateway:ui` enables only the agentgateway product. CRDs are bundled
-  in the chart (no separate `management-crds` step). **Enterprise only.**
+- **`agentgateway:ui`** installs agentgateway and enables its UI integration on
+  `agentgateway-system/management`. Enterprise kagent reuses the same release and
+  enables `products.kagent`; order does not matter. Management CRDs are bundled
+  (no separate `management-crds` release). **Enterprise only.**
 - **`portal`** installs Solo Portal (`portal-crds` + `portal` controller) into
   `portal-system`, then a starter `PortalParameters` + `Portal`. **Enterprise only;**
   preflights for GatewayClass `enterprise-kgateway`. License: `PORTAL_LICENSE_KEY`
@@ -339,12 +370,18 @@ GLOO_MESH_LICENSE_KEY=...         # overrides for Gloo Mesh mgmt plane
 KGATEWAY_LICENSE_KEY=...          # overrides for enterprise kgateway
 GLOO_GATEWAY_LICENSE_KEY=...      # overrides for Gloo Gateway
 AGENTGATEWAY_LICENSE_KEY=...      # overrides for agentgateway
+KAGENT_LICENSE_KEY=...           # overrides for Enterprise kagent
 ```
 
 A product-specific key always wins; otherwise the product falls back to
 `SOLO_LICENSE_KEY`. Resolution lives in
 [helmfiles/environments/default.yaml.gotmpl](helmfiles/environments/default.yaml.gotmpl).
 Community editions ignore license keys entirely.
+
+Enterprise kagent purchases provide separate kagent, Istio, and agentgateway
+entitlements. The shared management release prefers `KAGENT_LICENSE_KEY` when
+present, matching Solo's documented upgrade-in-place path; the individual Istio
+and agentgateway charts continue to use their own keys.
 
 ---
 
@@ -363,6 +400,7 @@ solomog
 │   ├── networking.sh           # inter-cluster Docker routing (flat / gateway)
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order
+│   ├── prepare-kagent.sh       # validate provider + create Enterprise JWT/OIDC secrets
 │   ├── mesh.sh                 # multi-cluster Istio (istio module per cluster, shared CA)
 │   ├── net-repair.sh           # re-apply inter-cluster Docker routing after a Docker restart
 │   ├── expose.sh               # Gateway + TLS + DNS (backfills sub-host /etc/hosts)
@@ -371,7 +409,7 @@ solomog
 │   ├── graph.sh                # interactive HTML graph (+ optional /config_dump enrichment)
 │   ├── clusters.sh             # cluster:list / cluster:show
 │   ├── env-backup.sh / env-sync.sh / env-diff.sh  # .env hygiene (lib/envfile.sh)
-│   ├── install-agentgateway-ui.sh  # Solo UI (management chart) + tracing + route
+│   ├── install-agentgateway-ui.sh  # enable agentgateway on shared management + tracing + route
 │   ├── install-portal.sh       # Solo Portal (portal-crds + controller) + starter Portal
 │   ├── install-monitoring.sh   # Prometheus/Grafana + product dashboards + route
 │   ├── apply-bundle.sh         # apply a custom-config bundle to a cluster, in order
