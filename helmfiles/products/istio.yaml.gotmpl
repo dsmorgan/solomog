@@ -112,10 +112,21 @@ releases:
       - ../../values/istio/{{ .Values.istio_mode }}/values.yaml
       # Per-cluster identity (mesh.sh exports SOLO_CLUSTER / SOLO_NETWORK). Without this
       # overlay every community cluster would keep base.yaml's cluster-one / network1.
+      # ISTIO_PLATFORM (e.g. "k3s" — exported by mesh.sh for vsphere targets) points the
+      # charts at platform CNI paths; empty (default, vind) leaves upstream defaults.
       - global:
+          platform: '{{ env "ISTIO_PLATFORM" | default "" }}'
           network: '{{ env "SOLO_NETWORK" | default (env "SOLO_CLUSTER") | default "cluster-one" }}'
           multiCluster:
             clusterName: '{{ env "SOLO_CLUSTER" | default "cluster-one" }}'
+      # Gateway-topology meshes (mesh.sh exports ISTIO_MULTI_NETWORK=true) need the
+      # ambient multi-network feature ON for istiod to register the east-west
+      # GatewayClass (upstream name: istio-east-west), plus baggage propagation for
+      # cross-network telemetry/routing metadata. Default false = upstream defaults.
+      - pilot:
+          env:
+            AMBIENT_ENABLE_MULTI_NETWORK: '{{ env "ISTIO_MULTI_NETWORK" | default "false" }}'
+            AMBIENT_ENABLE_BAGGAGE: '{{ env "ISTIO_MULTI_NETWORK" | default "false" }}'
 
 {{ if eq .Values.istio_mode "ambient" }}
   - name: istio-cni
@@ -127,6 +138,8 @@ releases:
       - istio-system/istiod
     values:
       - profile: ambient
+        global:
+          platform: '{{ env "ISTIO_PLATFORM" | default "" }}'
 
   - name: ztunnel
     namespace: istio-system
@@ -135,5 +148,15 @@ releases:
     wait: true
     needs:
       - kube-system/istio-cni
+    values:
+      # ztunnel must present the SAME cluster identity + network istiod was given —
+      # its chart defaults are cluster "Kubernetes" / no network; the former makes
+      # istiod reject it ("Authenticator KubeJWTAuthenticator: client claims to be in
+      # cluster ..."), the latter breaks multi-network endpoint selection.
+      - multiCluster:
+          clusterName: '{{ env "SOLO_CLUSTER" | default "cluster-one" }}'
+        global:
+          platform: '{{ env "ISTIO_PLATFORM" | default "" }}'
+          network: '{{ env "SOLO_NETWORK" | default (env "SOLO_CLUSTER") | default "cluster-one" }}'
 {{ end }}
 {{ end }}

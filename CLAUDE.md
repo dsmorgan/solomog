@@ -83,6 +83,22 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   stored state) — not a full task re-run.
 - Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) give
   mixed-version meshes; mesh.sh maps `cluster-two` → `ISTIO_VERSION_CLUSTER_TWO`.
+- **Registered external clusters (vsphere) mesh too — gateway topology only**: same
+  `istio:ambient:multi-gateway CLUSTERS="s6 s7"` task; mesh.sh uses the registered
+  clusters as-is (they must pre-exist; vind+external mixing refused — vind LB IPs are
+  Mac-local; flat refused — it needs Docker-bridge routing) and there's NO host
+  routing at all: east-west gateways sit on real MetalLB IPs, nothing decays, no
+  net:repair. mesh.sh exports `ISTIO_PLATFORM=k3s` (CNI paths) for vsphere targets
+  and `ISTIO_MULTI_NETWORK=true` for gateway topology (community istiod needs
+  `AMBIENT_ENABLE_MULTI_NETWORK`/`_BAGGAGE` to register the east-west class).
+  **Community vs enterprise east-west differs** (mesh-eastwest.sh handles both):
+  upstream's class is `istio-east-west` (auto-detected vs Solo's `istio-eastwest`),
+  its remote peers use trust-domain cluster.local + both listeners (15008+15012),
+  and upstream cross-cluster *discovery* is remote secrets (istio-reader kubeconfig
+  per peer, built with plain kubectl — the ambient e/w gateway cannot expose istiod);
+  istio-system carries the `topology.istio.io/network` label. ztunnel always gets
+  `multiCluster.clusterName` + `global.network` (chart default "Kubernetes" is
+  REJECTED by istiod — this was latently broken for community ambient everywhere).
 
 ## Conventions
 
