@@ -61,7 +61,8 @@ tasks:
     cmds:
       - bash scripts/run.sh "Create vSphere k3s cluster {{.CLUSTER}}" bash scripts/vsphere-create.sh
     env:
-      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      # single-target: take the FIRST name so a CLUSTERS="a b" slip fails cleanly
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       NODES: '{{.NODES | default ""}}'
       SNAPSHOT: '{{.SNAPSHOT | default ""}}'
 
@@ -74,10 +75,10 @@ tasks:
       Non-destructive, so no confirmation prompt.
 
       Variables:
-        CLUSTER   vsphere cluster name (required)
+        CLUSTER / CLUSTERS   cluster name(s), space-separated (required)
 
       Example:
-        solomog vsphere:stop CLUSTER=hl1
+        solomog vsphere:stop CLUSTERS="hl1 hl2"
     cmds:
       - bash scripts/run.sh "Stop vSphere cluster {{.CLUSTER}}" bash scripts/vsphere-stop.sh
     env:
@@ -91,10 +92,10 @@ tasks:
       cluster come back as you left them (clean boot, no suspend-style clock jump).
 
       Variables:
-        CLUSTER   vsphere cluster name (required)
+        CLUSTER / CLUSTERS   cluster name(s), space-separated (required)
 
       Example:
-        solomog vsphere:start CLUSTER=hl1
+        solomog vsphere:start CLUSTERS="hl1 hl2"
     cmds:
       - bash scripts/run.sh "Start vSphere cluster {{.CLUSTER}}" bash scripts/vsphere-start.sh
     env:
@@ -110,7 +111,7 @@ tasks:
       prerequisite) — vCenter 7.0.3 has no REST snapshot API.
 
       Variables:
-        CLUSTER   vsphere cluster name (required)
+        CLUSTER / CLUSTERS   cluster name(s), space-separated (required)
         ACTION    take (default) | status — status just lists baseline presence/age
 
       Example:
@@ -132,7 +133,8 @@ tasks:
       survive. Prompts first.
 
       Variables:
-        CLUSTER   vsphere cluster name (required — wipes current cluster state)
+        CLUSTER / CLUSTERS   cluster name(s), space-separated (required — wipes
+                             current cluster state; one prompt for the whole batch)
         FORCE     true → skip the confirmation prompt              default false
 
       Example:
@@ -154,11 +156,13 @@ tasks:
       .solomog/contexts. The complement to vsphere:create; destructive.
 
       Variables:
-        CLUSTER    registered vsphere cluster name (required — no default; destructive)
+        CLUSTER / CLUSTERS   registered cluster name(s), space-separated (required —
+                             no default; destructive; one prompt for the whole batch)
         FORCE      true → skip the confirmation prompt (scripted teardown)   default false
 
       Example:
         solomog vsphere:delete CLUSTER=hl1
+        solomog vsphere:delete CLUSTERS="hl1 hl2 hl3"
     cmds:
       - bash scripts/run.sh "Delete vSphere k3s cluster {{.CLUSTER}}" bash scripts/vsphere-delete.sh
     env:

@@ -8,20 +8,22 @@ set -euo pipefail
 # Spec: docs/specs/vsphere-provisioner.md (phase 4).
 #
 # Env:
-#   CLUSTER     vsphere cluster name (required)
+#   CLUSTER     vsphere cluster name(s), space-separated (required)
 #   VSPHERE_*   vCenter connection from .env
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/vsphere.sh
 source "$REPO_DIR/scripts/lib/vsphere.sh"
 
-CLUSTER="${CLUSTER:-}"
-: "${CLUSTER:?set CLUSTER=<name>}"
+CLUSTERS="${CLUSTER:-}"
+: "${CLUSTERS:?set CLUSTER=<name> or CLUSTERS=\"a b c\"}"
 
 vsphere_preflight "vsphere:stop" conn
 
-echo "==> Stopping '${CLUSTER}' (graceful guest shutdown; state preserved)"
-vsphere_vm_tool stop "$CLUSTER"
+for CLUSTER in $CLUSTERS; do
+  echo "==> Stopping '${CLUSTER}' (graceful guest shutdown; state preserved)"
+  vsphere_vm_tool stop "$CLUSTER"
+done
 
 echo ""
-echo "✓ '${CLUSTER}' stopped — host resources freed. Resume with:  solomog vsphere:start CLUSTER=${CLUSTER}"
+echo "✓ Stopped: ${CLUSTERS} — host resources freed. Resume with:  solomog vsphere:start CLUSTERS=\"${CLUSTERS}\""

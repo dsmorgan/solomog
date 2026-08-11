@@ -9,31 +9,35 @@ set -euo pipefail
 # Spec: docs/specs/vsphere-provisioner.md (phase 4).
 #
 # Env:
-#   CLUSTER     vsphere cluster name (required)
+#   CLUSTER     vsphere cluster name(s), space-separated (required)
 #   VSPHERE_*   vCenter connection from .env
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/vsphere.sh
 source "$REPO_DIR/scripts/lib/vsphere.sh"
 
-CLUSTER="${CLUSTER:-}"
-: "${CLUSTER:?set CLUSTER=<name>}"
+CLUSTERS="${CLUSTER:-}"
+: "${CLUSTERS:?set CLUSTER=<name> or CLUSTERS=\"a b c\"}"
 
 vsphere_preflight "vsphere:start" conn
 command -v kubectl >/dev/null || { echo "Error: kubectl not found." >&2; exit 1; }
 
-CTX="$(vsphere_context_name "$CLUSTER")"
-NODE_COUNT="$(vsphere_list_ips "$CLUSTER" | grep -c . || true)"
-if [ "${NODE_COUNT:-0}" -eq 0 ]; then
-  echo "Error: no node allocations recorded for '${CLUSTER}' — is it a solomog vsphere cluster?" >&2
-  exit 1
-fi
+# Validate every name before powering anything on — fail whole-batch, not mid-way.
+for CLUSTER in $CLUSTERS; do
+  if [ "$(vsphere_list_ips "$CLUSTER" | grep -c . || true)" -eq 0 ]; then
+    echo "Error: no node allocations recorded for '${CLUSTER}' — is it a solomog vsphere cluster?" >&2
+    exit 1
+  fi
+done
 
-echo "==> Starting '${CLUSTER}' (${NODE_COUNT} VMs)"
-vsphere_vm_tool start "$CLUSTER"
-
-echo "==> waiting for ${NODE_COUNT} Ready node(s)"
-vsphere_wait_ready "$CTX" "$NODE_COUNT"
+for CLUSTER in $CLUSTERS; do
+  CTX="$(vsphere_context_name "$CLUSTER")"
+  NODE_COUNT="$(vsphere_list_ips "$CLUSTER" | grep -c . || true)"
+  echo "==> Starting '${CLUSTER}' (${NODE_COUNT} VMs)"
+  vsphere_vm_tool start "$CLUSTER"
+  echo "==> waiting for ${NODE_COUNT} Ready node(s)"
+  vsphere_wait_ready "$CTX" "$NODE_COUNT"
+done
 
 echo ""
-echo "✓ '${CLUSTER}' running — everything as you left it (context ${CTX})."
+echo "✓ Running: ${CLUSTERS} — everything as you left it."

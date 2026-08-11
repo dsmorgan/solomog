@@ -9,7 +9,7 @@ set -euo pipefail
 # Spec: docs/specs/vsphere-provisioner.md (phase 4).
 #
 # Env:
-#   CLUSTER     vsphere cluster name (required)
+#   CLUSTER     vsphere cluster name(s), space-separated (required)
 #   ACTION      take (default) | status
 #   VSPHERE_*   vCenter connection from .env
 
@@ -17,8 +17,8 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/vsphere.sh
 source "$REPO_DIR/scripts/lib/vsphere.sh"
 
-CLUSTER="${CLUSTER:-}"
-: "${CLUSTER:?set CLUSTER=<name>}"
+CLUSTERS="${CLUSTER:-}"
+: "${CLUSTERS:?set CLUSTER=<name> or CLUSTERS=\"a b c\"}"
 ACTION="${ACTION:-take}"
 case "$ACTION" in
   take|status) ;;
@@ -27,14 +27,16 @@ esac
 
 vsphere_preflight "vsphere:snapshot" conn
 
-if [ "$ACTION" = "take" ]; then
-  echo "==> Taking baseline snapshots for '${CLUSTER}' (replaces any existing 'solomog-baseline')"
-else
-  echo "==> Baseline snapshot status for '${CLUSTER}'"
-fi
-vsphere_vm_tool "$ACTION" "$CLUSTER"
+for CLUSTER in $CLUSTERS; do
+  if [ "$ACTION" = "take" ]; then
+    echo "==> Taking baseline snapshots for '${CLUSTER}' (replaces any existing 'solomog-baseline')"
+  else
+    echo "==> Baseline snapshot status for '${CLUSTER}'"
+  fi
+  vsphere_vm_tool "$ACTION" "$CLUSTER"
+done
 
 if [ "$ACTION" = "take" ]; then
   echo ""
-  echo "✓ Baseline captured — reset to it anytime:  solomog vsphere:reset CLUSTER=${CLUSTER}"
+  echo "✓ Baseline captured — reset to it anytime:  solomog vsphere:reset CLUSTERS=\"${CLUSTERS}\""
 fi
