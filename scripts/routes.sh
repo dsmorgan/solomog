@@ -30,8 +30,8 @@ solomog_require_cluster "$CLUSTER" routes
 WIDE="${2:-}"
 # Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
 CTX="$(solomog_context "$CLUSTER")"
-# External target: CLUSTER is only a display label — derive from the context.
-solomog_is_external "$CLUSTER" && CLUSTER="${CTX##*/}"
+# CLUSTER is only a display label from here on; derive one when only CONTEXT= was given.
+CLUSTER="$(solomog_display_name "$CLUSTER" "$CTX")"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[32m'; RED=$'\033[31m'; B=$'\033[1m'; D=$'\033[2m'; C=$'\033[36m'; R=$'\033[0m'
@@ -108,6 +108,10 @@ echo "$GW_ROWS" | while IFS=$'\t' read -r GNS GNAME GCLASS; do
 
   PROG="$(_cond "$GJSON" Programmed)"
   ADDR="$(echo "$GJSON" | jq -r '.status.addresses[0].value // "-"')"
+  # expose stamps the reachable hostname on the Gateway (solomog.io/host) — show
+  # "host → addr" when present (gateways exposed before the stamp show addr only).
+  GHOST="$(echo "$GJSON" | jq -r '.metadata.annotations["solomog.io/host"] // ""')"
+  [ -n "$GHOST" ] && ADDR="${GHOST} → ${ADDR}"
   LISTENERS="$(echo "$GJSON" | jq -r '
     [.spec.listeners[] | "\(.protocol|ascii_downcase) :\(.port)"] | join(" · ")')"
   LHOST="$(echo "$GJSON" | jq -r '[.spec.listeners[].hostname // "*"] | unique | join(",")')"

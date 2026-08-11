@@ -23,8 +23,15 @@ set -euo pipefail
 #                           Set in .env (or the process env) — not a Taskfile CLI var.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTEXT="${1:?Usage: install-monitoring.sh <kube-context>}"
-CLUSTER="${CONTEXT#vcluster-docker_}"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+# Target: positional context arg (back-compat) → else CLUSTER/CONTEXT via lib/target.sh
+# (registry-aware: vind, EKS, vsphere alike — never hardcode vcluster-docker_).
+if [ -n "${1:-}" ]; then CONTEXT="$1"; else
+  solomog_require_cluster "${CLUSTER:-}" "monitoring"
+  CONTEXT="$(solomog_context "${CLUSTER:-}")"
+fi
+[ -z "${CLUSTER:-}" ] && CLUSTER="${CONTEXT#vcluster-docker_}"   # sub-host fallback for raw contexts
 EDITION="${EDITION:-enterprise}"
 DASHBOARDS="${DASHBOARDS:-auto}"
 ROUTE="${ROUTE:-false}"

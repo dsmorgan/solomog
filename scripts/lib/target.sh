@@ -46,6 +46,32 @@ solomog_is_external() {   # args: [<cluster>]
   return 1
 }
 
+# True when the cluster's resolved context is a solomog vsphere cluster (vsphere_<name>,
+# registered by vsphere:create). vsphere clusters are EXTERNAL for lifecycle purposes
+# (solomog only installs onto them, never vind-creates/teardowns them) but LOCAL for
+# exposure purposes: their MetalLB VIP is a private IP nothing resolves, so expose
+# treats them like vind (mkcert + /etc/hosts), NOT like a cloud LB with a public hostname.
+solomog_is_vsphere() {   # args: [<cluster>]
+  case "$(solomog_context "${1:-}")" in
+    vsphere_*) return 0 ;;
+    *)         return 1 ;;
+  esac
+}
+
+# Human-readable cluster label for display (routes/graph headers, filenames) and
+# for hostname/descr derivation in expose. A user-supplied CLUSTER is already the
+# right label — only derive one when it's empty (bare CONTEXT= override):
+# vsphere_<name> → <name>, vcluster-docker_<name> → <name>, ARN-ish → last /-part.
+solomog_display_name() {   # args: <cluster-or-empty> <context>
+  if [ -n "${1:-}" ]; then printf '%s' "$1"; return 0; fi
+  case "${2:-}" in
+    vsphere_*)         printf '%s' "${2#vsphere_}" ;;
+    vcluster-docker_*) printf '%s' "${2#vcluster-docker_}" ;;
+    */*)               printf '%s' "${2##*/}" ;;
+    *)                 printf '%s' "${2:-}" ;;
+  esac
+}
+
 # Require a cluster target — no silent default. Pass the resolved cluster value (positional $1 or
 # env $CLUSTER); passes if that's non-empty OR CONTEXT is set. Fails gracefully otherwise. Catches
 # the common fat-fingers: omitting it entirely, or a lowercase `cluster=` (the task runner only sees

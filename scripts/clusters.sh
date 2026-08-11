@@ -2,10 +2,12 @@
 set -euo pipefail
 #
 # Lists / inspects solomog-tracked clusters (vind + registered externals).
-# Local registries + soft live checks — no kubectl API:
-#   • vind: `vcluster list` (Docker) → running|gone|?
-#   • eks:  `aws eks describe-cluster` when AWS creds work → running|gone|…;
-#           expired/broken/missing creds stay "—" (undetermined), never fail the list.
+# Local registries + soft live checks:
+#   • vind:    `vcluster list` (Docker) → running|gone|?
+#   • eks:     `aws eks describe-cluster` when AWS creds work → running|gone|…;
+#              expired/broken/missing creds stay "—" (undetermined), never fail the list.
+#   • vsphere: kubectl /readyz probe with a short timeout → running|unreachable
+#              (no vCenter API dependency; "unreachable" = powered off OR network down).
 # Marks the current kubectl context.
 #
 # Usage:
@@ -46,6 +48,7 @@ _type_for() {   # args: <cluster> <context>
   if [ -n "$(_registry_lookup "$1")" ]; then
     case "$2" in
       arn:aws:eks:*) printf 'eks' ;;
+      vsphere_*)     printf 'vsphere' ;;
       *)             printf 'external' ;;
     esac
   else
@@ -164,7 +167,20 @@ _eks_status() {   # args: <context>
   printf '—'
 }
 
-# Status for list/show. Vind: running|gone|?. EKS: AWS probe or —. Other external: —.
+# Probe a vsphere cluster's API server directly (short timeout, never fails the
+# list). Can't tell powered-off from network-down without the vCenter API, so both
+# read "unreachable" — cheap, dependency-free, and honest.
+_vsphere_status() {   # args: <context>
+  command -v kubectl >/dev/null 2>&1 || { printf '—'; return 0; }
+  if kubectl --context "$1" get --raw /readyz --request-timeout=3s >/dev/null 2>&1; then
+    printf 'running'
+  else
+    printf 'unreachable'
+  fi
+}
+
+# Status for list/show. Vind: running|gone|?. EKS: AWS probe or —. vsphere: kubectl
+# probe. Other external: —.
 _status_for() {   # args: <cluster> <type> <context>
   case "$2" in
     vind)
@@ -173,6 +189,9 @@ _status_for() {   # args: <cluster> <type> <context>
       ;;
     eks)
       _eks_status "$3"
+      ;;
+    vsphere)
+      _vsphere_status "$3"
       ;;
     *) printf '—' ;;
   esac
@@ -312,6 +331,22 @@ EOF
     if [ "$typ" = "vind" ] && [ "$VCLUSTER_OK" = 1 ] && _vcluster_running "$NAME"; then
       age="$(_vcluster_age "$NAME")"
       [ -n "$age" ] && printf '  %-12s %s\n' "age:" "$age"
+    fi
+    if [ "$typ" = "vsphere" ]; then
+      pool="$REPO_DIR/.solomog/vsphere/ippool"
+      if [ -f "$pool" ]; then
+        ips="$(awk -F'\t' -v c="$NAME" '$1==c{printf "%s%s(%s)", sep, $2, $3; sep="  "}' "$pool")"
+        [ -n "$ips" ] && printf '  %-12s %s\n' "node IPs:" "$ips"
+      fi
+      if [ "$status" = "running" ]; then
+        # || true: this is a separate round trip from the /readyz probe above — a
+        # transient kubectl failure must degrade to "no nodes line", never fail the
+        # list (same contract as _eks_status/_vsphere_status).
+        nodes="$(kubectl --context "$ctx" get nodes --no-headers --request-timeout=3s 2>/dev/null \
+                  | awk '{r += ($2=="Ready") ? 1 : 0; t++} END{if (t) printf "%d/%d Ready", r, t}' \
+                  || true)"
+        [ -n "$nodes" ] && printf '  %-12s %s\n' "nodes:" "$nodes"
+      fi
     fi
     printf '  %-12s %s\n' "current:" "$([ "$is_current" = 1 ] && echo yes || echo no)"
 

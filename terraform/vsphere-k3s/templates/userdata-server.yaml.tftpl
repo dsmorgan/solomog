@@ -1,0 +1,23 @@
+#cloud-config
+hostname: ${hostname}
+users:
+  - name: solomog
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${ssh_pubkey}
+runcmd:
+  # traefik would squat on the gateway ports solomog's products own, and klipper-lb
+  # (servicelb) ties LB IPs to node IPs — MetalLB (installed by vsphere-create.sh)
+  # serves LoadBalancer IPs instead. Kubeconfig stays root-only 0600; the create
+  # script reads it via `ssh sudo cat`.
+  # Download-then-run (NOT curl|sh): runcmd has no pipefail, so a failed download
+  # piped into sh exits 0 and cloud-init reports done/success with k3s never
+  # installed — this way the failure lands in cloud-init status/logs.
+  - |
+    curl -sfL -o /tmp/k3s-install.sh https://get.k3s.io &&
+    INSTALL_K3S_VERSION="${k3s_version}" sh /tmp/k3s-install.sh server \
+      --disable traefik \
+      --disable servicelb \
+      --tls-san ${server_ip} \
+      --token ${k3s_token}
