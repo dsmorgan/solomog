@@ -339,8 +339,12 @@ EOF
         [ -n "$ips" ] && printf '  %-12s %s\n' "node IPs:" "$ips"
       fi
       if [ "$status" = "running" ]; then
+        # || true: this is a separate round trip from the /readyz probe above — a
+        # transient kubectl failure must degrade to "no nodes line", never fail the
+        # list (same contract as _eks_status/_vsphere_status).
         nodes="$(kubectl --context "$ctx" get nodes --no-headers --request-timeout=3s 2>/dev/null \
-                  | awk '{r += ($2=="Ready") ? 1 : 0; t++} END{if (t) printf "%d/%d Ready", r, t}')"
+                  | awk '{r += ($2=="Ready") ? 1 : 0; t++} END{if (t) printf "%d/%d Ready", r, t}' \
+                  || true)"
         [ -n "$nodes" ] && printf '  %-12s %s\n' "nodes:" "$nodes"
       fi
     fi

@@ -88,9 +88,17 @@ if [ "$DNS_MODE" = "real" ]; then
   source "$LIB_DIR/opnsense.sh"
   DNS_LABEL="${HOST%%.*}"; DOMAIN="${HOST#*.}"
   echo "==> DNS: upserting ${HOST} → ${LB_IP} via the OPNsense API"
-  if ! solomog_opnsense_ready || \
-     ! solomog_opnsense_dns_upsert "$DNS_LABEL" "$DOMAIN" "$LB_IP" "solomog ${CLUSTER}/${LABEL}-${GW_NAME} (DNS=real)"; then
-    echo "    NOTE: OPNsense API unavailable — add the record manually (Services → Dnsmasq DNS → Hosts):"
+  UPSERT_RC=0
+  if solomog_opnsense_ready; then
+    solomog_opnsense_dns_upsert "$DNS_LABEL" "$DOMAIN" "$LB_IP" "solomog ${CLUSTER}/${LABEL}-${GW_NAME} (DNS=real)" || UPSERT_RC=$?
+  else
+    UPSERT_RC=1
+  fi
+  if [ "$UPSERT_RC" -eq 2 ]; then
+    # rc=2: the record saved but the dnsmasq apply failed — don't tell the user to create it.
+    echo "    NOTE: record saved but not applied — press Apply in the OPNsense UI, or re-run this task."
+  elif [ "$UPSERT_RC" -ne 0 ]; then
+    echo "    NOTE: OPNsense API upsert failed — add the record manually (Services → Dnsmasq DNS → Hosts):"
     echo "          host=${DNS_LABEL}  domain=${DOMAIN}  ip=${LB_IP}"
   fi
   echo "    https://${HOST}/   (covered by the *.${DOMAIN} Let's Encrypt cert from 'solomog expose')"

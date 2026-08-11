@@ -332,9 +332,11 @@ vCenter 7.0.3. **Spec is the source of truth**: [docs/specs/vsphere-provisioner.
   `taskfiles/vsphere.yaml` (an `optional: true` include — the root Taskfile carries
   only the includes block), `scripts/vsphere-*.sh` + `scripts/lib/vsphere.sh`,
   `terraform/vsphere-*`, and `helmfiles/addons/metallb.yaml.gotmpl` (deliberately
-  self-contained — no commons bases, repo URL inline). OpenTofu/uv are lazy-checked
-  (the eksctl precedent) — NEVER add them to setup.sh; missing `VSPHERE_*` config
-  fails every vsphere task fast. There is no feature flag; the preflight is the flag.
+  self-contained — no commons bases, repo URL inline). OpenTofu is lazy-checked
+  (the eksctl precedent) — NEVER add it to setup.sh; uv is lazy-checked too but is
+  ALREADY a setup.sh prerequisite (bundle testing) — leave it there. Missing
+  `VSPHERE_*` config fails every vsphere task fast. There is no feature flag; the
+  preflight is the flag.
 - **Registry seam**: `vsphere:create` registers `<cluster> → vsphere_<cluster>` in
   `.solomog/contexts`, after which every task works via `CLUSTER=` like any external
   cluster. `solomog_is_vsphere` (lib/target.sh) identifies them — LB semantics branch
