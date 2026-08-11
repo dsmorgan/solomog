@@ -307,8 +307,8 @@ solomog vsphere:stop CLUSTER=s1               # pause: graceful VM shutdown, sta
 solomog vsphere:start CLUSTER=s1              # resume exactly where you left off
 solomog vsphere:snapshot CLUSTER=s1           # (re)take the baseline snapshot on demand
 solomog vsphere:reset CLUSTER=s1              # revert to baseline — clean cluster in ~VM-boot time
-solomog vsphere:delete CLUSTER=s1             # tofu destroy; keeps the cluster's pinned VIPs
-                                              #   (PURGE_LB=true releases them too)
+solomog vsphere:delete CLUSTER=s1             # tofu destroy; also deletes the cluster's
+                                              #   DNS=real records from OPNsense (best-effort)
 ```
 
 ### Custom config bundles (customer repros)

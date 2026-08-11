@@ -60,3 +60,31 @@ solomog_opnsense_dns_upsert() {   # args: <label> <domain> <ip> [<descr>]
   _opnsense_curl -X POST "${OPNSENSE_URL}/api/dnsmasq/service/reconfigure" -d '{}' >/dev/null || true
   return 0
 }
+
+# Delete every DNS=real record expose created for <cluster> + apply. Matches the
+# descr expose stamps ("solomog <cluster>/<gw> (DNS=real)"), so only solomog-managed
+# records are touched — never hand-made ones. Returns non-zero on API failure
+# (caller treats cleanup as best-effort).
+solomog_opnsense_dns_delete_cluster() {   # args: <cluster>
+  local cluster="$1" rows victims line uuid fqdn n=0
+  command -v jq >/dev/null 2>&1 || { echo "    (jq not found — cannot drive the OPNsense API)" >&2; return 1; }
+  rows="$(_opnsense_curl -X POST "${OPNSENSE_URL}/api/dnsmasq/settings/search_host" \
+           -d '{"current":1,"rowCount":-1}')" || return 1
+  victims="$(printf '%s' "$rows" | jq -r --arg p "solomog ${cluster}/" \
+           '.rows[]? | select((.descr // "") | startswith($p)) | "\(.uuid)\t\(.host).\(.domain)"')"
+  [ -n "$victims" ] || return 0
+  while IFS=$'\t' read -r uuid fqdn; do
+    [ -n "$uuid" ] || continue
+    if _opnsense_curl -X POST "${OPNSENSE_URL}/api/dnsmasq/settings/del_host/${uuid}" -d '{}' \
+         | jq -e '.result=="deleted"' >/dev/null 2>&1; then
+      echo "    OPNsense: deleted ${fqdn}"
+      n=$((n + 1))
+    else
+      echo "    WARNING: failed to delete OPNsense record ${fqdn} (${uuid})" >&2
+    fi
+  done <<EOF
+$victims
+EOF
+  [ "$n" -gt 0 ] && _opnsense_curl -X POST "${OPNSENSE_URL}/api/dnsmasq/service/reconfigure" -d '{}' >/dev/null || true
+  return 0
+}

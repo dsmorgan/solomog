@@ -2,7 +2,7 @@
 set -euo pipefail
 #
 # Resume a stopped solomog vsphere cluster: power on every node VM and wait for all
-# nodes Ready — the complement to vsphere-stop.sh. IPs, kubeconfig context, pinned
+# nodes Ready — the complement to vsphere-stop.sh. IPs, kubeconfig context, LB
 # VIPs, and everything installed on the cluster are unchanged (a whole-cluster
 # shutdown/boot is a normal k3s recovery, and VMware syncs the guest clock at power
 # on — no suspend-style clock jump).
