@@ -56,7 +56,8 @@ expose_print_dns_setup() {
   echo "    Setup (each line is one-time):"
   echo ""
   echo "    1. OPNsense (authoritative for ${SOLOMOG_DOMAIN}; Services → Dnsmasq DNS → Hosts,"
-  echo "       or custom option) — one record per cluster, permanent (the VIP is name-sticky):"
+  echo "       or custom option) — one record per (cluster, gateway); if the VIP changes on a"
+  echo "       recreate, re-run expose to print the current one:"
   echo ""
   echo "           address=/${HOST}/${LB_IP}"
   echo ""
@@ -165,24 +166,9 @@ if [[ "$DNS" != "real" ]] && ! command -v mkcert &>/dev/null; then
   exit 1
 fi
 
-# vsphere: pin a name-sticky VIP for this (cluster, gateway) from VSPHERE_LB_POOL
-# (spec phase 6a — allocation survives vsphere:delete, so a recreated cluster keeps
-# its VIP and any DNS record for it stays valid). Emitted into the Gateway's
-# spec.infrastructure annotations below; best-effort — if the gateway impl doesn't
-# propagate infrastructure annotations to the LB Service we warn and use the actual.
-PIN_IP=""
-if solomog_is_vsphere "$CLUSTER"; then
-  # shellcheck source=lib/vsphere.sh
-  source "$REPO_DIR/scripts/lib/vsphere.sh"
-  if [ -n "${VSPHERE_LB_POOL:-}" ]; then
-    PIN_IP="$(vsphere_alloc_lb_ip "$CLUSTER" "$NAME")"
-    echo "==> Pinned LoadBalancer VIP for ${NAME}: ${PIN_IP} (name-sticky)"
-  else
-    echo "    NOTE: VSPHERE_LB_POOL not set — skipping VIP pinning (MetalLB will auto-assign)."
-  fi
-fi
-
 # Emit the Gateway manifest. $1=yes adds the HTTPS listener (needs the cert secret to exist).
+# (vsphere VIPs are plain MetalLB auto-assign from VSPHERE_LB_POOL — no pinning. If the
+# VIP changes across a recreate, the DNS=real upsert below tracks it automatically.)
 emit_gateway() {   # args: <include_https: yes|no>
   local https=""
   if [[ "$1" == "yes" ]]; then
@@ -197,13 +183,6 @@ emit_gateway() {   # args: <include_https: yes|no>
       allowedRoutes:
         namespaces:
           from: All"
-  fi
-  local infra=""
-  if [[ -n "$PIN_IP" ]]; then
-    infra="
-  infrastructure:
-    annotations:
-      metallb.io/loadBalancerIPs: \"${PIN_IP}\""
   fi
   # Record the reachable hostname on the Gateway itself — it otherwise exists only
   # inside this run. routes.sh (header) and test-bundle.sh (HOST default) read it.
@@ -221,7 +200,7 @@ kind: Gateway
 metadata:
   name: ${NAME}
   namespace: ${NAMESPACE}${meta_ann}
-spec:${infra}
+spec:
   gatewayClassName: ${CLASS}
   listeners:
     - name: http
@@ -341,25 +320,6 @@ else
   echo "==> Waiting for the LoadBalancer to assign an address..."
   LB_IP="$(wait_for_gateway_address 150)"
   echo "    address: ${LB_IP}"
-  # Re-expose race: on an existing gateway the first status address can be a stale
-  # pre-pin assignment — agentgateway DOES propagate infrastructure annotations to
-  # the LB Service (verified live), but MetalLB re-assigns a beat later. Give it a
-  # settle window before concluding the pin didn't take.
-  if [[ -n "$PIN_IP" && "$LB_IP" != "$PIN_IP" ]]; then
-    echo "    address ${LB_IP} != pinned VIP ${PIN_IP} — waiting for the pin to reconcile..."
-    settle=0
-    while [[ "$LB_IP" != "$PIN_IP" && $settle -lt 60 ]]; do
-      sleep 5; settle=$((settle + 5))
-      LB_IP="$(kubectl --context "$CTX" get gateway "$NAME" -n "$NAMESPACE" \
-        -o jsonpath='{.status.addresses[0].value}' 2>/dev/null || true)"
-    done
-    if [[ "$LB_IP" == "$PIN_IP" ]]; then
-      echo "    address settled on the pinned VIP: ${LB_IP}"
-    else
-      echo "    NOTE: still ${LB_IP} after ${settle}s — proceeding with the actual address"
-      echo "          (pin requires the gateway impl to propagate spec.infrastructure annotations)."
-    fi
-  fi
 
   # 4. Name resolution. DNS=local: /etc/hosts (needs sudo; bare HOST only — no
   # wildcard support). DNS=real: never touch /etc/hosts — verify the homelab DNS

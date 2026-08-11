@@ -269,7 +269,7 @@ the homelab already runs the two services this needs.
 | 10 | Record management | **REVISED (2026-08-11): automated via the OPNsense API.** The original "manual line, printed by solomog" trade was rejected by David once real; flat naming reduced the need to an exact-name **Dnsmasq host override**, which `expose DNS=real` now upserts idempotently through `lib/opnsense.sh` (search_host → add/set_host → reconfigure; dedicated low-priv API user; creds `OPNSENSE_URL/_API_KEY/_API_SECRET` in .env), then verifies with `dig @opns1`. Printed manual instructions remain the fallback when creds are absent or the API errors. The one-time-ever Pi-hole zone forward (`server=/sm.tnkr.fun/<opns1>`) stays manual by choice. external-dns still deferred. |
 | 11 | Certificates | **Build on Certwarden** (operational, prod LE via Cloudflare DNS-01) — solomog becomes another pull client, same `X-API-Key` pattern as the existing synology/pihole/unifi pull scripts. No cert-manager, no per-cluster ACME. |
 | 12 | Cert shape | **REVISED at implementation (2026-08-10, David's call): one wildcard, zero maintenance.** DNS=real hostnames are **FLAT** — `<gw>-<cluster>.<domain>` (e.g. `agw-s1.sm.tnkr.fun`) — so a single Certwarden cert with SAN `*.<domain>` covers every cluster/gateway forever (wildcards match one label). No per-cluster SANs, no reissues; `.env` carries two API keys. Supersedes the original dotted-name/per-cluster-SAN plan; when sub-host UIs later join DNS=real they flatten the same way (`ui-agw-s1.<domain>`, still one label — each such sub-host then needs its own dnsmasq line, the trade accepted for cert-zero-touch). Domain chosen: `sm.tnkr.fun`. |
-| 13 | VIP stability | **Name-sticky deterministic VIPs** — the allocator also assigns each (cluster, gateway) a VIP from `VSPHERE_LB_POOL` (recorded in ippool as `lb-agw`/`lb-kgw` roles); expose pins it via the Gateway's `spec.infrastructure.annotations` → `metallb.io/loadBalancerIPs` (fallback: annotate the LB Service). `vsphere:delete` keeps `lb-*` allocations by default so the DNS record survives recreate cycles; `PURGE_LB=true` releases them. |
+| 13 | VIP stability | **REMOVED (2026-08-10, David's call)** — name-sticky VIP pinning (phase 6a: `lb-*` allocator roles, `metallb.io/loadBalancerIPs` pin, 60s settle-wait, `PURGE_LB` keep/purge semantics) existed to make a *manually maintained* DNS record permanent. Once decision 10 automated the record (expose upserts it every run and tracks VIP changes), pinning served nothing the wildcard cert + upsert don't already cover. VIPs are now plain MetalLB auto-assign from `VSPHERE_LB_POOL`, and `vsphere:delete` deletes the cluster's DNS=real records via the OPNsense API (matched on the descr expose stamps; best-effort, no flags). ⚠ The pool-hygiene lesson survives the allocator's ping-guard: `VSPHERE_LB_POOL` must contain only free IPs — MetalLB does no liveness check (ds2's 10G leg ARP-battled the VIP). |
 | 14 | mkcert default | Unchanged. `DNS=local` remains the default everywhere; `DNS=real` requires a vsphere target (a vind LB IP is Mac-local — unreachable from other devices, so real DNS is pointless there). |
 
 ### `DNS=real` expose flow (replaces steps 3–4 of the local flow)
@@ -302,9 +302,10 @@ CERTWARDEN_KEY_APIKEY=""     # API key of its private-key object
 
 ### Sub-phases & acceptance
 
-- **6a — VIP pinning** (prereq, useful on its own): allocator `lb-*` roles + expose
-  pinning + sticky-on-delete. Accept: recreate cycle keeps the same VIP; `DNS=local`
-  behavior otherwise unchanged.
+- **6a — VIP pinning**: implemented + live-verified 2026-08-10, then **REMOVED the
+  same day** (decision 13) — the OPNsense record automation made name-sticky VIPs
+  redundant, and removing them deleted the settle-wait, the `PURGE_LB` semantics,
+  and the dangling-record gap in one move. VIPs are MetalLB auto-assign; DNS tracks.
 - **6b — `DNS=real`**: flow above. Accept: from a device that is NOT the Mac (phone,
   another laptop — no mkcert CA installed), `https://agw.s1.<domain>/httpbin/get`
   returns httpbin JSON with a green-lock LE cert.

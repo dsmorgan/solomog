@@ -87,7 +87,7 @@ tasks:
     desc: "Resume a stopped vsphere cluster: power on + wait for all nodes Ready. CLUSTER=<name> required."
     summary: |
       Power every node VM back on and wait for all nodes Ready — the complement to
-      vsphere:stop. IPs, kubeconfig, pinned VIPs, and everything installed on the
+      vsphere:stop. IPs, kubeconfig, LB VIPs, and everything installed on the
       cluster come back as you left them (clean boot, no suspend-style clock jump).
 
       Variables:
@@ -128,8 +128,8 @@ tasks:
       Revert every node VM to "solomog-baseline" (fresh k3s + MetalLB), power back
       on, and wait for all nodes Ready — a clean cluster in roughly VM-boot time
       instead of a full recreate. Everything installed after the baseline (products,
-      gateways, apps) is wiped; the kube context, registry entry, node IPs, and
-      pinned VIPs survive. Prompts first.
+      gateways, apps) is wiped; the kube context, registry entry, and node IPs
+      survive. Prompts first.
 
       Variables:
         CLUSTER   vsphere cluster name (required — wipes current cluster state)
@@ -149,14 +149,13 @@ tasks:
     summary: |
       Destroy a vsphere:create cluster: prompt, `tofu destroy` its workspace (only
       state-tracked VMs — never VMs found by name), free its node-IP allocations,
-      remove the vsphere_<name> kube context, and deregister it from
+      delete its DNS=real records from OPNsense (when OPNSENSE_* creds are set;
+      best-effort), remove the vsphere_<name> kube context, and deregister it from
       .solomog/contexts. The complement to vsphere:create; destructive.
 
       Variables:
         CLUSTER    registered vsphere cluster name (required — no default; destructive)
         FORCE      true → skip the confirmation prompt (scripted teardown)   default false
-        PURGE_LB   true → also release the cluster's pinned LoadBalancer VIPs
-                   (default keeps them name-sticky so DNS records survive recreate)
 
       Example:
         solomog vsphere:delete CLUSTER=hl1
@@ -165,4 +164,3 @@ tasks:
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
       FORCE: '{{.FORCE | default ""}}'
-      PURGE_LB: '{{.PURGE_LB | default ""}}'

@@ -6,9 +6,11 @@ set -euo pipefail
 # or `vsphere:snapshot`), power back on, and wait for all nodes Ready. The homelab
 # superpower vind can't match: a clean cluster in roughly VM-boot time instead of a
 # full recreate. Everything installed AFTER the baseline (products, gateways, apps)
-# is wiped; the kubeconfig context, registry entry, node IPs, and pinned VIPs all
-# survive — the registry/allocator live outside the VMs, and reverting restores the
-# same k3s CA the merged kubeconfig was minted from, so the context keeps working.
+# is wiped; the kubeconfig context, registry entry, and node IPs all survive — the
+# registry/allocator live outside the VMs, and reverting restores the same k3s CA
+# the merged kubeconfig was minted from, so the context keeps working. (Re-running
+# expose after a reset re-creates the gateway; MetalLB may hand out a different VIP,
+# which the DNS=real upsert tracks automatically.)
 # Spec: docs/specs/vsphere-provisioner.md (phase 4).
 #
 # Env:

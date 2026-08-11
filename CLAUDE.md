@@ -321,10 +321,13 @@ vCenter 7.0.3. **Spec is the source of truth**: [docs/specs/vsphere-provisioner.
   cluster. `solomog_is_vsphere` (lib/target.sh) identifies them — LB semantics branch
   on it, lifecycle branches on `solomog_is_external`.
 - **State**: OpenTofu, one workspace per cluster (`terraform/vsphere-k3s/`), state
-  gitignored, lock files committed. IP allocator + name-sticky LB VIPs in
-  `.solomog/vsphere/ippool` (roles `server`/`agent-N`/`lb-<gw>`; node-view functions
-  are role-scoped — keep them that way). `vsphere:delete` keeps `lb-*` rows unless
-  `PURGE_LB=true` so DNS records survive recreates.
+  gitignored, lock files committed. Node-IP allocator in `.solomog/vsphere/ippool`
+  (roles `server`/`agent-N`). LB VIPs are plain MetalLB auto-assign from
+  `VSPHERE_LB_POOL` — no pinning/reservations (removed with spec decision 13; the
+  DNS=real upsert tracks VIP changes). ⚠ Keep that pool free of live hosts —
+  MetalLB does no liveness check and a foreign device ARP-battles the VIP.
+  `vsphere:delete` also deletes the cluster's DNS=real records from OPNsense
+  (matched on the descr expose stamps; best-effort).
 - **Snapshots & power**: `vsphere-snapshot.py` (pyvmomi via `uv run --with pyvmomi`,
   wrapped by `vsphere_vm_tool`) does take/revert/stop/start/status — vCenter 7.0.3
   has no REST snapshot API and the tofu provider can't revert or power-cycle.

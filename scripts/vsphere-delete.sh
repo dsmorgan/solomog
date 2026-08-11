@@ -12,10 +12,9 @@ set -euo pipefail
 # Env:
 #   CLUSTER     vsphere cluster name (required — no default; destructive)
 #   FORCE       "true" skips the confirmation prompt (for scripted teardown)
-#   PURGE_LB    "true" also releases the cluster's lb-* VIP reservations (default:
-#               keep them, so a recreated cluster gets the same VIP and its DNS
-#               record stays valid — spec phase 6a)
 #   VSPHERE_*   from .env (full set — destroy re-reads the placement data sources)
+#   OPNSENSE_*  optional — when set, the cluster's DNS=real records are deleted too
+#               (best-effort; expose recreates them on the next DNS=real run)
 #
 # Prereqs: OpenTofu (brew install opentofu) — lazy-checked, NOT a setup.sh prerequisite.
 
@@ -24,6 +23,17 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/vsphere.sh"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
+# shellcheck source=lib/opnsense.sh
+source "$REPO_DIR/scripts/lib/opnsense.sh"
+
+# DNS=real records are fully automated in both directions: expose upserts them, and
+# teardown removes this cluster's (matched by the descr expose stamps — hand-made
+# records are never touched). Best-effort: a failure only prints a warning.
+delete_dns_records() {
+  solomog_opnsense_ready || return 0
+  solomog_opnsense_dns_delete_cluster "$CLUSTER" \
+    || echo "    WARNING: OPNsense DNS cleanup failed — check Services → Dnsmasq DNS → Hosts for '*-${CLUSTER}' records." >&2
+}
 
 CLUSTER="${CLUSTER:-}"
 : "${CLUSTER:?set CLUSTER=<name> — destructive, so no default}"
@@ -37,8 +47,9 @@ CTX="$(vsphere_context_name "$CLUSTER")"
 if ! "$TOFU" -chdir="$ROOT" workspace list 2>/dev/null | sed 's/^[* ]*//' | grep -qx "$CLUSTER"; then
   echo "No tofu workspace '${CLUSTER}' — nothing solomog-created to destroy."
   echo "  Workspaces: $("$TOFU" -chdir="$ROOT" workspace list 2>/dev/null | sed 's/^[* ]*//' | grep -v '^default$' | tr '\n' ' ')"
-  # Still clean up any leftover registration/allocations from a partial create.
-  vsphere_release_ips "$CLUSTER" "$([ "${PURGE_LB:-false}" = "true" ] && echo all || echo nodes)"
+  # Still clean up any leftover registration/allocations/records from a partial create.
+  vsphere_release_ips "$CLUSTER"
+  delete_dns_records
   solomog_deregister_context "$CLUSTER"
   exit 0
 fi
@@ -76,15 +87,9 @@ echo "==> tofu destroy (workspace '${CLUSTER}')"
 "$TOFU" -chdir="$ROOT" workspace delete "$CLUSTER" >/dev/null
 echo "    workspace '${CLUSTER}' destroyed + deleted"
 
-if [ "${PURGE_LB:-false}" = "true" ]; then
-  vsphere_release_ips "$CLUSTER" all
-  echo "    node IPs + VIP reservations released"
-else
-  vsphere_release_ips "$CLUSTER"
-  echo "    node IPs released"
-  KEPT="$(vsphere_list_lb_ips "$CLUSTER" | awk -F'\t' '{printf "%s%s=%s", sep, $1, $2; sep="  "}')"
-  [ -n "$KEPT" ] && echo "    VIP reservations kept (name-sticky for DNS): ${KEPT}  — release with PURGE_LB=true"
-fi
+vsphere_release_ips "$CLUSTER"
+echo "    node IPs released"
+delete_dns_records
 
 # Remove the merged kube entries (created by vsphere-create with one shared name).
 kubectl config delete-context "$CTX" >/dev/null 2>&1 || true
