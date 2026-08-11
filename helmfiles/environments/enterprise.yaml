@@ -30,7 +30,13 @@ helm_repo_gloo_gateway: "https://storage.googleapis.com/gloo-ee-helm"
 # Verified: https://docs.solo.io/agentgateway/2.3.x/install/helm/
 helm_repo_agentgateway: "us-docker.pkg.dev/solo-public/enterprise-agentgateway/charts"
 
+# Solo Enterprise for kagent — OCI registry.
+# Charts: kagent-enterprise-crds, kagent-enterprise. Namespace: kagent.
+# Verified: https://docs.solo.io/kagent/latest/quickstart/
+helm_repo_kagent: "us-docker.pkg.dev/solo-public/kagent-enterprise-helm/charts"
+
 # Solo UI / management plane (the `management` chart) — OCI registry. Enterprise only.
-# Chart: management (CRDs bundled as a subchart, enabled by default). Namespace: agentgateway-system.
-# Drives the <product>:ui add-ons. Verified: https://docs.solo.io/agentgateway/2.3.x/install/ui/setup/
+# Chart: management (CRDs bundled as a subchart, enabled by default). Solomog
+# keeps one release in agentgateway-system and enables agentgateway/kagent on it.
+# Verified: https://docs.solo.io/kagent/latest/install/install-kagent/
 helm_repo_solo_enterprise: "us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts"

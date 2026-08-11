@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# Installs the Solo UI (the `management` chart) for agentgateway, wires tracing to
-# its built-in OTEL collector, and — with ROUTE=true — exposes the UI on its own
-# sub-host under expose's wildcard (ui.agw.<cluster>.test) instead of a port-forward.
+# Enables agentgateway on solomog's singleton Solo UI (`management` chart), wires
+# tracing to its built-in OTEL collector, and — with ROUTE=true — exposes the UI
+# on its own sub-host under expose's wildcard (ui.agw.<cluster>.test).
 #
 # This is the UI half of `solomog agentgateway:ui`; the agentgateway product itself
-# is installed first (by the task, via stack.sh). The `management` chart bundles its
-# CRDs, so there is no separate management-crds step (official 2.3.x path).
+# is installed first (by the task, via stack.sh). Enterprise kagent may already
+# own the same release; helmfile reuses its values and enables agentgateway rather
+# than installing a second CRD-owning management release.
 #
 # Requires ENTERPRISE agentgateway — the Solo UI is an enterprise-only feature.
 #
@@ -43,7 +44,29 @@ if ! kubectl --context "$CONTEXT" get crd \
   exit 1
 fi
 
-echo "==> Installing Solo UI (management chart) into ${NS} on ${CONTEXT}"
+# Never create a second management release: its bundled cluster-scoped CRDs can
+# only have one Helm owner. Enterprise kagent and agentgateway UI share this one.
+management_releases="$(
+  helm list --kube-context "$CONTEXT" -A -o json 2>/dev/null \
+    | jq -r '.[] | select(.chart | startswith("management-")) | "\(.namespace)/\(.name)"' \
+    || true
+)"
+if [[ -n "$management_releases" && "$management_releases" != "${NS}/management" ]]; then
+  echo "Error: found a management chart outside solomog's singleton release:" >&2
+  printf '       %s\n' "$management_releases" >&2
+  echo "       Move/upgrade it to ${NS}/management; a second release causes CRD conflicts." >&2
+  exit 1
+fi
+
+# Once kagent is installed, changing management OIDC alone breaks the kagent
+# controller. Preserve the release's current auth mode; a subsequent kagent sync
+# is the coordinated path for changing it.
+if helm status kagent --kube-context "$CONTEXT" -n kagent >/dev/null 2>&1; then
+  export MANAGEMENT_PRESERVE_OIDC=true
+  echo "==> Preserving shared management OIDC values owned with Enterprise kagent"
+fi
+
+echo "==> Enabling agentgateway in shared Solo UI (${NS} on ${CONTEXT})"
 SOLO_CLUSTER="$CLUSTER" helmfile sync \
   -f "$REPO_DIR/helmfiles/addons/agentgateway-ui.yaml.gotmpl" \
   -e "$EDITION" \

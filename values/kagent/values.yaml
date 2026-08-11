@@ -1,0 +1,13 @@
+# kagent values shared by the OSS and Solo Enterprise charts.
+# Solomog is short-lived PoV/repro tooling, so use the chart's bundled
+# PostgreSQL rather than requiring an external database.
+#
+# Long-term memory needs PostgreSQL with pgvector; override these values for
+# that scenario instead of treating this bundled database as production-ready.
+
+database:
+  postgres:
+    bundled:
+      enabled: true
+      storage: 500Mi
+    vectorEnabled: false

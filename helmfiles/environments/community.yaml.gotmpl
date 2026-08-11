@@ -19,3 +19,9 @@ helm_repo_gloo_gateway: "https://storage.googleapis.com/solo-public-helm"
 # Verified: https://agentgateway.dev/docs/kubernetes/latest/install/helm/
 helm_repo_agentgateway: "cr.agentgateway.dev/charts"
 agentgateway_version: "{{ env "AGENTGATEWAY_COMMUNITY_VERSION" }}"
+
+# kagent community (stable 0.9.x) — OCI registry.
+# Charts: kagent-crds, kagent. Namespace: kagent.
+# Verified: https://kagent.dev/docs/kagent/introduction/installation
+helm_repo_kagent: "ghcr.io/kagent-dev/kagent/helm"
+kagent_version: "{{ env "KAGENT_COMMUNITY_VERSION" }}"

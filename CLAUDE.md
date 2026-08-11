@@ -28,7 +28,7 @@ The `solomog` wrapper just `cd`s to the repo root and `exec task "$@"`.
 
 These combine freely and are the core mental model:
 
-1. **Product** — `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`.
+1. **Product** — `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`, `kagent`.
    One self-contained helmfile module each in [helmfiles/products/](helmfiles/products/).
    - `istio` = **enterprise**: Solo managed Istio via the **Gloo Operator**
      (`gloo-operator` OCI chart, ns `gloo-mesh`, license `manager.env.SOLO_ISTIO_LICENSE_KEY`)
@@ -41,6 +41,14 @@ These combine freely and are the core mental model:
      license top-level `license_key`). A *different product* from kgateway — do not merge them.
    - `agentgateway` = **enterprise agentgateway** (CalVer OCI charts `enterprise-agentgateway[-crds]`,
      ns `agentgateway-system`, license `licensing.licenseKey`). Community uses a separate OSS line.
+   - `kagent` = **enterprise**: singleton `management` release in `agentgateway-system`
+     plus `kagent-enterprise[-crds]` in ns `kagent` (experimental in solomog);
+     **community**: stable upstream `kagent[-crds]` OCI charts. Both use bundled
+     PostgreSQL for short PoVs. `prepare-kagent.sh` validates the provider and creates
+     Enterprise JWT/OIDC secrets. Enterprise kagent is standalone for evaluation;
+     its production security path composes with ambient Istio + Enterprise agentgateway.
+     `KAGENT_AUTOAUTH=true` is a CLI-only escape hatch for a disposable standalone
+     run to ignore persistent `SOLO_UI_OIDC_*` and use the bundled IdP.
    - `gloo-mesh` = optional Gloo Mesh Enterprise mgmt plane. Repo unverified (TODO); not used
      by any default scenario. Distinct from the Gloo Operator above.
 2. **Edition** — `enterprise` (default) or `community`. A helmfile *environment*.
@@ -55,13 +63,20 @@ These combine freely and are the core mental model:
 1. `vind-create.sh` — create the cluster (docker driver, default config) + connect.
 2. `gen-certs.sh` — only if `istio` or `gloo-mesh` is requested.
 3. For each product in **`CANONICAL_ORDER`** (`istio gloo-mesh kgateway
-   gloo-gateway agentgateway`), if requested, `helmfile sync -f products/<p>.yaml
+   gloo-gateway agentgateway kagent`), if requested, `helmfile sync -f products/<p>.yaml
    -e $EDITION --kube-context vcluster-docker_$CLUSTER`. `stack.sh` also exports
    `SOLO_CONTEXT` so helmfile hooks (e.g. gloo-gateway's Gateway API CRD bootstrap)
    target the right cluster.
 
-Single-product tasks (`istio:*:single`, `kgateway`, `agentgateway`, etc.) are thin
+Single-product tasks (`istio:*:single`, `kgateway`, `agentgateway`, `kagent`, etc.) are thin
 shortcuts that call `stack.sh` with a fixed product list.
+
+**Enterprise kagent compatibility guard:** kagent 0.5.x documents Kubernetes
+1.32–1.36, Gateway API 1.5.0, agentgateway 2026.7.0, and Istio 1.26–1.29.
+Solomog's general defaults currently differ. Standalone Enterprise kagent is an
+allowed evaluation topology; agentgateway composition warns on unverified pins;
+an Istio+kagent run is rejected unless `ISTIO_VERSION` is in 1.26–1.29. Do not
+add a “full secure stack” shortcut until the combination is exercised.
 
 ### Multi-cluster
 
@@ -179,19 +194,28 @@ Two read-only views over the same CR relationship model (agentgateway only today
   Prefer raw PF+curl over requiring `agctl`. Both tasks resolve context via `solomog_context`
   (vind / `.solomog/contexts` / `CONTEXT=`).
 
-### Add-ons (UI, Portal & monitoring)
-Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modules in
-[helmfiles/addons/](helmfiles/addons/), installed by their own scripts (not `stack.sh`'s
-product loop). Three exist:
-- **`<product>:ui`** — the Solo UI. It's the **same compound pattern as `kgateway:with-istio`**:
-  the task installs the product (`stack.sh`) *then* the UI ([scripts/install-agentgateway-ui.sh](scripts/install-agentgateway-ui.sh)).
-  The UI is **one `management` chart** (`helm_repo_solo_enterprise`, ns `agentgateway-system`)
-  with per-product toggles — `agentgateway:ui` enables only `products.agentgateway`. A future
-  `gloo-mesh:ui` flips `products.mesh` on the *same* chart. **CRDs are bundled** in the chart
+### Add-ons (shared UI, Portal & monitoring)
+Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modules
+in [helmfiles/addons/](helmfiles/addons/), usually installed by their own scripts.
+The shared management chart is also consumed by the Enterprise kagent product
+module so it can coordinate one Helm release across products:
+- **Shared Solo UI** — `agentgateway:ui` is the same compound pattern as
+  `kgateway:with-istio`: the task installs the product then enables agentgateway
+  in [scripts/install-agentgateway-ui.sh](scripts/install-agentgateway-ui.sh).
+  Enterprise kagent enables `products.kagent` from its product module. Both use
+  exactly **one `management` release** (`helm_repo_solo_enterprise`, release
+  `management`, ns `agentgateway-system`) with `reuseValues: true`, so either
+  install order preserves the other product. `prepare-kagent.sh` and the UI
+  installer reject a management chart found under any other Helm release; a
+  second instance causes cluster-scoped CRD ownership conflicts. When kagent is
+  already installed, the agentgateway UI script also preserves management OIDC;
+  changing only the UI's issuer would crash-loop kagent discovery. An explicit
+  `KAGENT_AUTOAUTH=true` sync resets stored external OIDC values to chart defaults.
+  **CRDs are bundled** in the chart
   (its `management-crds` subchart, enabled by default) — do NOT add a separate `management-crds`
   release; the workshop's split + `enabled=false` is a long-lived-cluster CRD-lifecycle pattern
-  that buys nothing for ephemeral vclusters. **Enterprise only** (no community UI; the script
-  rejects `EDITION=community`). The tracing CR (`EnterpriseAgentgatewayPolicy`) is applied by the
+  that buys nothing for ephemeral vclusters. **Enterprise only.** The tracing CR
+  (`EnterpriseAgentgatewayPolicy`) is applied by the agentgateway UI
   script after sync, targeting the gateway by name (default `agw`) so it attaches once `expose` runs.
 - **`portal`** — Solo Portal (developer portal). Separate task on purpose: today it needs
   Solo Enterprise for kgateway (SEFK) on the cluster, but keeping it out of `kgateway` /
@@ -412,6 +436,17 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 - **Certs must exist before Istio installs.** `stack.sh` and `mesh.sh` order
   `gen-certs` first; preserve that ordering. One shared root CA is reused across all
   clusters in a mesh — delete `certs/` to rotate.
+- **The `management` chart is a singleton.** Enterprise kagent and
+  `agentgateway:ui` both target release `management` in `agentgateway-system`
+  with `reuseValues: true`; neither may render false values for the other
+  product. Never install `kagent-mgmt` separately — the bundled cluster-scoped
+  CRDs cause Helm ownership conflicts. Both install paths reject a management
+  release found under another name/namespace.
+- **Enterprise kagent is an evaluation path, not a default secure stack.** It is
+  resource-heavy (Solo recommends 2 vCPU / 8 GB; ClickHouse requests 3 GB) and
+  0.5.4 embeds upstream beta10. Its production matrix is narrower than the repo
+  defaults; keep the stack compatibility checks and do not silently install
+  Istio/agentgateway as kagent dependencies.
 - **`gloo-mesh` in community mode is a no-op** (Gloo Mesh Enterprise has no OSS
   build) — the module emits `releases: []`. Don't add community repos for it.
 - Chart coordinates **verified** against docs for both editions:
@@ -432,9 +467,18 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
     non-empty `policies.ai`. Solo workshops written for CalVer may need a `policies.ai`
     added to validate on 2.3.x (this is why the `bundles/llmroute` backends carry
     `modelAliases`/`promptCaching`). See versions.env.
+  - `kagent` — enterprise 0.5.4 (`kagent-enterprise-crds` +
+    `kagent-enterprise` from `us-docker.pkg.dev/solo-public/kagent-enterprise-helm/charts`);
+    community stable 0.9.12 (`kagent-crds` + `kagent` from
+    `ghcr.io/kagent-dev/kagent/helm`). Enterprise 0.5.4 embeds upstream
+    0.10.0-beta10; OSS deliberately stays on the latest plain stable SemVer tag.
+    Both install kmcp and bundled PostgreSQL by default. Enterprise additionally
+    enables kagent on the singleton management release and requires JWT/OIDC
+    secrets prepared by `scripts/prepare-kagent.sh`.
   - `gloo-gateway` — 1.21.x (classic Helm repos).
-  - `management` (Solo UI add-on) — 0.5.3, `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts`
-    (verified: docs.solo.io/agentgateway/2.3.x/install/ui/setup/).
+  - `management` (shared Solo UI) — 0.5.4,
+    `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts` (verified against
+    the current Enterprise kagent quickstart).
   - `portal` (Solo Portal add-on) — `portal-crds` + `portal` at `PORTAL_VERSION` (default
     2.2.4, aligned with enterprise `KGATEWAY_VERSION`), same OCI registry as SEFK
     (`us-docker.pkg.dev/solo-public/enterprise-kgateway/charts`). License:
@@ -442,8 +486,8 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
     [docs.solo.io/kgateway/2.3.x/portal/setup/](https://docs.solo.io/kgateway/2.3.x/portal/setup/).
   - `kube-prometheus-stack` 80.4.2 (prometheus-community) for the monitoring add-on.
   Only the `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
-- Enterprise and community are on **different version lines** for kgateway and
-  agentgateway. `community.yaml.gotmpl` overrides `kgateway_version`/`agentgateway_version`
+- Enterprise and community are on **different version lines** for kgateway,
+  agentgateway, and kagent. `community.yaml.gotmpl` overrides their product versions
   from `*_COMMUNITY_VERSION` env vars — don't assume one version fits both editions.
 - All Gateway-API-based products (istio, kgateway, agentgateway) install the
   **upstream Gateway API CRDs** via a `presync` hook (`kubectl apply --server-side`,
@@ -485,6 +529,10 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 - **`gloo-mesh` mgmt-plane repo** is the last unverified chart coordinate.
 - Confirm whether enterprise products use **distinct** license keys or one shared
   Gloo license (design supports both; per-product env vars fall back to SOLO_LICENSE_KEY).
+- Confirm combined-management entitlement behavior: Solo's kagent docs upgrade an
+  existing agentgateway management release using `KAGENT_LICENSE_KEY`, so
+  `management_license_key` prefers it, while the product controllers keep their
+  separate kagent/agentgateway/Istio keys.
 - vcluster config (`clusters/*.yaml`) k3s `extraArgs` format should be checked
   against the installed vcluster version (the schema changed across 0.19+).
 - Community/upstream chart versions differ from enterprise version lines
