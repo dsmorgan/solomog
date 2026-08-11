@@ -127,7 +127,10 @@ done
 echo "    ${READY} node(s) Ready"
 
 # ── 4. MetalLB (the LoadBalancer vind/EKS gave for free — what `expose` rides on) ─
-echo "==> installing MetalLB + address pool ${VSPHERE_LB_POOL}"
+# Each cluster gets ONLY its reserved slice of VSPHERE_LB_POOL — independent
+# MetalLBs sharing the full pool all pick the same VIP (see lib/vsphere.sh).
+LB_RANGE="$(vsphere_alloc_lb_slice "$CLUSTER")"
+echo "==> installing MetalLB + address slice ${LB_RANGE} (cluster's cut of ${VSPHERE_LB_POOL})"
 helmfile sync -f "$REPO_DIR/helmfiles/addons/metallb.yaml.gotmpl" --kube-context "$CTX"
 i=0
 until kubectl --context "$CTX" apply -f - <<EOF
@@ -138,7 +141,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - ${VSPHERE_LB_POOL}
+    - ${LB_RANGE}
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -164,7 +167,7 @@ solomog_register_context "$CLUSTER" "$CTX"
 
 echo ""
 echo "✓ vSphere k3s cluster ready — context: ${CTX}"
-echo "  server ${SERVER_IP} + ${NODES} agent(s); LoadBalancer pool ${VSPHERE_LB_POOL}"
+echo "  server ${SERVER_IP} + ${NODES} agent(s); LoadBalancer slice ${LB_RANGE}"
 echo "  Now just use CLUSTER=${CLUSTER}:"
 echo "    solomog agentgateway expose apps:utils ROUTE=true CLUSTER=${CLUSTER}   # smoke test"
 echo "    solomog apply BUNDLE=<bundle> CLUSTER=${CLUSTER}"

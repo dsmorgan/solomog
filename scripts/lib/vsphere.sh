@@ -172,16 +172,86 @@ vsphere_alloc_ips() {   # args: <cluster> <count>
   vsphere_list_ips "$cluster"
 }
 
-# Free a cluster's allocations. No-op if absent; removes the file when it empties.
-# (LoadBalancer VIPs are MetalLB's to assign from VSPHERE_LB_POOL — never recorded
-# here. ⚠ Keep that pool clear of live hosts: MetalLB does no liveness check, and a
-# foreign device on a pool IP ARP-battles the VIP — ds2's 10G leg taught us this.)
+# Free a cluster's allocations (node rows AND its lb-* slice rows). No-op if
+# absent; removes the file when it empties.
 vsphere_release_ips() {   # args: <cluster>
   local f tmp; f="$(_vsphere_pool_file)"; tmp="${f}.tmp"
   [ -f "$f" ] || return 0
   awk -F'\t' -v c="$1" '$1!=c' "$f" > "$tmp"
   mv "$tmp" "$f"
   [ -s "$f" ] || rm -f "$f"
+}
+
+# ── Per-cluster LoadBalancer slices ──────────────────────────────────────────
+# Every cluster runs its own MetalLB, and independent MetalLBs handed the same
+# pool pick the SAME address — the choice hashes the service identity, which is
+# identical on every cluster (same gateway name/namespace). Three clusters, one
+# VIP, ARP battle (found live 2026-08-10). So the shared pool is partitioned at
+# CREATE time: each cluster reserves a contiguous slice (VSPHERE_LB_SLICE_SIZE
+# VIPs, default 4) through this same ippool file, and its IPAddressPool CR
+# carries ONLY that slice. MetalLB then auto-assigns freely within it — no
+# pinning, no expose-time coordination, no cross-cluster collisions. Slice rows
+# (role lb-0..N) release with the cluster's other rows on vsphere:delete; a
+# stopped/paused cluster keeps its slice.
+# ⚠ Keep VSPHERE_LB_POOL clear of live hosts: MetalLB does no liveness check,
+# and a foreign device on a pool IP ARP-battles the VIP (ds2's 10G leg).
+
+# Echo "<base> <start-octet> <end-octet>" for VSPHERE_LB_POOL, validating shape.
+_vsphere_lb_pool_bounds() {
+  local start end base_s base_e s e
+  start="${VSPHERE_LB_POOL%-*}"; end="${VSPHERE_LB_POOL#*-}"
+  base_s="${start%.*}"; base_e="${end%.*}"
+  s="${start##*.}"; e="${end##*.}"
+  case "$s$e" in (*[!0-9]*|'')
+    echo "Error: VSPHERE_LB_POOL='${VSPHERE_LB_POOL}' must look like 10.0.20.200-10.0.20.219." >&2
+    return 1 ;;
+  esac
+  if [ "$base_s" != "$base_e" ] || [ "$s" -gt "$e" ]; then
+    echo "Error: VSPHERE_LB_POOL='${VSPHERE_LB_POOL}' must be an ascending range in one /24." >&2
+    return 1
+  fi
+  printf '%s %s %s' "$base_s" "$s" "$e"
+}
+
+# Reserve (or return the existing) LB slice for <cluster>; echoes "<start>-<end>"
+# in MetalLB address-range form. Idempotent; first-fit contiguous window.
+vsphere_alloc_lb_slice() {   # args: <cluster>
+  local cluster="$1" size="${VSPHERE_LB_SLICE_SIZE:-4}" f bounds base s e lo n ip taken existing
+  f="$(_vsphere_pool_file)"
+  mkdir -p "$(dirname "$f")"
+  if [ -f "$f" ]; then
+    existing="$(awk -F'\t' -v c="$cluster" '$1==c && $3 ~ /^lb-/{print $2}' "$f" | sort -t. -k4,4n)"
+    if [ -n "$existing" ]; then
+      printf '%s-%s' "$(printf '%s\n' "$existing" | head -1)" "$(printf '%s\n' "$existing" | tail -1)"
+      return 0
+    fi
+  fi
+  bounds="$(_vsphere_lb_pool_bounds)" || return 1
+  base="${bounds%% *}"; s="$(printf '%s' "$bounds" | awk '{print $2}')"; e="${bounds##* }"
+  lo="$s"
+  while [ $((lo + size - 1)) -le "$e" ]; do
+    n=0
+    while [ "$n" -lt "$size" ]; do
+      ip="${base}.$((lo + n))"
+      taken=""
+      [ -f "$f" ] && taken="$(awk -F'\t' -v ip="$ip" '$2==ip{print; exit}' "$f")"
+      [ -n "$taken" ] && break
+      n=$((n + 1))
+    done
+    if [ "$n" -eq "$size" ]; then
+      n=0
+      while [ "$n" -lt "$size" ]; do
+        printf '%s\t%s\t%s\n' "$cluster" "${base}.$((lo + n))" "lb-$n" >> "$f"
+        n=$((n + 1))
+      done
+      printf '%s.%s-%s.%s' "$base" "$lo" "$base" "$((lo + size - 1))"
+      return 0
+    fi
+    lo=$((lo + n + 1))   # jump past the occupied address, not one-by-one
+  done
+  echo "Error: no free ${size}-address slice in VSPHERE_LB_POOL (${VSPHERE_LB_POOL})." >&2
+  echo "  → delete unused clusters, grow the pool, or shrink VSPHERE_LB_SLICE_SIZE." >&2
+  return 1
 }
 
 # ── Baseline snapshots (spec phase 4) ────────────────────────────────────────

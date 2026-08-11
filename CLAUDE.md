@@ -322,9 +322,13 @@ vCenter 7.0.3. **Spec is the source of truth**: [docs/specs/vsphere-provisioner.
   on it, lifecycle branches on `solomog_is_external`.
 - **State**: OpenTofu, one workspace per cluster (`terraform/vsphere-k3s/`), state
   gitignored, lock files committed. Node-IP allocator in `.solomog/vsphere/ippool`
-  (roles `server`/`agent-N`). LB VIPs are plain MetalLB auto-assign from
-  `VSPHERE_LB_POOL` — no pinning/reservations (removed with spec decision 13; the
-  DNS=real upsert tracks VIP changes). ⚠ Keep that pool free of live hosts —
+  (roles `server`/`agent-N`). LB VIPs: each cluster reserves a contiguous **slice**
+  of `VSPHERE_LB_POOL` at create (`vsphere_alloc_lb_slice`, `VSPHERE_LB_SLICE_SIZE`
+  default 4, rows `lb-0..N`) and its MetalLB IPAddressPool carries ONLY that slice —
+  independent MetalLBs given the same pool all pick the SAME VIP (service-identity
+  hash) and ARP-battle, so partitioning at create is required; within its slice
+  MetalLB auto-assigns freely (no pinning — removed with spec decision 13; the
+  DNS=real upsert tracks VIP changes). ⚠ Keep the pool free of live hosts —
   MetalLB does no liveness check and a foreign device ARP-battles the VIP.
   `vsphere:delete` also deletes the cluster's DNS=real records from OPNsense
   (matched on the descr expose stamps; best-effort).
