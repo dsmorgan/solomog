@@ -1,9 +1,9 @@
 # Add-on: Solo UI / management plane for agentgateway (the `management` chart).
 #
 # This is the UI half of the `solomog agentgateway:ui` scenario. The Solo UI is a
-# single `management` chart with per-product toggles — here we enable only the
-# agentgateway product, so the same chart can later serve other products' UIs
-# (e.g. mesh) via their own <product>:ui add-ons.
+# singleton `management` chart with per-product toggles. This sync enables
+# agentgateway and reuses existing values so Enterprise kagent can share the
+# same release without a second owner for the bundled management CRDs.
 #
 #   ENTERPRISE ONLY. The Solo UI is an enterprise feature; there is no community
 #   equivalent. The install script guards EDITION=community before reaching here.
@@ -14,7 +14,8 @@
 # lifecycle pattern for long-lived mgmt clusters; it buys nothing for ephemeral
 # vclusters, so we skip it.
 #
-# License: agentgateway_license_key (AGENTGATEWAY_LICENSE_KEY or SOLO_LICENSE_KEY).
+# License: management_license_key. KAGENT_LICENSE_KEY wins when present (the
+# documented shared-release upgrade path); otherwise agentgateway/generic.
 # Tracing wiring (EnterpriseAgentgatewayPolicy) is applied by install-agentgateway-ui.sh
 # after this sync, since it targets the Gateway created by `solomog expose`.
 #
@@ -25,6 +26,8 @@ bases:
 
 ---
 
+{{- $preserveOIDC := eq (env "MANAGEMENT_PRESERVE_OIDC") "true" }}
+
 repositories:
   - name: solo-enterprise
     url: "{{ .Values.helm_repo_solo_enterprise }}"
@@ -34,27 +37,23 @@ releases:
   - name: management
     namespace: agentgateway-system
     chart: solo-enterprise/management
-    version: "{{ .Values.agw_ui_version }}"
+    version: "{{ .Values.management_version }}"
     wait: true
+    reuseValues: true
     values:
       - cluster: "{{ env "SOLO_CLUSTER" | default "mgmt-cluster" }}"
         licensing:
-          licenseKey: "{{ .Values.agentgateway_license_key }}"
+          licenseKey: "{{ .Values.management_license_key }}"
         global:
           imagePullPolicy: IfNotPresent
         service:
           type: ClusterIP
         products:
-          # Enable only the agentgateway UI. Other products get their own <product>:ui.
+          # Do not render false entries for other products: reuseValues preserves
+          # kagent if it was enabled on this singleton release.
           agentgateway:
             enabled: true
             namespace: agentgateway-system
-          kagent:
-            enabled: false
-          mesh:
-            enabled: false
-          agentregistry:
-            enabled: false
         clickhouse:
           enabled: true
         tracing:
@@ -71,7 +70,7 @@ releases:
        a confidential Web app (backend) and a public SPA (frontend) — see bundles/agw-okta-mcp/OKTA-SETUP.md.
        Client secret comes from .env (SOLO_UI_OIDC_BACKEND_CLIENT_SECRET), injected inline like the
        license key — never committed. */ -}}
-{{- if env "SOLO_UI_OIDC_ISSUER" }}
+{{- if and (not $preserveOIDC) (env "SOLO_UI_OIDC_ISSUER") }}
         oidc:
           issuer: "{{ env "SOLO_UI_OIDC_ISSUER" }}"
           additionalScopes: {{ env "SOLO_UI_OIDC_ADDITIONAL_SCOPES" | default "[\"profile\",\"email\"]" }}

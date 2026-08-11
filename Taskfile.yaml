@@ -124,14 +124,14 @@ tasks:
   # one cluster, in dependency order. Single-product tasks below are shortcuts.
 
   stack:
-    desc: 'Compose products on one cluster: PRODUCTS="istio kgateway" CLUSTER=<name> (required)'
+    desc: 'Compose products on one cluster: PRODUCTS="istio kgateway kagent" CLUSTER=<name> (required)'
     summary: |
       Create a cluster and install any combination of products onto it, in dependency
-      order (istio → gloo-mesh → kgateway → gloo-gateway → agentgateway), regardless of
+      order (istio → gloo-mesh → kgateway → gloo-gateway → agentgateway → kagent), regardless of
       the order you list them. Generates Istio certs first when a mesh product is requested.
 
       Variables:
-        PRODUCTS     space-separated products to install (REQUIRED)   istio | gloo-mesh | kgateway | gloo-gateway | agentgateway
+        PRODUCTS     space-separated products to install (REQUIRED)   istio | gloo-mesh | kgateway | gloo-gateway | agentgateway | kagent
         CLUSTER      cluster name (vind, or registered external)  REQUIRED — set CLUSTER (or CONTEXT)
         EDITION      enterprise | community                           default enterprise
         ISTIO_MODE   ambient | sidecar (only affects istio)           default ambient
@@ -146,12 +146,23 @@ tasks:
                          first, so it is agentgateway that then collides — that direction has
                          no opt-out wired yet. Install agentgateway first, then kgateway with
                          this flag.
+        KAGENT_PROVIDER   openAI | anthropic | ollama (only if PRODUCTS includes kagent)
+                                                                    default openAI
+        KAGENT_MODEL      optional model override                   default chart value
+        KAGENT_OLLAMA_HOST  Ollama endpoint                         default host.docker.internal:11434
+        KAGENT_AUTOAUTH   true → force Enterprise bundled IdP for this run,
+                          ignoring persistent SOLO_UI_OIDC_*         default false (CLI-only)
+        KAGENT_OIDC_*     Enterprise controller OIDC; blank uses the bundled auto-IdP.
+                          See .env.example. Enterprise kagent is experimental; its documented
+                          secured topology currently requires Istio 1.26-1.29.
 
       Examples:
         solomog stack PRODUCTS="agentgateway" CLUSTER=aaa
         solomog stack PRODUCTS="istio kgateway" CLUSTER=aaa ISTIO_MODE=sidecar
         solomog stack PRODUCTS="kgateway" EDITION=community CLUSTER=aaa
         solomog stack PRODUCTS="agentgateway" CLUSTER=aaa TOKEN_EXCHANGE=true
+        solomog stack PRODUCTS="kagent" EDITION=community CLUSTER=aaa KAGENT_PROVIDER=ollama
+        solomog stack PRODUCTS="agentgateway kagent" CLUSTER=aaa
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       PRODUCTS: '{{.PRODUCTS}}'
@@ -164,6 +175,7 @@ tasks:
       # Empty → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
       CONTEXT: '{{.CONTEXT | default ""}}'
       ISTIO_MODE: '{{.ISTIO_MODE}}'
+      ISTIO_VERSION: '{{.ISTIO_VERSION | default (env "ISTIO_VERSION") | default ""}}'
       # TOKEN_EXCHANGE is CLI-only — no .env fallback — so it can never silently leak
       # into an unrelated cluster's install. See .env.example for why.
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
@@ -180,6 +192,23 @@ tasks:
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
+      KAGENT_PROVIDER: '{{.KAGENT_PROVIDER | default (env "KAGENT_PROVIDER") | default "openAI"}}'
+      KAGENT_MODEL: '{{.KAGENT_MODEL | default (env "KAGENT_MODEL") | default ""}}'
+      KAGENT_OLLAMA_HOST: '{{.KAGENT_OLLAMA_HOST | default (env "KAGENT_OLLAMA_HOST") | default ""}}'
+      KAGENT_AUTOAUTH: '{{.KAGENT_AUTOAUTH | default "false"}}'
+      KAGENT_OIDC_ISSUER: '{{.KAGENT_OIDC_ISSUER | default (env "KAGENT_OIDC_ISSUER") | default ""}}'
+      KAGENT_OIDC_CLIENT_ID: '{{.KAGENT_OIDC_CLIENT_ID | default (env "KAGENT_OIDC_CLIENT_ID") | default ""}}'
+      KAGENT_OIDC_CLIENT_SECRET: '{{.KAGENT_OIDC_CLIENT_SECRET | default (env "KAGENT_OIDC_CLIENT_SECRET") | default ""}}'
+      SOLO_UI_OIDC_ISSUER: '{{.SOLO_UI_OIDC_ISSUER | default (env "SOLO_UI_OIDC_ISSUER") | default ""}}'
+      SOLO_UI_OIDC_ADDITIONAL_SCOPES: '{{.SOLO_UI_OIDC_ADDITIONAL_SCOPES | default (env "SOLO_UI_OIDC_ADDITIONAL_SCOPES") | default ""}}'
+      SOLO_UI_OIDC_ROLE_MAPPER: '{{.SOLO_UI_OIDC_ROLE_MAPPER | default (env "SOLO_UI_OIDC_ROLE_MAPPER") | default ""}}'
+      SOLO_UI_OIDC_BACKEND_CLIENT_ID: '{{.SOLO_UI_OIDC_BACKEND_CLIENT_ID | default (env "SOLO_UI_OIDC_BACKEND_CLIENT_ID") | default ""}}'
+      SOLO_UI_OIDC_BACKEND_CLIENT_SECRET: '{{.SOLO_UI_OIDC_BACKEND_CLIENT_SECRET | default (env "SOLO_UI_OIDC_BACKEND_CLIENT_SECRET") | default ""}}'
+      SOLO_UI_OIDC_FRONTEND_CLIENT_ID: '{{.SOLO_UI_OIDC_FRONTEND_CLIENT_ID | default (env "SOLO_UI_OIDC_FRONTEND_CLIENT_ID") | default ""}}'
+      OPENAI_API_KEY: '{{.OPENAI_API_KEY | default (env "OPENAI_API_KEY") | default ""}}'
+      CLAUDE_API_KEY: '{{.CLAUDE_API_KEY | default (env "CLAUDE_API_KEY") | default ""}}'
+      KAGENT_LICENSE_KEY: '{{.KAGENT_LICENSE_KEY | default (env "KAGENT_LICENSE_KEY") | default ""}}'
+      SOLO_LICENSE_KEY: '{{.SOLO_LICENSE_KEY | default (env "SOLO_LICENSE_KEY") | default ""}}'
     preconditions:
       - sh: '[ -n "{{.PRODUCTS}}" ]'
         msg: 'Specify products, e.g. PRODUCTS="istio kgateway agentgateway"'
@@ -603,6 +632,63 @@ tasks:
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
+
+  # ─── kagent ──────────────────────────────────────────────────────────────
+
+  kagent:
+    desc: "1 cluster · kagent · EDITION={{.EDITION}} (Enterprise path is experimental)"
+    summary: |
+      Install kagent on one cluster. Community installs the stable OSS CRDs,
+      controller, bundled PostgreSQL, and UI. Enterprise installs the Solo build
+      plus the shared Solo management/UI release; this single-cluster evaluation
+      path is experimental in solomog.
+
+      Enterprise production security composes with ambient Istio and agentgateway,
+      but kagent 0.5.x documents Istio 1.26-1.29 while solomog currently pins 1.30.
+      The stack guard rejects that unsupported combination until you override the
+      Istio pin to a supported version.
+
+      Variables:
+        CLUSTER          cluster name (context vcluster-docker_<CLUSTER>)   REQUIRED — set CLUSTER (or CONTEXT)
+        EDITION          enterprise | community                            default enterprise
+        KAGENT_PROVIDER  openAI | anthropic | ollama                        default openAI
+        KAGENT_MODEL     optional provider model override                   default chart value
+        KAGENT_OLLAMA_HOST  Ollama endpoint                                 default host.docker.internal:11434
+        KAGENT_AUTOAUTH  true → force bundled IdP, ignoring SOLO_UI_OIDC_*   default false (CLI-only)
+        KAGENT_OIDC_ISSUER / _CLIENT_ID / _CLIENT_SECRET
+                         Enterprise controller OIDC; blank uses bundled auto-IdP.
+        OPENAI_API_KEY   required when provider=openAI                      default from .env
+        CLAUDE_API_KEY   required when provider=anthropic                   default from .env
+
+      Examples:
+        solomog kagent CLUSTER=aaa
+        solomog kagent EDITION=community CLUSTER=aaa
+        solomog kagent EDITION=community CLUSTER=aaa KAGENT_PROVIDER=ollama
+        solomog stack PRODUCTS="agentgateway kagent" CLUSTER=aaa
+    vars:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
+    cmds:
+      - bash scripts/stack.sh {{.CLUSTER}} kagent
+    env:
+      EDITION: '{{.EDITION}}'
+      CONTEXT: '{{.CONTEXT | default ""}}'
+      KAGENT_PROVIDER: '{{.KAGENT_PROVIDER | default (env "KAGENT_PROVIDER") | default "openAI"}}'
+      KAGENT_MODEL: '{{.KAGENT_MODEL | default (env "KAGENT_MODEL") | default ""}}'
+      KAGENT_OLLAMA_HOST: '{{.KAGENT_OLLAMA_HOST | default (env "KAGENT_OLLAMA_HOST") | default ""}}'
+      KAGENT_AUTOAUTH: '{{.KAGENT_AUTOAUTH | default "false"}}'
+      KAGENT_OIDC_ISSUER: '{{.KAGENT_OIDC_ISSUER | default (env "KAGENT_OIDC_ISSUER") | default ""}}'
+      KAGENT_OIDC_CLIENT_ID: '{{.KAGENT_OIDC_CLIENT_ID | default (env "KAGENT_OIDC_CLIENT_ID") | default ""}}'
+      KAGENT_OIDC_CLIENT_SECRET: '{{.KAGENT_OIDC_CLIENT_SECRET | default (env "KAGENT_OIDC_CLIENT_SECRET") | default ""}}'
+      SOLO_UI_OIDC_ISSUER: '{{.SOLO_UI_OIDC_ISSUER | default (env "SOLO_UI_OIDC_ISSUER") | default ""}}'
+      SOLO_UI_OIDC_ADDITIONAL_SCOPES: '{{.SOLO_UI_OIDC_ADDITIONAL_SCOPES | default (env "SOLO_UI_OIDC_ADDITIONAL_SCOPES") | default ""}}'
+      SOLO_UI_OIDC_ROLE_MAPPER: '{{.SOLO_UI_OIDC_ROLE_MAPPER | default (env "SOLO_UI_OIDC_ROLE_MAPPER") | default ""}}'
+      SOLO_UI_OIDC_BACKEND_CLIENT_ID: '{{.SOLO_UI_OIDC_BACKEND_CLIENT_ID | default (env "SOLO_UI_OIDC_BACKEND_CLIENT_ID") | default ""}}'
+      SOLO_UI_OIDC_BACKEND_CLIENT_SECRET: '{{.SOLO_UI_OIDC_BACKEND_CLIENT_SECRET | default (env "SOLO_UI_OIDC_BACKEND_CLIENT_SECRET") | default ""}}'
+      SOLO_UI_OIDC_FRONTEND_CLIENT_ID: '{{.SOLO_UI_OIDC_FRONTEND_CLIENT_ID | default (env "SOLO_UI_OIDC_FRONTEND_CLIENT_ID") | default ""}}'
+      OPENAI_API_KEY: '{{.OPENAI_API_KEY | default (env "OPENAI_API_KEY") | default ""}}'
+      CLAUDE_API_KEY: '{{.CLAUDE_API_KEY | default (env "CLAUDE_API_KEY") | default ""}}'
+      KAGENT_LICENSE_KEY: '{{.KAGENT_LICENSE_KEY | default (env "KAGENT_LICENSE_KEY") | default ""}}'
+      SOLO_LICENSE_KEY: '{{.SOLO_LICENSE_KEY | default (env "SOLO_LICENSE_KEY") | default ""}}'
 
   agentgateway:ui:
     desc: "1 cluster · agentgateway + Solo UI (management chart) · enterprise only. Route the UI with expose ROUTE=true."

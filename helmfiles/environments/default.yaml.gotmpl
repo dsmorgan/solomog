@@ -6,11 +6,12 @@ gloo_operator_version: "{{ env "GLOO_OPERATOR_VERSION" }}"
 kgateway_version: "{{ env "KGATEWAY_VERSION" }}"
 gloo_gateway_version: "{{ env "GLOO_GATEWAY_VERSION" }}"
 agentgateway_version: "{{ env "AGENTGATEWAY_VERSION" }}"
+kagent_version: "{{ env "KAGENT_VERSION" }}"
 istio_version: "{{ env "ISTIO_VERSION" }}"
 gateway_api_version: "{{ env "GATEWAY_API_VERSION" | default "1.5.0" }}"
 
 # Add-ons: Solo UI / management plane, Solo Portal, and the monitoring stack.
-agw_ui_version:         "{{ env "AGW_UI_VERSION" }}"
+management_version:     "{{ env "MANAGEMENT_VERSION" }}"
 portal_version:         "{{ env "PORTAL_VERSION" }}"
 kube_prom_stack_version: "{{ env "KUBE_PROM_STACK_VERSION" }}"
 
@@ -44,6 +45,11 @@ gloo_mesh_license_key:    '{{ env "GLOO_MESH_LICENSE_KEY"    | default (env "SOL
 kgateway_license_key:     '{{ env "KGATEWAY_LICENSE_KEY"     | default (env "SOLO_LICENSE_KEY") | default "" }}'
 gloo_gateway_license_key: '{{ env "GLOO_GATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
 agentgateway_license_key: '{{ env "AGENTGATEWAY_LICENSE_KEY" | default (env "SOLO_LICENSE_KEY") | default "" }}'
+kagent_license_key:       '{{ env "KAGENT_LICENSE_KEY"       | default (env "SOLO_LICENSE_KEY") | default "" }}'
+# The singleton management chart accepts one license. Solo's documented path
+# upgrades an existing agentgateway management release with the kagent key, so
+# prefer that key whenever available; otherwise preserve the agentgateway/generic path.
+management_license_key:   '{{ env "KAGENT_LICENSE_KEY"       | default (env "AGENTGATEWAY_LICENSE_KEY") | default (env "SOLO_LICENSE_KEY") | default "" }}'
 # Portal has its own entitlement (PORTAL_LICENSE_KEY). Falls back to SOLO_LICENSE_KEY
 # only — not KGATEWAY_LICENSE_KEY — so a kgateway-only key doesn't silently get
 # reused when Portal needs a distinct license. Override secretKey/secretName in
@@ -56,4 +62,5 @@ helm_repo_gloo_mesh:      ""
 helm_repo_kgateway:       ""
 helm_repo_gloo_gateway:   ""
 helm_repo_agentgateway:   ""
+helm_repo_kagent:         ""
 helm_repo_solo_enterprise: ""   # `management` chart (Solo UI) — enterprise only
