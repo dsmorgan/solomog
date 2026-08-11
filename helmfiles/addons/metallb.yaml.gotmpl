@@ -1,0 +1,23 @@
+# Add-on: MetalLB — LoadBalancer implementation for vSphere homelab clusters.
+#
+# Installed ONLY by scripts/vsphere-create.sh (cluster infrastructure, not a product —
+# it's what vind's haproxy LB / EKS's cloud LB provide for free, so `expose` works
+# unchanged: each Gateway gets its own IP from VSPHERE_LB_POOL). vind/EKS clusters
+# never get this.
+#
+# Deliberately SELF-CONTAINED (no ../commons.yaml bases, repo URL inline, version via
+# env) — the vsphere capability's isolation contract keeps it out of the shared
+# environment files, and MetalLB is OSS/edition-agnostic so it needs none of them.
+# The IPAddressPool/L2Advertisement CRs are applied by vsphere-create.sh after sync
+# (they're .env-derived config, not chart values).
+
+repositories:
+  - name: metallb
+    url: https://metallb.github.io/metallb
+
+releases:
+  - name: metallb
+    namespace: metallb-system
+    chart: metallb/metallb
+    version: '{{ env "METALLB_VERSION" | default "0.14.9" }}'
+    wait: true

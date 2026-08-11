@@ -98,6 +98,22 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   stored state) — not a full task re-run.
 - Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) give
   mixed-version meshes; mesh.sh maps `cluster-two` → `ISTIO_VERSION_CLUSTER_TWO`.
+- **Registered external clusters (vsphere) mesh too — gateway topology only**: same
+  `istio:ambient:multi-gateway CLUSTERS="s6 s7"` task; mesh.sh uses the registered
+  clusters as-is (they must pre-exist; vind+external mixing refused — vind LB IPs are
+  Mac-local; flat refused — it needs Docker-bridge routing) and there's NO host
+  routing at all: east-west gateways sit on real MetalLB IPs, nothing decays, no
+  net:repair. mesh.sh exports `ISTIO_PLATFORM=k3s` (CNI paths) for vsphere targets
+  and `ISTIO_MULTI_NETWORK=true` for gateway topology (community istiod needs
+  `AMBIENT_ENABLE_MULTI_NETWORK`/`_BAGGAGE` to register the east-west class).
+  **Community vs enterprise east-west differs** (mesh-eastwest.sh handles both):
+  upstream's class is `istio-east-west` (auto-detected vs Solo's `istio-eastwest`),
+  its remote peers use trust-domain cluster.local + both listeners (15008+15012),
+  and upstream cross-cluster *discovery* is remote secrets (istio-reader kubeconfig
+  per peer, built with plain kubectl — the ambient e/w gateway cannot expose istiod);
+  istio-system carries the `topology.istio.io/network` label. ztunnel always gets
+  `multiCluster.clusterName` + `global.network` (chart default "Kubernetes" is
+  REJECTED by istiod — this was latently broken for community ambient everywhere).
 
 ## Conventions
 
@@ -157,6 +173,9 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   therefore pass `PRODUCT` empty (not a default) so the script can detect.
   NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY` default is `agw`
   (the agentgateway apps route there) — keep it in sync with the gw name.
+  expose stamps the reachable hostname on the Gateway as the **`solomog.io/host`
+  annotation** — routes.sh (header display) and test-bundle.sh (`$HOST` default) read
+  it; new consumers should read the annotation, not re-derive hostnames.
   Hostname defaults to `<NAME>.<CLUSTER>.test` — always use **`.test`** (RFC 6761), never
   `.local` (mDNS/Bonjour collision → slow resolution); the cluster component keeps the host
   unique across clusters.
@@ -242,7 +261,10 @@ Reason: the Solo UI (served under `/age/`) and Grafana both assume they own thei
 prefix-stripping rewrite breaks their assets — give each its own host instead.
 - The sub-host is **nested under expose's wildcard cert** (`*.agw.<cluster>.test`), so TLS is free —
   no new cert. The expose Gateway sets no listener `hostname` and allows routes from all namespaces,
-  so it accepts any sub-host.
+  so it accepts any sub-host. **DNS mode follows the gateway**: route-host.sh reads expose's
+  `solomog.io/host` annotation — a `.test` base nests (`ui.agw.<c>.test`, /etc/hosts), a DNS=real
+  base flattens (`ui-agw-<c>.<domain>` — still one label, same `*.<domain>` LE cert; record
+  upserted via the OPNsense API). Don't derive sub-host names any other way.
 - **`/etc/hosts` has no wildcard support**, so each sub-host needs its own explicit line. Ordering is
   handled both ways: `route-host.sh` adds the line immediately if the gateway already exists, and
   `expose.sh` **backfills** entries for any sub-host HTTPRoute already attached to its gateway (jq over
@@ -326,6 +348,44 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   `solomog env:diff` reports key drift (names only); `solomog env:backup` snapshots to
   `.solomog/env-backups/` (also auto on refresh/sync). Prefer sync after pulling example changes
   rather than hand-editing section order.
+### vSphere homelab provisioner (optional capability)
+A third cluster provisioner beside vind and EKS: real k3s clusters on David's home
+vCenter 7.0.3. **Spec is the source of truth**: [docs/specs/vsphere-provisioner.md](docs/specs/vsphere-provisioner.md)
+(architecture, decisions record, phases). The short version:
+- **Isolation contract** (do not break): all vsphere logic lives in
+  `taskfiles/vsphere.yaml` (an `optional: true` include — the root Taskfile carries
+  only the includes block), `scripts/vsphere-*.sh` + `scripts/lib/vsphere.sh`,
+  `terraform/vsphere-*`, and `helmfiles/addons/metallb.yaml.gotmpl` (deliberately
+  self-contained — no commons bases, repo URL inline). OpenTofu is lazy-checked
+  (the eksctl precedent) — NEVER add it to setup.sh; uv is lazy-checked too but is
+  ALREADY a setup.sh prerequisite (bundle testing) — leave it there. Missing
+  `VSPHERE_*` config fails every vsphere task fast. There is no feature flag; the
+  preflight is the flag.
+- **Registry seam**: `vsphere:create` registers `<cluster> → vsphere_<cluster>` in
+  `.solomog/contexts`, after which every task works via `CLUSTER=` like any external
+  cluster. `solomog_is_vsphere` (lib/target.sh) identifies them — LB semantics branch
+  on it, lifecycle branches on `solomog_is_external`.
+- **State**: OpenTofu, one workspace per cluster (`terraform/vsphere-k3s/`), state
+  gitignored, lock files committed. Node-IP allocator in `.solomog/vsphere/ippool`
+  (roles `server`/`agent-N`). LB VIPs: each cluster reserves a contiguous **slice**
+  of `VSPHERE_LB_POOL` at create (`vsphere_alloc_lb_slice`, `VSPHERE_LB_SLICE_SIZE`
+  default 4, rows `lb-0..N`) and its MetalLB IPAddressPool carries ONLY that slice —
+  independent MetalLBs given the same pool all pick the SAME VIP (service-identity
+  hash) and ARP-battle, so partitioning at create is required; within its slice
+  MetalLB auto-assigns freely (no pinning — removed with spec decision 13; the
+  DNS=real upsert tracks VIP changes). ⚠ Keep the pool free of live hosts —
+  MetalLB does no liveness check and a foreign device ARP-battles the VIP.
+  `vsphere:delete` also deletes the cluster's DNS=real records from OPNsense
+  (matched on the descr expose stamps; best-effort).
+- **Snapshots & power**: `vsphere-snapshot.py` (pyvmomi via `uv run --with pyvmomi`,
+  wrapped by `vsphere_vm_tool`) does take/revert/stop/start/status — vCenter 7.0.3
+  has no REST snapshot API and the tofu provider can't revert or power-cycle.
+  Baselines are memory-less (revert = clean cold boot, no suspend clock jump);
+  stop/start = graceful guest shutdown / power-on (pause-resume, state preserved),
+  vs snapshot/reset = savepoint-restore (discards back to baseline).
+- **Tests**: `bash scripts/test-vsphere-lib.sh` (fixtures, no vCenter needed; keep it
+  hermetic via the `VSPHERE_POOL_FILE`/`VSPHERE_INIT_STATE` overrides).
+
 ### Add a new scenario
 Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
 For new cross-cluster topologies, write a dedicated helmfile.
@@ -502,6 +562,25 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 - Enterprise Istio is operator-managed, so there are **no istio base/istiod/cni/
   ztunnel Helm releases** in that path — the `ServiceMeshController` CR drives it.
   Only the community path installs those charts directly.
+- **App/addon scripts must resolve their kube context via `solomog_context`** —
+  seven task call sites once passed a hardcoded `vcluster-docker_<CLUSTER>` arg and
+  broke on every registered external cluster (EKS and vsphere alike). The scripts
+  now resolve `CLUSTER`/`CONTEXT` themselves (positional context arg kept only for
+  back-compat); new cluster-touching scripts must do the same.
+- **vSphere/OVA gotchas** (see the spec for detail): VMs cloned from the Ubuntu OVA
+  need a `cdrom { client_device = true }` block or every day-2 tofu plan fails
+  ("requires a client CDROM device"); the CD-ROM is IDE so it can't hot-add — VMs
+  created without it need one powered-off apply. cloud-init rides the **guestinfo**
+  datasource only because no vApp properties are set on the clone — don't add any.
+  The OVA is **amd64** (homelab vSphere), the opposite of the arm64 rule for vind
+  images. vCenter TLS: prefer `VSPHERE_CACERT` (verified custom CA) over
+  `VSPHERE_ALLOW_UNVERIFIED_SSL`.
+- **expose branches on LB semantics, not lifecycle**: vsphere targets take the
+  local path (mkcert + `/etc/hosts` — a MetalLB VIP is a private IP) via
+  `solomog_is_vsphere`; only hostname-LB clouds (EKS) take the external path. Don't
+  gate exposure behavior on `solomog_is_external`.
+- **bash 3.2 chokes on an apostrophe inside a `${VAR:?message}` word** (parses it
+  as an opening quote → "unexpected EOF"). Keep `:?` messages apostrophe-free.
 
 ## Validating changes without a cluster
 

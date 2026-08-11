@@ -22,7 +22,8 @@ set -euo pipefail
 #             TESTS="54 56" or TESTS="54-cid-composite.sh". Unset = run all. Applies to every
 #             bundle in BUNDLE; a prefix that matches nothing is warned about (non-fatal).
 #   GATEWAY   gateway name for $HOST default (default agw)
-#   HOST      base host for curls (default <GATEWAY>.<CLUSTER>.test)
+#   HOST      base host for curls (default: the Gateway's solomog.io/host annotation
+#             stamped by expose; fallback <GATEWAY>.<CLUSTER>.test on vind / LB address)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/ui.sh"
@@ -37,10 +38,19 @@ TESTS="${TESTS:-}"   # optional space-separated test-name prefixes; empty = run 
 # Auto-detect the gateway (agw/kgw) from the cluster, like expose — so $HOST matches the
 # cert expose minted. Override with GATEWAY=/HOST= for anything non-standard.
 GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
-# HOST default differs by target: vind has an /etc/hosts entry (<gw>.<cluster>.test), but an
-# external (EKS) cluster has none — the reachable host is the Gateway's cloud LB address. (Detect
-# via the resolved CONTEXT: line 30 already reassigned it, so solomog_is_external would always be
-# true here — match the vind context prefix instead.)
+# HOST default: prefer the hostname expose stamped on the Gateway (solomog.io/host
+# annotation) — the one source of truth across vind, vsphere (both DNS modes), and EKS.
+# Fallbacks for gateways exposed before the stamp existed: vind derives the /etc/hosts
+# name (<gw>.<cluster>.test); anything else uses the Gateway's LB address (right for
+# EKS hostname LBs; a vsphere VIP *IP* will fail strict TLS — re-expose to stamp).
+if [ -z "${HOST:-}" ]; then
+  # `|| true` matters: with no Gateway API CRDs (pod-free hello-world flow) kubectl
+  # exits 1 and pipefail would kill the script before the fallbacks below can run.
+  HOST="$(kubectl --context "$CONTEXT" get gateways.gateway.networking.k8s.io -A -o json 2>/dev/null \
+    | jq -r --arg gw "$GATEWAY" \
+        '[.items[] | select(.metadata.name==$gw) | .metadata.annotations["solomog.io/host"] // empty] | first // ""' \
+    || true)"
+fi
 if [ -z "${HOST:-}" ]; then
   case "$CONTEXT" in
     vcluster-docker_*) HOST="${GATEWAY}.${CLUSTER}.test" ;;
