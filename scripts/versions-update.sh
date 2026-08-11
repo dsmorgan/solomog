@@ -23,12 +23,23 @@ fetch_latest() {
     | jq -r '.tag_name // empty'
 }
 
+# Some projects publish a release candidate as GitHub "latest" without marking
+# it prerelease (kagent v0.10.0-rc1 did this). Select the newest plain SemVer tag
+# instead so an update check never recommends a prerelease for the stable pin.
+fetch_latest_stable_semver() {
+  local repo="$1"
+  curl -fsSL "https://api.github.com/repos/${repo}/releases?per_page=100" \
+    | jq -r '[.[] | select(.draft == false) | .tag_name | select(test("^v?[0-9]+\\.[0-9]+\\.[0-9]+$"))][0] // empty'
+}
+
 echo "==> Checking versions against GitHub latest (read-only — will not write versions.env)"
 echo ""
 
 GLOO_MESH_LATEST=$(fetch_latest "solo-io/gloo-mesh-enterprise" 2>/dev/null || echo "")
 KGATEWAY_OSS_LATEST=$(fetch_latest "kgateway-dev/kgateway" 2>/dev/null || echo "")
 AGENTGATEWAY_LATEST=$(fetch_latest "solo-io/agentgateway" 2>/dev/null || echo "")
+KAGENT_OSS_LATEST=$(fetch_latest_stable_semver "kagent-dev/kagent" 2>/dev/null || echo "")
+KAGENT_OSS_LATEST="${KAGENT_OSS_LATEST#v}"
 ISTIO_LATEST=$(fetch_latest "istio/istio" 2>/dev/null || echo "")
 
 # Read current pinned values for comparison
@@ -53,6 +64,8 @@ print_row "KGATEWAY_COMMUNITY_VERSION" \
   "${KGATEWAY_COMMUNITY_VERSION:-?}" "$KGATEWAY_OSS_LATEST" "OSS GitHub; not enterprise OCI"
 print_row "AGENTGATEWAY_VERSION" \
   "${AGENTGATEWAY_VERSION:-?}" "$AGENTGATEWAY_LATEST"
+print_row "KAGENT_COMMUNITY_VERSION" \
+  "${KAGENT_COMMUNITY_VERSION:-?}" "$KAGENT_OSS_LATEST" "stable OSS chart; prereleases excluded"
 print_row "ISTIO_VERSION" \
   "${ISTIO_VERSION:-?}" "$ISTIO_LATEST"
 
@@ -62,7 +75,8 @@ printf "  %-32s %s  (enterprise OCI — not kgateway-dev GitHub latest)\n" \
   "KGATEWAY_VERSION" "${KGATEWAY_VERSION:-?}"
 printf "  %-32s %s\n" "GLOO_OPERATOR_VERSION" "${GLOO_OPERATOR_VERSION:-?}"
 printf "  %-32s %s\n" "GLOO_GATEWAY_VERSION" "${GLOO_GATEWAY_VERSION:-?}"
-printf "  %-32s %s\n" "AGW_UI_VERSION" "${AGW_UI_VERSION:-?}"
+printf "  %-32s %s\n" "KAGENT_VERSION" "${KAGENT_VERSION:-?}"
+printf "  %-32s %s\n" "MANAGEMENT_VERSION" "${MANAGEMENT_VERSION:-?}"
 printf "  %-32s %s  (enterprise-kgateway OCI — SEFK portal charts)\n" \
   "PORTAL_VERSION" "${PORTAL_VERSION:-?}"
 printf "  %-32s %s\n" "KUBE_PROM_STACK_VERSION" "${KUBE_PROM_STACK_VERSION:-?}"
@@ -74,6 +88,7 @@ has_updates=false
 [[ -n "$GLOO_MESH_LATEST"    && "$GLOO_MESH_LATEST"    != "${GLOO_MESH_VERSION:-}"            ]] && has_updates=true
 [[ -n "$KGATEWAY_OSS_LATEST" && "$KGATEWAY_OSS_LATEST" != "${KGATEWAY_COMMUNITY_VERSION:-}" ]] && has_updates=true
 [[ -n "$AGENTGATEWAY_LATEST" && "$AGENTGATEWAY_LATEST" != "${AGENTGATEWAY_VERSION:-}"       ]] && has_updates=true
+[[ -n "$KAGENT_OSS_LATEST"   && "$KAGENT_OSS_LATEST"   != "${KAGENT_COMMUNITY_VERSION:-}"  ]] && has_updates=true
 [[ -n "$ISTIO_LATEST"        && "$ISTIO_LATEST"        != "${ISTIO_VERSION:-}"              ]] && has_updates=true
 
 if ! $has_updates; then
