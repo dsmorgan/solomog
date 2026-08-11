@@ -12,6 +12,8 @@ set -euo pipefail
 # Usage: gen-certs.sh <cluster-name> [<cluster-name> ...]
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
 CERTS_DIR="$REPO_DIR/certs"
 
 if [[ $# -eq 0 ]]; then
@@ -44,7 +46,7 @@ else
 fi
 
 for cluster in "${CLUSTERS[@]}"; do
-  ctx="vcluster-docker_${cluster}"
+  ctx="$(solomog_context "$cluster")"
   cert_dir="$CERTS_DIR/$cluster"
   mkdir -p "$cert_dir"
 
