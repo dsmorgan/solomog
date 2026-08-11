@@ -33,9 +33,9 @@ CLUSTER="${1:-}"
 solomog_require_cluster "$CLUSTER" graph
 # Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
 CTX="$(solomog_context "$CLUSTER")"
-# For an external target, CLUSTER is only a display label — derive a readable one from the
-# context (arn:...:cluster/NAME → NAME; plain context name → itself).
-solomog_is_external "$CLUSTER" && CLUSTER="${CTX##*/}"
+# CLUSTER is only a display label from here on (also names the output file); derive
+# one when only CONTEXT= was given (arn:...:cluster/NAME → NAME; vsphere_<n> → <n>).
+CLUSTER="$(solomog_display_name "$CLUSTER" "$CTX")"
 SERVE="${SERVE:-false}"
 DUMP="${DUMP:-true}"
 DUMP_TIMEOUT="${DUMP_TIMEOUT:-15}"
