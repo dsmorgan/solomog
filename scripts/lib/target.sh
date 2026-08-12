@@ -88,6 +88,48 @@ solomog_require_cluster() {   # args: <cluster-value> [<task-label>]
   exit 1
 }
 
+# Reload the AWS cred vars from .env over whatever the shell exported. Parses .env with
+# envfile_get (the dotenv parser) — NOT `export "$(grep ^KEY= .env)"`, which exports the raw
+# line INCLUDING its trailing "# comment" field, so a commented .env (every key in
+# .env.example carries one) silently poisons the value:
+#   aws: [ERROR]: The config profile (AdministratorAccess-1700…   # e.g. solo-sso …) could not be found
+# Also normalizes two set-but-EMPTY traps, since an empty var is NOT the same as an unset one:
+#   • AWS_REGION="" is a documented .env state ("blank is fine"), but go-task exports it and
+#     every region-less call then dies with: Invalid endpoint: https://sts..amazonaws.com
+#   • a blank cred in .env must UNSET, not export "", so it can't shadow the profile.
+# A key ABSENT from .env is left alone (a hand-exported AWS_PROFILE still works).
+# Never exits — callers decide what missing creds mean.
+solomog_aws_env_load() {
+  local lib_dir env_file var val
+  lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  env_file="$lib_dir/../../.env"
+  . "$lib_dir/envfile.sh"
+  unset AWS_CREDENTIAL_EXPIRATION   # a stale one poisons EKS get-token; .env never carries it
+  if [ -f "$env_file" ]; then
+    for var in AWS_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do   # NOT AWS_REGION — each script sets that from the cluster context
+      if envfile_has "$env_file" "$var"; then
+        val="$(envfile_get "$env_file" "$var" 2>/dev/null || true)"
+        if [ -n "$val" ]; then export "$var=$val"; else unset "$var"; fi
+      fi
+    done
+  fi
+  for var in AWS_REGION AWS_DEFAULT_REGION; do
+    eval "val=\${$var-__solomog_unset__}"
+    if [ -z "$val" ]; then unset "$var"; fi
+  done
+  return 0
+}
+
+# True when AWS creds actually work. Probes region-less first (profile config supplies the
+# region), then pins one — STS answers in any region, and a caller may have no region
+# configured at all now that a blank AWS_REGION is unset rather than passed through.
+solomog_aws_ok() {
+  command -v aws >/dev/null 2>&1 || return 1
+  aws sts get-caller-identity >/dev/null 2>&1 && return 0
+  aws sts get-caller-identity --region us-east-1 >/dev/null 2>&1 && return 0
+  return 1
+}
+
 # AWS preflight for the eks:* tasks. Ensures a WORKING AWS identity, robust to the #1 footgun:
 # stale AWS_* left exported in the interactive shell SHADOW the fresh creds `aws:refresh` wrote to
 # .env (go-task loads .env as dotenv, but OS-env wins over dotenv — verified). So `aws:refresh`
@@ -95,18 +137,14 @@ solomog_require_cluster() {   # args: <cluster-value> [<task-label>]
 # straight from .env (overriding whatever the shell exported) and drop AWS_CREDENTIAL_EXPIRATION
 # (a stale one poisons EKS get-token — "expired" even with fresh keys; .env never carries it), then
 # verify with sts. Makes `solomog aws:refresh eks:delete CLUSTER=…` reliable regardless of shell state.
+#
+# The reload itself is solomog_aws_env_load; the identity check is solomog_aws_ok. Both are
+# reusable so soft callers (cluster:list) can reload without the hard exit this adds.
 solomog_aws_preflight() {   # args: [<task-label>]
-  local what="${1:-this task}" env_file line var
-  env_file="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.env"
-  unset AWS_CREDENTIAL_EXPIRATION
-  if [ -f "$env_file" ]; then
-    for var in AWS_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do   # NOT AWS_REGION — each script sets that from the cluster context
-      line="$(grep -E "^${var}=" "$env_file" 2>/dev/null | tail -1)"
-      [ -n "$line" ] && export "${line?}"
-    done
-  fi
+  local what="${1:-this task}"
+  solomog_aws_env_load
   command -v aws >/dev/null 2>&1 || { echo "Error: aws CLI not found." >&2; exit 1; }
-  aws sts get-caller-identity >/dev/null 2>&1 && return 0
+  solomog_aws_ok && return 0
   {
     echo "Error: no working AWS credentials for ${what}."
     echo "  Fix (either):"

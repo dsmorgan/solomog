@@ -23,6 +23,11 @@ CLUSTERS_FILE="$REPO_DIR/.solomog/clusters"
 CONTEXTS_FILE="$REPO_DIR/.solomog/contexts"
 MODE="${1:-list}"
 
+# For solomog_aws_env_load / solomog_aws_ok only — context resolution here is
+# deliberately local (_ctx_for ignores CONTEXT so a one-off override can't rewrite
+# every row of the table).
+. "$REPO_DIR/scripts/lib/target.sh"
+
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[32m'; B=$'\033[1m'; D=$'\033[2m'; Y=$'\033[33m'; R=$'\033[0m'
 else
@@ -110,22 +115,15 @@ _vcluster_running() {   # args: <name> → 0 if present in live list
   printf '%s\n' "$VCLUSTER_LIST" | grep -qxF "$1"
 }
 
-# Soft AWS identity for EKS status. Same .env-reload footgun fix as
+# Soft AWS identity for EKS status. Shares the .env-reload + identity probe with
 # solomog_aws_preflight, but NEVER exits — bad/expired creds just leave AWS_OK=0
 # so EKS rows keep status "—".
 AWS_OK=0
 _load_aws() {
   AWS_OK=0
   command -v aws >/dev/null 2>&1 || return 0
-  local env_file="$REPO_DIR/.env" line var
-  unset AWS_CREDENTIAL_EXPIRATION
-  if [ -f "$env_file" ]; then
-    for var in AWS_PROFILE AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do
-      line="$(grep -E "^${var}=" "$env_file" 2>/dev/null | tail -1)"
-      [ -n "$line" ] && export "${line?}"
-    done
-  fi
-  aws sts get-caller-identity >/dev/null 2>&1 && AWS_OK=1
+  solomog_aws_env_load
+  solomog_aws_ok && AWS_OK=1
   return 0
 }
 
