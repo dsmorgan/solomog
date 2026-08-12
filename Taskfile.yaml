@@ -157,9 +157,11 @@ tasks:
                                                                     default openAI
         KAGENT_MODEL      optional model override                   default chart value
         KAGENT_OLLAMA_HOST  Ollama endpoint                         default host.docker.internal:11434
-        KAGENT_AUTOAUTH   true → force Enterprise bundled IdP for this run,
-                          ignoring persistent SOLO_UI_OIDC_*         default false (CLI-only)
-        KAGENT_OIDC_*     Enterprise controller OIDC; blank uses the bundled auto-IdP.
+        KAGENT_AUTOAUTH   true → force Enterprise bundled IdP for this run, ignoring a
+                          persistent KAGENT_OIDC_ISSUER               default false (CLI-only)
+        KAGENT_OIDC_*     Enterprise controller OIDC; blank (the default) uses the bundled
+                          auto-IdP and needs no IdP setup. SOLO_UI_OIDC_* alone does NOT
+                          put kagent behind that IdP — set KAGENT_OIDC_ISSUER to opt in.
                           See .env.example. Enterprise kagent is experimental; its documented
                           secured topology currently requires Istio 1.26-1.29.
 
@@ -661,9 +663,11 @@ tasks:
         KAGENT_PROVIDER  openAI | anthropic | ollama                        default openAI
         KAGENT_MODEL     optional provider model override                   default chart value
         KAGENT_OLLAMA_HOST  Ollama endpoint                                 default host.docker.internal:11434
-        KAGENT_AUTOAUTH  true → force bundled IdP, ignoring SOLO_UI_OIDC_*   default false (CLI-only)
+        KAGENT_AUTOAUTH  true → force bundled IdP for this run                default false (CLI-only)
         KAGENT_OIDC_ISSUER / _CLIENT_ID / _CLIENT_SECRET
-                         Enterprise controller OIDC; blank uses bundled auto-IdP.
+                         Enterprise controller OIDC; blank (default) uses the bundled
+                         auto-IdP. SOLO_UI_OIDC_* alone does not imply these — set
+                         KAGENT_OIDC_ISSUER to put kagent behind a real IdP.
         OPENAI_API_KEY   required when provider=openAI                      default from .env
         CLAUDE_API_KEY   required when provider=anthropic                   default from .env
 

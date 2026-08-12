@@ -47,8 +47,12 @@ These combine freely and are the core mental model:
      PostgreSQL for short PoVs. `prepare-kagent.sh` validates the provider and creates
      Enterprise JWT/OIDC secrets. Enterprise kagent is standalone for evaluation;
      its production security path composes with ambient Istio + Enterprise agentgateway.
-     `KAGENT_AUTOAUTH=true` is a CLI-only escape hatch for a disposable standalone
-     run to ignore persistent `SOLO_UI_OIDC_*` and use the bundled IdP.
+     Auth defaults to the chart's bundled auto-IdP (the documented quickstart);
+     `KAGENT_OIDC_ISSUER` opts into a real IdP and then also requires `SOLO_UI_OIDC_*`.
+     `SOLO_UI_OIDC_*` on its own must NOT imply kagent OIDC — it needs a separately
+     registered kagent client, so an unrelated cluster's `.env` would otherwise make
+     `solomog kagent` unrunnable. `KAGENT_AUTOAUTH=true` is a CLI-only escape hatch
+     that forces the bundled IdP for one run.
    - `gloo-mesh` = optional Gloo Mesh Enterprise mgmt plane. Repo unverified (TODO); not used
      by any default scenario. Distinct from the Gloo Operator above.
 2. **Edition** — `enterprise` (default) or `community`. A helmfile *environment*.
@@ -234,8 +238,11 @@ module so it can coordinate one Helm release across products:
   installer reject a management chart found under any other Helm release; a
   second instance causes cluster-scoped CRD ownership conflicts. When kagent is
   already installed, the agentgateway UI script also preserves management OIDC;
-  changing only the UI's issuer would crash-loop kagent discovery. An explicit
-  `KAGENT_AUTOAUTH=true` sync resets stored external OIDC values to chart defaults.
+  changing only the UI's issuer would crash-loop kagent discovery. `prepare-kagent.sh`
+  enforces the mirror image: an auto-IdP kagent sync onto a release already carrying an
+  external `oidc.issuer` is rejected (it would log the agentgateway UI out), naming the
+  two ways out — set `KAGENT_OIDC_ISSUER` to join that IdP, or `KAGENT_AUTOAUTH=true` to
+  deliberately reset the whole release to chart defaults.
   **CRDs are bundled** in the chart
   (its `management-crds` subchart, enabled by default) — do NOT add a separate `management-crds`
   release; the workshop's split + `enabled=false` is a long-lived-cluster CRD-lifecycle pattern

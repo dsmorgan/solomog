@@ -25,8 +25,17 @@ bases:
 
 {{- $provider := env "KAGENT_PROVIDER" | default "openAI" }}
 {{- $model := env "KAGENT_MODEL" }}
-{{- $autoauth := eq (env "KAGENT_AUTOAUTH") "true" }}
-{{- $oidcIssuer := ternary "http://solo-enterprise-ui.agentgateway-system.svc.cluster.local:5556" (env "KAGENT_OIDC_ISSUER" | default (env "SOLO_UI_OIDC_ISSUER") | default "http://solo-enterprise-ui.agentgateway-system.svc.cluster.local:5556") $autoauth }}
+{{- /* Auth mode. Blank KAGENT_OIDC_ISSUER = the bundled auto-IdP, which is what the
+       Enterprise quickstart installs (chart default oidc.issuer:"" — only the `jwt`
+       secret is required). SOLO_UI_OIDC_* deliberately does NOT feed this: joining a
+       shared external IdP needs a kagent client registered there, so it is opt-in via
+       KAGENT_OIDC_ISSUER. KAGENT_AUTOAUTH=true forces auto-IdP for one run.
+       The auto-IdP issuer is spelled out rather than left to the chart because the
+       chart derives it from ITS OWN release namespace (solo-enterprise-ui.<ns>) — the
+       quickstart puts management in `kagent`, solomog shares one release in
+       agentgateway-system, so the chart default would point at a nonexistent Service. */ -}}
+{{- $autoauth := or (eq (env "KAGENT_AUTOAUTH") "true") (eq (env "KAGENT_OIDC_ISSUER") "") }}
+{{- $oidcIssuer := ternary "http://solo-enterprise-ui.agentgateway-system.svc.cluster.local:5556" (env "KAGENT_OIDC_ISSUER") $autoauth }}
 
 repositories:
   - name: kagent
@@ -65,7 +74,9 @@ releases:
         tracing:
           verbose: true
 {{- /* Explicit autoauth values clear any external OIDC values preserved by
-       reuseValues. Otherwise use the same external shape as agentgateway:ui. */ -}}
+       reuseValues (prepare-kagent.sh gates that clobber on an existing release).
+       Otherwise use the same external shape as agentgateway:ui — prepare-kagent.sh
+       guarantees SOLO_UI_OIDC_ISSUER is set whenever KAGENT_OIDC_ISSUER is. */ -}}
 {{- if $autoauth }}
         oidc:
           issuer: ""
