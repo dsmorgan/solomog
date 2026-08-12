@@ -10,13 +10,22 @@ set -euo pipefail
 #   KAGENT_PROVIDER            openAI (default) | anthropic | ollama
 #   OPENAI_API_KEY             required for openAI
 #   CLAUDE_API_KEY             required for anthropic
-#   KAGENT_AUTOAUTH            true → force bundled auto-IdP for this run,
-#                              ignoring persistent SOLO_UI_OIDC_* (CLI-only)
-#   KAGENT_OIDC_ISSUER         controller issuer; defaults to SOLO_UI_OIDC_ISSUER,
-#                              then the management chart's bundled auto-IdP
+#   KAGENT_AUTOAUTH            true → force the bundled auto-IdP for this run,
+#                              ignoring a persistent KAGENT_OIDC_ISSUER, and allow
+#                              rewriting a shared management release that is
+#                              currently on an external IdP (CLI-only)
+#   KAGENT_OIDC_ISSUER         controller issuer. BLANK = the management chart's
+#                              bundled auto-IdP (the documented quickstart default).
+#                              Setting it opts into external OIDC, which then also
+#                              requires the SOLO_UI_OIDC_* pair below.
 #   KAGENT_OIDC_CLIENT_ID      external-IdP client ID (default kagent-enterprise)
 #   KAGENT_OIDC_CLIENT_SECRET  external-IdP secret; can be omitted when the
 #                              kagent-enterprise-oidc-secret already exists
+#
+# NOTE: SOLO_UI_OIDC_* alone does NOT put kagent behind that IdP. Joining a shared
+# external IdP needs a kagent client registered in it, so it is opt-in via
+# KAGENT_OIDC_ISSUER — otherwise a .env left over from an unrelated cluster would
+# silently make `solomog kagent` unusable. Same rationale as TOKEN_EXCHANGE.
 
 CONTEXT="${1:?Usage: prepare-kagent.sh <kube-context>}"
 EDITION="${EDITION:-enterprise}"
@@ -66,7 +75,7 @@ OIDC_SECRET=kagent-enterprise-oidc-secret
 if [[ "$AUTOAUTH" == "true" ]]; then
   OIDC_ISSUER=""
 else
-  OIDC_ISSUER="${KAGENT_OIDC_ISSUER:-${SOLO_UI_OIDC_ISSUER:-}}"
+  OIDC_ISSUER="${KAGENT_OIDC_ISSUER:-}"
 fi
 OIDC_CLIENT_ID="${KAGENT_OIDC_CLIENT_ID:-kagent-enterprise}"
 OIDC_CLIENT_SECRET="${KAGENT_OIDC_CLIENT_SECRET:-}"
@@ -74,24 +83,29 @@ OIDC_CLIENT_SECRET="${KAGENT_OIDC_CLIENT_SECRET:-}"
 # External authentication must be configured in both charts. Validate all
 # environment-only requirements before touching the cluster.
 if [[ -n "$OIDC_ISSUER" ]]; then
-  if [[ "$AUTOAUTH" != "true" && -n "${KAGENT_OIDC_ISSUER:-}" && -z "${SOLO_UI_OIDC_ISSUER:-}" ]]; then
+  if [[ -z "${SOLO_UI_OIDC_ISSUER:-}" ]]; then
     echo "Error: external kagent OIDC must also configure SOLO_UI_OIDC_ISSUER." >&2
     echo "       Enterprise authentication is configured in both the management" >&2
     echo "       and kagent-enterprise charts." >&2
     exit 1
   fi
-  if [[ -n "${SOLO_UI_OIDC_ISSUER:-}" ]]; then
-    for required_var in \
-      SOLO_UI_OIDC_BACKEND_CLIENT_ID \
-      SOLO_UI_OIDC_BACKEND_CLIENT_SECRET \
-      SOLO_UI_OIDC_FRONTEND_CLIENT_ID; do
-      eval "required_value=\${${required_var}:-}"
-      if [[ -z "$required_value" ]]; then
-        echo "Error: SOLO_UI_OIDC_ISSUER requires $required_var." >&2
-        exit 1
-      fi
-    done
+  if [[ "$OIDC_ISSUER" != "${SOLO_UI_OIDC_ISSUER}" ]]; then
+    echo "Warning: KAGENT_OIDC_ISSUER and SOLO_UI_OIDC_ISSUER differ:" >&2
+    echo "           kagent controller: $OIDC_ISSUER" >&2
+    echo "           management UI:     ${SOLO_UI_OIDC_ISSUER}" >&2
+    echo "         The UI's tokens will not validate against the controller unless" >&2
+    echo "         both name the same issuer." >&2
   fi
+  for required_var in \
+    SOLO_UI_OIDC_BACKEND_CLIENT_ID \
+    SOLO_UI_OIDC_BACKEND_CLIENT_SECRET \
+    SOLO_UI_OIDC_FRONTEND_CLIENT_ID; do
+    eval "required_value=\${${required_var}:-}"
+    if [[ -z "$required_value" ]]; then
+      echo "Error: SOLO_UI_OIDC_ISSUER requires $required_var." >&2
+      exit 1
+    fi
+  done
   if [[ -z "$OIDC_CLIENT_ID" ]]; then
     echo "Error: external kagent OIDC requires KAGENT_OIDC_CLIENT_ID." >&2
     exit 1
@@ -111,6 +125,30 @@ if [[ -n "$management_releases" && "$management_releases" != "agentgateway-syste
   echo "       Move/upgrade it to agentgateway-system/management before installing kagent;" >&2
   echo "       a second management release causes CRD ownership conflicts." >&2
   exit 1
+fi
+
+# The mirror image of install-agentgateway-ui.sh's MANAGEMENT_PRESERVE_OIDC: that
+# script refuses to change the shared release's auth mode out from under kagent.
+# This is the other direction — an auto-IdP kagent sync rewrites the shared release
+# to the bundled IdP, logging the agentgateway UI out of its real IdP. Neither
+# default is safe here, so make the operator choose.
+if [[ -z "$OIDC_ISSUER" && "$AUTOAUTH" != "true" ]]; then
+  existing_issuer="$(
+    helm get values management --kube-context "$CONTEXT" -n agentgateway-system -o json 2>/dev/null \
+      | jq -r '.oidc.issuer // empty' 2>/dev/null \
+      || true
+  )"
+  if [[ -n "$existing_issuer" ]]; then
+    echo "Error: the shared management release is already on an external IdP:" >&2
+    echo "         $existing_issuer" >&2
+    echo "       Installing kagent with the bundled auto-IdP would reset it and log" >&2
+    echo "       the agentgateway UI out. Choose one:" >&2
+    echo "         • join that IdP  — register a kagent client in it, then re-run with" >&2
+    echo "           KAGENT_OIDC_ISSUER=$existing_issuer KAGENT_OIDC_CLIENT_SECRET=<secret>" >&2
+    echo "         • replace it     — re-run with KAGENT_AUTOAUTH=true to move the whole" >&2
+    echo "           release (UI included) to the bundled auto-IdP." >&2
+    exit 1
+  fi
 fi
 
 kubectl --context "$CONTEXT" create namespace kagent \

@@ -145,9 +145,11 @@ solomog kagent EDITION=community KAGENT_PROVIDER=ollama
 Kagent defaults to `KAGENT_PROVIDER=openAI` and reads `OPENAI_API_KEY`; use
 `anthropic` with `CLAUDE_API_KEY`, or `ollama` with no API key. Both editions
 install a bundled PostgreSQL suitable for short PoVs. The install summary prints
-the relevant UI port-forward command. Enterprise inherits `SOLO_UI_OIDC_*` when
-configured; use the CLI-only `KAGENT_AUTOAUTH=true` for a disposable standalone
-cluster that should use the bundled IdP instead.
+the relevant UI port-forward command. Enterprise defaults to the chart's bundled
+auto-IdP (the documented quickstart path — no IdP setup needed); set
+`KAGENT_OIDC_ISSUER` + `SOLO_UI_OIDC_*` to put it behind a real IdP. A cluster
+whose shared management release is already on an external IdP stops with the two
+choices spelled out, since either default would break one of the two UIs.
 
 Enterprise kagent 0.5.x documents Kubernetes 1.32–1.36, Gateway API 1.5.0,
 agentgateway 2026.7.0, and Istio 1.26–1.29. Standalone evaluation is allowed.
