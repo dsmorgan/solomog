@@ -130,8 +130,14 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 - **`CLUSTER` and `CLUSTERS` are interchangeable aliases** across all tasks. Single
   tasks resolve `{{.CLUSTER | default .CLUSTERS | default "<def>" | splitList " " | first}}`
   (first name); multi tasks resolve `{{.CLUSTERS | default .CLUSTER | default "<defs>"}}`
-  (whole list). New cluster-scoped tasks should follow the same pattern so the
-  singular/plural slip stays harmless.
+  (whole list). The `solomog` wrapper **warns** when a multi-name list is passed to
+  single-cluster tasks (they still use only the first name — no silent fan-out).
+  Mesh orchestration (`istio:*:multi-*`) is phase-based inside `mesh.sh`, not
+  wrapper fan-out of `expose`/`apps`/`apply`. To repeat a single-cluster chain on
+  each member: `for c in a b; do solomog expose apps:utils ROUTE=true CLUSTER=$c; done`.
+  New cluster-scoped tasks should follow the same first-vs-full pattern so the
+  singular/plural slip stays harmless; when adding a multi-cluster task, also add
+  it to `_solomog_task_takes_cluster_list` in the wrapper so the warning stays accurate.
 - **License resolution** is centralized in
   [helmfiles/environments/default.yaml.gotmpl](helmfiles/environments/default.yaml.gotmpl):
   `<product>_license_key` = product-specific env var `| default SOLO_LICENSE_KEY`.

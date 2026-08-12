@@ -18,8 +18,11 @@ includes:
 
 # CLUSTER and CLUSTERS are interchangeable aliases everywhere:
 #   - single-cluster tasks take the first name from whichever is set
+#     (the solomog wrapper warns when a multi-name list is passed to these)
 #   - multi-cluster tasks take the full space-separated list from whichever is set
 # So `CLUSTERS=foo` on a single task and `CLUSTER="a b"` on a multi task both work.
+# Mesh orchestration ≠ fan-out of expose/apps/apply — for that use a shell loop:
+#   for c in a b; do solomog expose apps:utils ROUTE=true CLUSTER=$c; done
 
 tasks:
 

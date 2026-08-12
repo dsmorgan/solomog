@@ -180,6 +180,16 @@ After a Docker Desktop restart, host routing between clusters is gone — recove
 > **`CLUSTER` / `CLUSTERS` are aliases.** Single-cluster tasks take the first name
 > from whichever you set; multi-cluster tasks take the whole list. So a singular/plural
 > slip (`CLUSTERS=foo` on a single task, `CLUSTER="a b"` on a mesh) just works.
+> The wrapper **warns** (does not fail) when a multi-name list is passed to
+> single-cluster tasks like `expose` / `apps:*` / `apply` — those do **not** fan out.
+>
+> Multi-cluster mesh tasks (`istio:*:multi-*`) orchestrate all clusters in one
+> phased run (shared CA, routing, east-west). That is not the same as repeating
+> `expose` / `apps` / `apply` on each mesh member. For that, use a shell loop:
+>
+> ```bash
+> for c in east west; do solomog agentgateway expose apps:utils ROUTE=true CLUSTER=$c; done
+> ```
 
 ### Expose a gateway (Gateway + TLS + DNS) and route apps
 

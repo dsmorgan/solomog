@@ -85,6 +85,56 @@ for a in "$@"; do
   esac
 done
 
+# Tasks that consume the FULL CLUSTER/CLUSTERS list (internal loop or mesh orchestration).
+# Everything else is single-cluster and takes only the first name — see Taskfile alias
+# contract. Keep in sync when adding a new multi-cluster task.
+_solomog_task_takes_cluster_list() {
+  case "$1" in
+    istio:ambient:multi-*|istio:sidecar:multi-*) return 0 ;;
+    net:repair|teardown) return 0 ;;
+    vsphere:stop|vsphere:start|vsphere:snapshot|vsphere:reset|vsphere:delete) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Warn when CLUSTER(S) has multiple names but one or more tasks in the run are
+# single-cluster (they silently use only the first name). Mesh/teardown/etc. keep
+# the full list — this is not wrapper fan-out. Soft warning only; never fails the run.
+_solomog_warn_cluster_list_slip() {
+  local cluster_val="" clusters_val="" val first t singles=""
+  for t in "${VARS[@]}"; do
+    case "$t" in
+      CLUSTER=*)  cluster_val="${t#CLUSTER=}" ;;
+      CLUSTERS=*) clusters_val="${t#CLUSTERS=}" ;;
+    esac
+  done
+  val="$clusters_val"
+  [ -z "$val" ] && val="$cluster_val"
+  case "$cluster_val" in *" "*) val="$cluster_val" ;; esac
+  case "$clusters_val" in *" "*) val="$clusters_val" ;; esac
+  case "$val" in
+    *" "*) ;;
+    *) return 0 ;;
+  esac
+  # Word-count via set — bash 3.2 safe (no mapfile).
+  # shellcheck disable=SC2086
+  set -- $val
+  [ $# -ge 2 ] || return 0
+  first="$1"
+  singles=""
+  for t in "${TASKS[@]}"; do
+    if ! _solomog_task_takes_cluster_list "$t"; then
+      singles="${singles:+$singles }$t"
+    fi
+  done
+  [ -n "$singles" ] || return 0
+  {
+    echo "Warning: CLUSTER(S)=\"${val}\" names $# clusters, but single-cluster task(s) only use the first ('${first}'): ${singles}"
+    echo "  Multi-cluster mesh/teardown/net:repair keep the full list; expose/apps/apply do not fan out."
+    echo "  To repeat a single-cluster chain on each:  for c in ${val}; do solomog ${singles} CLUSTER=\$c; done"
+  } >&2
+}
+
 # Resolve the 🗿 banter mute flag (SOLOMOG_SERIOUS). The banter is the wrapper's own
 # output, but the wrapper — unlike `task` — does NOT source .env, so read the flag here.
 # All three forms work, in precedence order:
@@ -114,6 +164,8 @@ if [ ${#TASKS[@]} -eq 0 ]; then
   solomog_outro "$rc" "$MOG_MODE"
   exit $rc
 fi
+
+_solomog_warn_cluster_list_slip
 
 rc=0
 TASK_TIMES=()
