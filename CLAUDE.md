@@ -343,6 +343,14 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   login fallback. Bundle `bundles/llmroute-bedrock/` consumes them via a `policies.auth.aws.secretRef`
   secret (keys `accessKey`/`secretKey`/`sessionToken`). Creds are short-lived (≤12h) — re-run
   manually when a route 401/403s. Same dotenv-reread chaining: `solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=…`.
+  **Reading AWS creds back out of `.env` goes through `solomog_aws_env_load`**
+  ([scripts/lib/target.sh](scripts/lib/target.sh)) — never `export "$(grep ^KEY= .env)"`.
+  Every key in `.env.example` carries a trailing `# comment`, and the raw line exports the
+  comment as part of the value (`The config profile (AdministratorAccess-…  # e.g. solo-sso …)
+  could not be found`). It also unsets any AWS var that is *empty* rather than exporting `""`:
+  a blank `AWS_REGION` (a documented `.env` state, exported by go-task) makes every region-less
+  call die with `Invalid endpoint: https://sts..amazonaws.com`. Pair it with `solomog_aws_ok`
+  (soft identity probe) or `solomog_aws_preflight` (same, but exits with the fix hint).
 - **`.env` hygiene**: `.env.example` is the canonical layout (sections + comments).
   `solomog env:sync` rebuilds `.env` from the example while overlaying your values;
   `solomog env:diff` reports key drift (names only); `solomog env:backup` snapshots to
