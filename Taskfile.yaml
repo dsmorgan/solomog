@@ -51,7 +51,10 @@ tasks:
       vind, .solomog/contexts for EKS/external). Soft-checks `vcluster list` (vind)
       and `aws eks describe-cluster` (EKS, only when AWS creds work — otherwise status
       stays "—"). No kubectl API calls. The current kubectl context is marked with *
-      (bold green). Cluster-free (discovery only).
+      (bold green); ~ (green) means kubectl is on that same cluster but through a
+      different context name — matched on the API server endpoint, since eksctl and
+      `aws eks update-kubeconfig` each write their own context for one EKS cluster.
+      Cluster-free (discovery only).
 
       Aliases: clusters:list, clusters, cluster
 
@@ -71,8 +74,9 @@ tasks:
     summary: |
       Detail view for one cluster: type, context, region (EKS), status (running/gone
       for vind; EKS via AWS when creds work, else "—"), certs dir, /etc/hosts entries,
-      whether it is the current kubectl context. Cluster-free (discovery only — does
-      not talk to the Kubernetes API server).
+      whether it is the current kubectl context (yes / no / "same cluster, via context
+      <name>" when kubectl reaches it under a different context name). Cluster-free
+      (discovery only — does not talk to the Kubernetes API server).
 
       Aliases: clusters:show
 

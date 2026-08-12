@@ -8,7 +8,8 @@ set -euo pipefail
 #              expired/broken/missing creds stay "—" (undetermined), never fail the list.
 #   • vsphere: kubectl /readyz probe with a short timeout → running|unreachable
 #              (no vCenter API dependency; "unreachable" = powered off OR network down).
-# Marks the current kubectl context.
+# Marks the current kubectl target: "*" exact context match, "~" same cluster reached
+# through a different context (see _load_kube_servers).
 #
 # Usage:
 #   clusters.sh list              pretty table of known clusters
@@ -88,6 +89,48 @@ _all_names() {
 _current_context() {
   command -v kubectl >/dev/null 2>&1 || return 0
   kubectl config current-context 2>/dev/null || true
+}
+
+# Populate KUBE_SERVERS with "<context>\t<API server URL>" lines from the local kubeconfig.
+# ONE cluster can wear SEVERAL context names and we don't control that: `eksctl create cluster`
+# writes <user>@<cluster>.<region>.eksctl.io, then `aws eks update-kubeconfig` (eks-create.sh)
+# writes the arn:aws:eks:… context we register — plus whatever `kubectx` renames add. So an
+# exact name compare says "not current" while kubectl is in fact pointed at that very cluster.
+# The server endpoint is the cluster's real identity; a context name is a user-editable alias
+# over it. Local file read, no network. KUBE_SERVERS_OK=0 → fall back to the name compare.
+KUBE_SERVERS=""
+KUBE_SERVERS_OK=0
+_load_kube_servers() {
+  KUBE_SERVERS=""
+  KUBE_SERVERS_OK=0
+  command -v kubectl >/dev/null 2>&1 || return 0
+  local out
+  # jsonpath can't join contexts→clusters, so emit both tables tagged C/S and join in awk.
+  out="$(kubectl config view -o jsonpath='{range .contexts[*]}C{"\t"}{.name}{"\t"}{.context.cluster}{"\n"}{end}{range .clusters[*]}S{"\t"}{.name}{"\t"}{.cluster.server}{"\n"}{end}' 2>/dev/null)" || return 0
+  [ -n "$out" ] || return 0
+  KUBE_SERVERS="$(printf '%s\n' "$out" | awk -F'\t' '
+    $1=="S" && $2 != "" { srv[$2] = $3; next }
+    $1=="C" && $2 != "" { ctx[++n] = $2; cl[n] = $3 }
+    END { for (i = 1; i <= n; i++) if (srv[cl[i]] != "") printf "%s\t%s\n", ctx[i], srv[cl[i]] }')"
+  KUBE_SERVERS_OK=1
+}
+
+_server_for_ctx() {   # args: <context> → API server URL, or empty
+  [ "$KUBE_SERVERS_OK" = 1 ] || return 0
+  printf '%s\n' "$KUBE_SERVERS" | awk -F'\t' -v c="$1" '$1==c{print $2; exit}'
+}
+
+# Mark for a row's context against the current one: "*" same context, "~" same cluster via a
+# different context, " " neither. args: <row-context> <current-context> <current-server>
+_mark_for() {
+  local row_server
+  if [ -z "$2" ]; then printf ' '; return; fi
+  if [ "$1" = "$2" ]; then printf '*'; return; fi
+  if [ -n "$3" ]; then
+    row_server="$(_server_for_ctx "$1")"
+    if [ -n "$row_server" ] && [ "$row_server" = "$3" ]; then printf '~'; return; fi
+  fi
+  printf ' '
 }
 
 # Populate VCLUSTER_RAW / VCLUSTER_LIST / VCLUSTER_OK from `vcluster list` (Docker, not API).
@@ -234,28 +277,32 @@ case "$MODE" in
     fi
 
     current="$(_current_context)"
+    _load_kube_servers
+    current_server="$(_server_for_ctx "$current")"
     if [ "$VCLUSTER_OK" != 1 ]; then
       printf '%s(vcluster list unavailable — vind status shown as ?)%s\n\n' "$D" "$R"
     fi
 
     # Build TSV rows: mark\tname\ttype\tregion\tcontext\tstatus
-    # mark = * when this row's context is the current kubectl context.
+    # mark = * this row's context IS the current one, ~ same cluster via another context.
     rows=""
+    aliased=""
     while IFS= read -r name; do
       [ -n "$name" ] || continue
       ctx="$(_ctx_for "$name")"
       typ="$(_type_for "$name" "$ctx")"
       region="$(_eks_region "$ctx")"
       status="$(_status_for "$name" "$typ" "$ctx")"
-      mark=" "
-      [ -n "$current" ] && [ "$ctx" = "$current" ] && mark="*"
+      mark="$(_mark_for "$ctx" "$current" "$current_server")"
+      [ "$mark" = "~" ] && aliased=1
       rows="${rows}${mark}"$'\t'"${name}"$'\t'"${typ}"$'\t'"${region}"$'\t'"${ctx}"$'\t'"${status}"$'\n'
     done <<EOF
 $names
 EOF
 
-    # Current row: bold+green with leading *. Status stays plain so column widths stay stable.
-    printf '%s' "$rows" | awk -F'\t' -v g="$G$B" -v r="$R" '
+    # Current row: bold+green with leading *. A "~" row (same cluster, different context) gets
+    # plain green — related but weaker. Status stays plain so column widths stay stable.
+    printf '%s' "$rows" | awk -F'\t' -v g="$G$B" -v a="$G" -v r="$R" '
       BEGIN {
         h_name="Name"; h_type="Type"; h_region="Region"
         h_ctx="Context"; h_status="Status"
@@ -275,9 +322,10 @@ EOF
         printf "  %-*s  %-*s  %-*s  %-*s  %-*s\n", \
           w_name, h_name, w_type, h_type, w_region, h_region, w_ctx, h_ctx, w_status, h_status
         for (i = 1; i <= n; i++) {
-          if (mark[i] == "*") {
-            printf "%s* %-*s  %-*s  %-*s  %-*s  %-*s%s\n", \
-              g, w_name, name[i], w_type, type[i], w_region, region[i], \
+          if (mark[i] == "*" || mark[i] == "~") {
+            printf "%s%s %-*s  %-*s  %-*s  %-*s  %-*s%s\n", \
+              (mark[i] == "*" ? g : a), mark[i], \
+              w_name, name[i], w_type, type[i], w_region, region[i], \
               w_ctx, ctx[i], w_status, status[i], r
           } else {
             printf "  %-*s  %-*s  %-*s  %-*s  %-*s\n", \
@@ -286,6 +334,11 @@ EOF
           }
         }
       }'
+    # Only explain "~" when one is on screen — the common single-mark table stays uncluttered.
+    if [ -n "$aliased" ]; then
+      printf '\n  %s~ same cluster as your current context (%s), reached by a different name%s\n' \
+        "$D" "$current" "$R"
+    fi
     ;;
 
   show)
@@ -313,14 +366,14 @@ EOF
     region="$(_eks_region "$ctx")"
     status="$(_status_for "$NAME" "$typ" "$ctx")"
     current="$(_current_context)"
-    is_current=0
-    [ -n "$current" ] && [ "$ctx" = "$current" ] && is_current=1
+    _load_kube_servers
+    mark="$(_mark_for "$ctx" "$current" "$(_server_for_ctx "$current")")"
 
-    if [ "$is_current" = 1 ]; then
-      printf '%s* %s%s\n' "$G$B" "$NAME" "$R"
-    else
-      printf '%s%s%s\n' "$B" "$NAME" "$R"
-    fi
+    case "$mark" in
+      '*') printf '%s* %s%s\n' "$G$B" "$NAME" "$R" ;;
+      '~') printf '%s~ %s%s\n' "$G" "$NAME" "$R" ;;
+      *)   printf '%s%s%s\n' "$B" "$NAME" "$R" ;;
+    esac
 
     printf '  %-12s %s\n' "type:" "$typ"
     printf '  %-12s %s\n' "context:" "$ctx"
@@ -346,7 +399,13 @@ EOF
         [ -n "$nodes" ] && printf '  %-12s %s\n' "nodes:" "$nodes"
       fi
     fi
-    printf '  %-12s %s\n' "current:" "$([ "$is_current" = 1 ] && echo yes || echo no)"
+    # "~" is the honest answer for an EKS cluster: kubectl IS on this cluster, but through
+    # eksctl's context, not the arn:… one solomog registered and every task resolves to.
+    case "$mark" in
+      '*') printf '  %-12s %s\n' "current:" "yes" ;;
+      '~') printf '  %-12s %s\n' "current:" "same cluster, via context $current" ;;
+      *)   printf '  %-12s %s\n' "current:" "no" ;;
+    esac
 
     printf '  %-12s ' "tracked:"
     bits=""
