@@ -33,7 +33,17 @@ bases:
        The auto-IdP issuer is spelled out rather than left to the chart because the
        chart derives it from ITS OWN release namespace (solo-enterprise-ui.<ns>) — the
        quickstart puts management in `kagent`, solomog shares one release in
-       agentgateway-system, so the chart default would point at a nonexistent Service. */ -}}
+       agentgateway-system, so the chart default would point at a nonexistent Service.
+       KNOWN SIDE EFFECT (kagent-enterprise 0.5.4, unverified on 0.5.5): the chart derives
+       `autoAuthEnabled` from `oidc.issuer == ""`, and that flag has TWO consumers — the
+       issuer default above AND `AUTO_AUTH_ENABLED=true` on the controller Deployment.
+       Naming the issuer to fix the namespace therefore also SUPPRESSES AUTO_AUTH_ENABLED,
+       so the controller runs in "external OIDC" mode while pointed at the bundled dev IdP
+       (confirmed live: kagent-controller carries no AUTO_AUTH_ENABLED, while the UI does).
+       There is no values-level fix — `namespaceOverride` would correct the derived issuer
+       but `kagent.namespace` also builds the Postgres DSN, so it would break the database.
+       Upstream conflates "where is the IdP" with "is it the bundled IdP" in one value;
+       the documented co-located install can never hit this. Runtime impact unconfirmed. */ -}}
 {{- $autoauth := or (eq (env "KAGENT_AUTOAUTH") "true") (eq (env "KAGENT_OIDC_ISSUER") "") }}
 {{- $oidcIssuer := ternary "http://solo-enterprise-ui.agentgateway-system.svc.cluster.local:5556" (env "KAGENT_OIDC_ISSUER") $autoauth }}
 

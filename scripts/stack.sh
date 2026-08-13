@@ -160,9 +160,18 @@ for product in "${CANONICAL_ORDER[@]}"; do
   SUMMARY_LINES+=("${product}  →  namespace $(ns_for "$product")")
   if [[ "$product" == "kagent" ]]; then
     if [[ "$EDITION" == "enterprise" ]]; then
+      # The Solo UI is ONE SPA serving every product under a route prefix:
+      # /ke/ kagent, /age/ agentgateway, /ie/ istio. Always name /ke/ — bare /
+      # redirects to the first ENABLED product, so the landing page shifts
+      # depending on what else is on the shared management release. A prefix
+      # whose product is disabled REDIRECTS rather than 404s, so browsing to
+      # the wrong one looks exactly like "kagent isn't installed".
       SUMMARY_LINES+=("kagent UI  →  kubectl --context ${CTX} port-forward -n agentgateway-system svc/solo-enterprise-ui 4000:80")
+      SUMMARY_LINES+=("kagent UI  →  then open  http://localhost:4000/ke/   (/age/ = agentgateway, /ie/ = istio)")
     else
+      # Community kagent ships its own standalone UI — not the Solo UI, so no product prefix.
       SUMMARY_LINES+=("kagent UI  →  kubectl --context ${CTX} port-forward -n kagent svc/kagent-ui 8080:8080")
+      SUMMARY_LINES+=("kagent UI  →  then open  http://localhost:8080/")
     fi
   fi
 
