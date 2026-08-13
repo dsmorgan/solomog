@@ -1055,6 +1055,117 @@ tasks:
     cmds:
       - bash scripts/run.sh "Refresh AWS credentials" bash scripts/aws-refresh.sh
 
+  # AgentCore CLI credentials. Deliberately NOT aws:refresh's model: `agentcore` runs in YOUR
+  # shell (never reads .env) so it wants the auto-refreshing SSO PROFILE, not the short-lived
+  # static keys aws:refresh stashes for bundles. Un-framed (no run.sh) like bundles:list —
+  # agentcore:env's stdout must stay pure shell for `eval`, and shell mode is interactive.
+  agentcore:list:
+    desc: "List AgentCore projects (name, region, in AWS?, dir). Verified against AWS by default."
+    summary: |
+      List every AgentCore project (any dir holding agentcore/agentcore.json) with its region,
+      whether the runtime exists, and its path. Projects are discovered from disk — no project
+      or bundle names are hardcoded.
+
+      Verified against AWS by default. A project's local deployed-state.json is written by
+      `agentcore deploy` and updated by nothing else, so on its own it reports runtimes deleted
+      out of band (delete-stack, console) as still live. The IN_AWS column asks AWS instead:
+        yes    the runtime exists
+        GONE   local state claims it, AWS disagrees -> solomog agentcore:prune
+        -      no local deploy record (never deployed from here, or already pruned)
+      When credentials are not available it falls back to local state, relabels the column
+      LOCAL?, and says plainly that it is unverified rather than implying otherwise.
+
+      Variables:
+        LIVE   auto | true | false                                              default auto
+               auto   verify if credentials already work; never triggers a login
+               true   verify, running `aws sso login` (browser) if the session is stale
+               false  local state only, no AWS calls
+
+      Examples:
+        solomog agentcore:list
+        solomog agentcore:list LIVE=true
+    env:
+      LIVE: '{{.LIVE | default "auto"}}'
+    cmds:
+      - bash scripts/agentcore-env.sh list
+
+  agentcore:prune:
+    desc: "Drop local deployed-state entries for runtimes AWS no longer has. DRY_RUN=true to preview."
+    summary: |
+      Reconcile local state after a runtime was deleted outside the CLI (delete-stack / console),
+      which leaves deployed-state.json claiming a runtime that no longer exists.
+
+      Queries AWS, and for every project whose recorded runtime is gone, removes that entry —
+      deleting the file outright when it held the only runtime, since that is exactly the shape
+      of a never-deployed project. Backs each file up to .solomog/agentcore-state-backups/ first.
+      Only ever removes state that is ALREADY false: it never calls AWS destructively and never
+      touches agentcore.json (the project config) or your .env.
+
+      Variables:
+        DRY_RUN   true → report what would be pruned, change nothing   default false
+
+      Examples:
+        solomog agentcore:prune DRY_RUN=true
+        solomog agentcore:prune
+    env:
+      DRY_RUN: '{{.DRY_RUN | default "false"}}'
+    cmds:
+      - bash scripts/agentcore-env.sh prune
+
+  agentcore:env:
+    desc: "Print AWS SSO exports for the agentcore CLI: eval \"$(solomog agentcore:env NAME=<project>)\"."
+    summary: |
+      Put a working AWS identity for the `agentcore` CLI into your CURRENT shell. Resolves
+      credentials through the SSO PROFILE (auto-refreshing — nothing to re-stash, unlike
+      aws:refresh's <=12h static keys) and drops the four static AWS_* vars, whose stale values
+      would otherwise SHADOW the profile and 403 every call. With NAME it also pins that
+      project's own region (projects in one repo routinely target different regions) and exports
+      AGENTCORE_PROJECT / AGENTCORE_RUNTIME_ARN.
+
+      Only shell-eval-able lines go to stdout, so it is safe inside eval even when it has to
+      run `aws sso login` (browser) first. MUST be eval'd — a child process cannot change your
+      shell. Use agentcore:shell instead if you want the project dir too.
+
+      Variables:
+        NAME      project / runtime name                see: solomog agentcore:list
+        REGION    override the project's region         default from its aws-targets.json
+        PROFILE   override the SSO profile              default AWS_PROFILE from .env
+
+      Examples:
+        eval "$(solomog agentcore:env NAME=<project>)"    # names: solomog agentcore:list
+        eval "$(solomog agentcore:env)"                  # creds only, no region/project pin
+    env:
+      NAME: '{{.NAME | default ""}}'
+      REGION: '{{.REGION | default ""}}'
+      PROFILE: '{{.PROFILE | default ""}}'
+    cmds:
+      - bash scripts/agentcore-env.sh env
+
+  agentcore:shell:
+    desc: "Interactive subshell in an AgentCore project dir with SSO creds + its region: NAME=<project>."
+    summary: |
+      Same credentials as agentcore:env, but drops you in an interactive subshell already cd'd
+      into the project directory (the one holding agentcore/agentcore.json), with AWS_REGION
+      pinned to that runtime's own region and AGENTCORE_PROJECT / AGENTCORE_RUNTIME_ARN set —
+      so the runbooks' `agentcore status --runtime "$AGENTCORE_PROJECT"` and
+      `verify_sigv4.py` work as written. Prints the teardown one-liner, and warns when the
+      project is a JWT-inbound runtime (those must go through redeploy.sh, never a bare
+      `agentcore deploy`). `exit` returns to your normal shell.
+
+      Variables:
+        NAME      project / runtime name (REQUIRED)     see: solomog agentcore:list
+        REGION    override the project's region         default from its aws-targets.json
+        PROFILE   override the SSO profile              default AWS_PROFILE from .env
+
+      Examples:
+        solomog agentcore:shell NAME=<project>           # names: solomog agentcore:list
+    env:
+      NAME: '{{.NAME | default ""}}'
+      REGION: '{{.REGION | default ""}}'
+      PROFILE: '{{.PROFILE | default ""}}'
+    cmds:
+      - bash scripts/agentcore-env.sh shell
+
   env:backup:
     desc: "Copy .env → .solomog/env-backups/<timestamp>.env (gitignored). Also runs before refresh/sync."
     summary: |
