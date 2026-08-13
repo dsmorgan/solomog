@@ -67,6 +67,15 @@ if [ "$1" = "help" ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
   exit ${PIPESTATUS[0]}
 fi
 
+# `solomog agentcore:env ...` → shell-eval-able exports. Meta command: no mog framing, not
+# audited, because the framing/summary printf's go to STDOUT and would land inside the user's
+# `eval "$(solomog agentcore:env NAME=x)"`. Passed straight through to go-task (-s: no
+# "task: [x] cmd" echo either), so stdout stays pure shell. Its own human output is on stderr.
+if [ "$1" = "agentcore:env" ]; then
+  shift
+  exec task -s agentcore:env "$@"
+fi
+
 # Pick removal-themed banter when a teardown is in the run.
 MOG_MODE=""
 for arg in "$@"; do

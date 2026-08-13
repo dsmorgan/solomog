@@ -358,6 +358,21 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   manually when a route 401/403s. Same dotenv-reread chaining: `solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=…`.
   **Reading AWS creds back out of `.env` goes through `solomog_aws_env_load`**
   ([scripts/lib/target.sh](scripts/lib/target.sh)) — never `export "$(grep ^KEY= .env)"`.
+  **`solomog agentcore:env` / `agentcore:shell` take the OPPOSITE cred posture on purpose**
+  ([scripts/agentcore-env.sh](scripts/agentcore-env.sh)): the `agentcore` CLI runs in the user's
+  interactive shell, which never reads `.env`, so they resolve creds through the **SSO profile
+  only** (auto-refreshing from the SSO cache) and *unset* all four static vars — stale statics
+  outrank the profile in the credential chain and 403 everything. They also pin each project's
+  own region (from its `agentcore/aws-targets.json`) and its project dir. Projects are DISCOVERED
+  (any dir holding `agentcore/agentcore.json`) — never hardcode a bundle/project/runtime name in
+  these scripts; they must stay generic across users, since the projects themselves usually live
+  in gitignored `bundles/private/`. `agentcore:list` enumerates them and is **verified against AWS
+  by default** (local `deployed-state.json` is written only by `agentcore deploy`, so alone it
+  reports out-of-band deletions as live); `agentcore:prune` reconciles stale state.
+  `agentcore:env` prints shell-eval-able exports on
+  **stdout with every human word on stderr**, so it must bypass both run.sh framing and the
+  wrapper's banners (which print to stdout) — the `solomog` wrapper special-cases it beside `help`
+  and execs `task -s`.
   Every key in `.env.example` carries a trailing `# comment`, and the raw line exports the
   comment as part of the value (`The config profile (AdministratorAccess-…  # e.g. solo-sso …)
   could not be found`). It also unsets any AWS var that is *empty* rather than exporting `""`:
