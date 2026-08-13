@@ -270,8 +270,18 @@ module so it can coordinate one Helm release across products:
 Apps route **by path** on the shared gateway host (`/openai`, `/httpbin`) — covered by expose's
 `*.HOST` wildcard line, no per-app `/etc/hosts` entry. UIs route **by sub-host** at `/`
 ([scripts/route-host.sh](scripts/route-host.sh)): `ui.agw.<cluster>.test`, `grafana.agw.<cluster>.test`.
-Reason: the Solo UI (served under `/age/`) and Grafana both assume they own their base path, so a
-prefix-stripping rewrite breaks their assets — give each its own host instead.
+Reason: the Solo UI and Grafana both assume they own their base path, so a prefix-stripping
+rewrite breaks their assets — give each its own host instead.
+**The Solo UI is ONE SPA serving every product under a route prefix** — `/ke/` kagent,
+`/age/` agentgateway, `/ie/` istio — gated client-side by the `PRODUCT_*_ENT_ENABLED` env
+vars the management chart renders from `products.<p>.enabled`. Bare `/` redirects to the
+first *enabled* product, and a prefix whose product is disabled REDIRECTS rather than 404s,
+so browsing to the wrong one looks exactly like "that product isn't installed". Those vars
+reach the browser via `/env-config.js`, which the frontend serves `no-store` but the SPA
+reads **once per page load** — so after enabling a product, an already-open tab keeps the
+old product set indefinitely. Diagnose by comparing `curl -s localhost:4000/env-config.js`
+against `window.environmentVariables.PRODUCT_<X>_ENT_ENABLED` in the console; a hard reload
+is the fix. Install paths must always name the product prefix, never bare `/`.
 - The sub-host is **nested under expose's wildcard cert** (`*.agw.<cluster>.test`), so TLS is free —
   no new cert. The expose Gateway sets no listener `hostname` and allows routes from all namespaces,
   so it accepts any sub-host. **DNS mode follows the gateway**: route-host.sh reads expose's
@@ -540,9 +550,10 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   release found under another name/namespace.
 - **Enterprise kagent is an evaluation path, not a default secure stack.** It is
   resource-heavy (Solo recommends 2 vCPU / 8 GB; ClickHouse requests 3 GB) and
-  0.5.4 embeds upstream beta10. Its production matrix is narrower than the repo
-  defaults; keep the stack compatibility checks and do not silently install
-  Istio/agentgateway as kagent dependencies.
+  0.5.4 embedded upstream beta10 (0.5.5 publishes no appVersion — unconfirmed).
+  Its production matrix is narrower than the repo defaults; keep the stack
+  compatibility checks and do not silently install Istio/agentgateway as kagent
+  dependencies. The checks still encode the 0.5.4 ranges — revalidate for 0.5.5.
 - **`gloo-mesh` in community mode is a no-op** (Gloo Mesh Enterprise has no OSS
   build) — the module emits `releases: []`. Don't add community repos for it.
 - Chart coordinates **verified** against docs for both editions:
@@ -563,16 +574,17 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
     non-empty `policies.ai`. Solo workshops written for CalVer may need a `policies.ai`
     added to validate on 2.3.x (this is why the `bundles/llmroute` backends carry
     `modelAliases`/`promptCaching`). See versions.env.
-  - `kagent` — enterprise 0.5.4 (`kagent-enterprise-crds` +
+  - `kagent` — enterprise 0.5.5 (`kagent-enterprise-crds` +
     `kagent-enterprise` from `us-docker.pkg.dev/solo-public/kagent-enterprise-helm/charts`);
     community stable 0.9.12 (`kagent-crds` + `kagent` from
-    `ghcr.io/kagent-dev/kagent/helm`). Enterprise 0.5.4 embeds upstream
-    0.10.0-beta10; OSS deliberately stays on the latest plain stable SemVer tag.
+    `ghcr.io/kagent-dev/kagent/helm`). Enterprise 0.5.4 embedded upstream
+    0.10.0-beta10 (0.5.5 publishes no appVersion); OSS deliberately stays on the
+    latest plain stable SemVer tag.
     Both install kmcp and bundled PostgreSQL by default. Enterprise additionally
     enables kagent on the singleton management release and requires JWT/OIDC
     secrets prepared by `scripts/prepare-kagent.sh`.
   - `gloo-gateway` — 1.21.x (classic Helm repos).
-  - `management` (shared Solo UI) — 0.5.4,
+  - `management` (shared Solo UI) — 0.5.5,
     `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts` (verified against
     the current Enterprise kagent quickstart).
   - `portal` (Solo Portal add-on) — `portal-crds` + `portal` at `PORTAL_VERSION` (default
