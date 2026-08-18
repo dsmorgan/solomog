@@ -24,11 +24,14 @@ if [[ -z "$LB_IP" ]]; then
 fi
 
 echo "==> Updating /etc/hosts (sudo): ${PORTAL_HOST} + ${API_HOST} → ${LB_IP}"
+# Via the shared lib (SOLOMOG_LIB is exported to hooks by apply-bundle.sh), NOT a local
+# sed+tee -a pair: solomog's ONE privileged command is `tee /etc/hosts`, which is what
+# `solomog setup:sudo` grants passwordless — a hook-local variant would prompt. It also
+# replaces stale lines instead of stacking them (first match wins in the resolver).
+# shellcheck source=../../scripts/lib/hosts.sh
+source "${SOLOMOG_LIB:?SOLOMOG_LIB not set - run this hook via solomog apply BUNDLE=portal-httpbin}/hosts.sh"
 for h in "$PORTAL_HOST" "$API_HOST"; do
-  # macOS sed -i ''; Linux falls through || true then we still append (dedupe best-effort).
-  sudo sed -i '' "/[[:space:]]${h}\$/d;/[[:space:]]${h}[[:space:]]/d" /etc/hosts 2>/dev/null || \
-    sudo sed -i "/[[:space:]]${h}\$/d;/[[:space:]]${h}[[:space:]]/d" /etc/hosts 2>/dev/null || true
-  echo "${LB_IP} ${h}" | sudo tee -a /etc/hosts >/dev/null
+  solomog_hosts_set "$h" "$LB_IP"
 done
 
 echo "    https://${PORTAL_HOST}/"

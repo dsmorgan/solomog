@@ -113,7 +113,11 @@ apply_one() {
         else
           echo "==> [exec] ${name}"
           # Hook inherits the env (.env values) + the targeting vars; cwd = bundle dir.
+          # SOLOMOG_LIB lets a hook source scripts/lib/*.sh (e.g. hosts.sh for the one
+          # sudoers-matched /etc/hosts write) instead of re-implementing it or walking
+          # ../.. — which differs for private bundles (bundles/private/<name>).
           ( cd "$dir" && CONTEXT="$CONTEXT" CLUSTER="$CLUSTER" GATEWAY="$GATEWAY" HOST="$HOST" \
+              SOLOMOG_LIB="$REPO_DIR/scripts/lib" \
               bash "./$name" )
         fi ;;
       *.tmpl)

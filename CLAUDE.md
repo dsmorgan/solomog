@@ -172,7 +172,8 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
 ### Gateway exposure & app routing
 - **`expose`** ([scripts/expose.sh](scripts/expose.sh)) is the product-agnostic gateway
   layer: it creates the `Gateway` (http:8080 + https:443/TLS), an mkcert TLS secret, and
-  writes the vcluster LoadBalancer IP into `/etc/hosts` (sudo). vcluster auto-provisions
+  writes the vcluster LoadBalancer IP into `/etc/hosts` (sudo — see the one-command rule
+  below). vcluster auto-provisions
   the LB as an haproxy container (`vcluster.lb.<cluster>.<gw>.<ns>`) and the Gateway's
   `status.addresses[0].value` is the reachable IP. `PRODUCT` seeds name/ns defaults:
   `agentgateway` → gw `agw` / ns `agentgateway-system`; `kgateway` → gw `kgw` /
@@ -288,6 +289,16 @@ is the fix. Install paths must always name the product prefix, never bare `/`.
   `solomog.io/host` annotation — a `.test` base nests (`ui.agw.<c>.test`, /etc/hosts), a DNS=real
   base flattens (`ui-agw-<c>.<domain>` — still one label, same `*.<domain>` LE cert; record
   upserted via the OPNsense API). Don't derive sub-host names any other way.
+- **Every `/etc/hosts` write goes through `solomog_hosts_set`** ([scripts/lib/hosts.sh](scripts/lib/hosts.sh))
+  — scripts and bundle hooks alike (hooks get `SOLOMOG_LIB` for exactly this). It is the repo's
+  **only** privileged operation, and deliberately ONE exactly-matchable command,
+  `sudo /usr/bin/tee /etc/hosts` (absolute path — sudo resolves a bare `tee` through the caller's
+  PATH), with the dedup done unprivileged beforehand. That is what `solomog setup:sudo`
+  ([scripts/setup-sudo.sh](scripts/setup-sudo.sh)) grants NOPASSWD in `/etc/sudoers.d/solomog`, so
+  unattended runs never stall on a password — and the installer *generates* the rule from the same
+  `$SOLOMOG_HOSTS_TEE` the write uses, so the two cannot drift. A hook-local `tee -a`/`sed -i`
+  variant would fall outside the rule and start prompting again (this is why the portal-httpbin
+  hook was migrated). New privileged needs: extend that one fragment, don't sprinkle `sudo`.
 - **`/etc/hosts` has no wildcard support**, so each sub-host needs its own explicit line. Ordering is
   handled both ways: `route-host.sh` adds the line immediately if the gateway already exists, and
   `expose.sh` **backfills** entries for any sub-host HTTPRoute already attached to its gateway (jq over
@@ -316,7 +327,9 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   the escape hatch for imperative steps, mainly **secrets from `.env`** (e.g.
   `kubectl create secret … --from-literal="…=$CLAUDE_API_KEY" | kubectl apply -f -`). The
   value stays in `.env` (gitignored, auto-sourced), so the hook carries no secret and is
-  committable. Hooks inherit the env + `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` (cwd = bundle
+  committable. Hooks inherit the env + `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` + **`SOLOMOG_LIB`**
+  (`scripts/lib` — source shared helpers like `hosts.sh` from there rather than re-implementing
+  them or walking `../..`, which differs for `bundles/private/<name>`; cwd = bundle
   dir) and are **skipped under DRY_RUN** (can't assume a script is side-effect free).
   This is why secrets are NOT done as declarative manifests — a Secret with a real value
   can't be committed, and a bundle file would put it in plaintext on disk; the env-sourced
