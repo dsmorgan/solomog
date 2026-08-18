@@ -1,0 +1,40 @@
+# Guardrail attach point #1 of 2 — BACKEND-NATIVE PASSTHROUGH.
+#
+# `spec.ai.provider.bedrock.guardrail` sends the guardrail along with the model invocation
+# itself: the gateway passes the identifier/version to Bedrock, and BEDROCK enforces it. The
+# gateway does not evaluate anything, and it makes no extra call — so there is one round trip
+# and nothing to authenticate separately (the backend's own policies.auth.aws covers it).
+#
+# Contrast with attach point #2 (42-promptguard-bedrock.yaml.tmpl), where the GATEWAY calls
+# the ApplyGuardrail API out-of-band, before/after the model call, on its own credentials.
+# Same AWS guardrail, two very different enforcement paths — which is the whole point of the
+# bundle. Differences that matter:
+#   • only `identifier` + `version` here (no `region` field) — it inherits the provider region
+#     below, so the guardrail MUST live in that same region
+#   • Bedrock-only, by construction; the promptGuard form fronts any provider
+#   • a block comes back as Bedrock's own intervention response, not a gateway-generated
+#     status code — so tests assert on the guardrail's blockedInputMessaging text, not on 4xx
+#
+# Model: meta.llama3-1-8b-instruct-v1:0 — cheapest of the three in 10-, and the same model the
+# unguarded control test uses, so a behavior difference is attributable to the guardrail alone.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-llama3-8b-guarded
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        model: meta.llama3-1-8b-instruct-v1:0
+        region: us-west-2
+        guardrail:
+          identifier: %%BEDROCK_GUARDRAIL_ID%%
+          version: "%%BEDROCK_GUARDRAIL_VERSION%%"   # quoted: DRAFT is a string, and so is "1"
+  policies:
+    ai:                            # kept for parity with 10- (required by the 2.3.x CEL rule)
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret

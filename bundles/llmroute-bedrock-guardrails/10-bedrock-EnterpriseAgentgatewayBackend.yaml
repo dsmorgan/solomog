@@ -1,0 +1,67 @@
+# AWS Bedrock backends — one per model (path-per-model routing; see 20-…-HTTPRoute.yaml).
+# Cheap subset of the workshop set: haiku + mistral + llama3-8b (opus/sonnet omitted).
+#
+# Auth: SSO temporary credentials via policies.auth.aws.secretRef → the bedrock-secret
+# (accessKey/secretKey/sessionToken) minted by 01-api-keys.sh from .env.
+#
+# policies.ai is REQUIRED on enterprise agentgateway 2.3.x: the CRD's CEL rule rejects any
+# `policies` block without a non-empty `policies.ai`. The workshop manifests omit it (they
+# target the CalVer builds, which relaxed that rule). promptCaching {} is a model-agnostic,
+# real policy (not filler) — right for a backend that pins one model already, matching the
+# llmroute-bbr openai-all-models pattern. region pinned us-west-2 (override per backend).
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-haiku
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+        region: us-west-2
+  policies:
+    ai:                            # ← REQUIRED on 2.3.x (the [ai mcp] CEL rule)
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-mistral
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        model: mistral.voxtral-mini-3b-2507
+        region: us-west-2
+  policies:
+    ai:
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: bedrock-llama3-8b
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      bedrock:
+        model: meta.llama3-1-8b-instruct-v1:0
+        region: us-west-2
+  policies:
+    ai:
+      promptCaching: {}
+    auth:
+      aws:
+        secretRef:
+          name: bedrock-secret

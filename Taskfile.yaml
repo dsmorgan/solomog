@@ -890,9 +890,12 @@ tasks:
         DRY_RUN      true | false — server-side dry-run, writes nothing             default false
         GATEWAY      gateway name for %%GATEWAY%% / %%HOST%%                         auto-detected agw/kgw
         HOST         host for %%HOST%%                                              default <GATEWAY>.<CLUSTER>.test
+        BEDROCK_GUARDRAIL_ID       AWS Bedrock guardrail id for %%BEDROCK_GUARDRAIL_ID%%        from .env
+        BEDROCK_GUARDRAIL_VERSION  its version / DRAFT for %%BEDROCK_GUARDRAIL_VERSION%%       from .env
 
       Examples:
         solomog apply BUNDLE=llmroute CLUSTER=aaa
+        solomog apply BUNDLE=llmroute-bedrock-guardrails CLUSTER=g1 BEDROCK_GUARDRAIL_VERSION=DRAFT
         solomog apply BUNDLES="llmroute-vertex llmroute-bedrock" CLUSTER=aaa
         solomog apply BUNDLE=agw-dr CLUSTER=aaa DRY_RUN=true
     vars:
@@ -911,6 +914,11 @@ tasks:
       DRY_RUN: '{{.DRY_RUN | default "false"}}'
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → apply-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
+      # Wired so a CLI arg can override .env for a one-off (e.g. test a published guardrail
+      # version without editing .env). Safe to also live in .env: unlike TOKEN_EXCHANGE these
+      # are inert for every bundle that does not reference the tokens.
+      BEDROCK_GUARDRAIL_ID: '{{.BEDROCK_GUARDRAIL_ID | default ""}}'
+      BEDROCK_GUARDRAIL_VERSION: '{{.BEDROCK_GUARDRAIL_VERSION | default ""}}'
 
   graph:
     desc: "Open an interactive graph of a cluster's agentgateway config in the browser: CLUSTER=<name>. OPEN=false to just write the HTML."

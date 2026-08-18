@@ -27,10 +27,14 @@ set -euo pipefail
 # verbatim. The %%TOKEN%% syntax (not $VAR) is deliberate — it can't clash with `$`
 # that legitimately appears in manifests, and needs no envsubst/gettext dependency.
 # Supported tokens:
-#     %%CLUSTER%%   bare cluster name            (e.g. aaa)
-#     %%GATEWAY%%   gateway name                 (default agw; GATEWAY=)
-#     %%HOST%%      gateway host                 (default <GATEWAY>.<CLUSTER>.test; HOST=)
-# An unrecognized %%FOO%% left after rendering is a hard error (catches typos).
+#     %%CLUSTER%%                    bare cluster name            (e.g. aaa)
+#     %%GATEWAY%%                    gateway name                 (default agw; GATEWAY=)
+#     %%HOST%%                       gateway host                 (default <GATEWAY>.<CLUSTER>.test; HOST=)
+#     %%BEDROCK_GUARDRAIL_ID%%       AWS Bedrock guardrail id      from .env (no default)
+#     %%BEDROCK_GUARDRAIL_VERSION%%  its version (or DRAFT)        from .env (no default)
+# An unrecognized %%FOO%% left after rendering is a hard error (catches typos). A token
+# whose source var is EMPTY is deliberately left unsubstituted so it trips the same error
+# rather than rendering an empty value the CRD would reject with a confusing message.
 #
 # Bundle resolution (hybrid git layout): bundles/<name>/ (committed) or
 # bundles/private/<name>/ (gitignored, for sensitive config). private wins if both exist.
@@ -49,6 +53,9 @@ set -euo pipefail
 #   DRY_RUN   true|false (default false) — server-side dry-run, applies nothing
 #   GATEWAY   gateway name for %%GATEWAY%% (default: auto-detected agw/kgw from the cluster)
 #   HOST      host for %%HOST%% (default <GATEWAY>.<CLUSTER>.test)
+#   BEDROCK_GUARDRAIL_ID / BEDROCK_GUARDRAIL_VERSION
+#             from .env — feed %%BEDROCK_GUARDRAIL_ID%% / %%BEDROCK_GUARDRAIL_VERSION%%.
+#             Only the guardrail bundles reference them; every other bundle ignores them.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/gateway.sh"
@@ -64,11 +71,21 @@ GATEWAY="${GATEWAY:-$(solomog_detect_gateway "$CONTEXT")}"
 HOST="${HOST:-${GATEWAY}.${CLUSTER}.test}"
 
 # Render %%TOKEN%% placeholders. `|` delimiter is safe — none of the values contain it.
+# CLUSTER/GATEWAY/HOST always have a value. The .env-sourced ones may legitimately be unset
+# (most bundles never reference them), so they are substituted ONLY when non-empty — an unset
+# one then survives as a literal %%TOKEN%% and trips the leftover check below with a useful
+# error, instead of silently rendering `identifier: ` (which the CRD rejects as minLength 1).
 render() {
-  sed -e "s|%%CLUSTER%%|${CLUSTER}|g" \
-      -e "s|%%GATEWAY%%|${GATEWAY}|g" \
-      -e "s|%%HOST%%|${HOST}|g" \
-      "$1"
+  local sed_args=(
+    -e "s|%%CLUSTER%%|${CLUSTER}|g"
+    -e "s|%%GATEWAY%%|${GATEWAY}|g"
+    -e "s|%%HOST%%|${HOST}|g"
+  )
+  [[ -n "${BEDROCK_GUARDRAIL_ID:-}" ]] &&
+    sed_args+=(-e "s|%%BEDROCK_GUARDRAIL_ID%%|${BEDROCK_GUARDRAIL_ID}|g")
+  [[ -n "${BEDROCK_GUARDRAIL_VERSION:-}" ]] &&
+    sed_args+=(-e "s|%%BEDROCK_GUARDRAIL_VERSION%%|${BEDROCK_GUARDRAIL_VERSION}|g")
+  sed "${sed_args[@]}" "$1"
 }
 
 APPLY_ARGS=(apply)
@@ -127,6 +144,9 @@ apply_one() {
         if [[ -n "$leftover" ]]; then
           echo "Error: unsubstituted token(s) in ${name}: $(echo "$leftover" | tr '\n' ' ')" >&2
           echo "       Supported tokens: %%CLUSTER%% %%GATEWAY%% %%HOST%%" >&2
+          echo "                         %%BEDROCK_GUARDRAIL_ID%% %%BEDROCK_GUARDRAIL_VERSION%%" >&2
+          echo "       A supported token also lands here when its source var is empty in .env" >&2
+          echo "       — check that one first before hunting for a typo." >&2
           return 1
         fi
         printf '%s\n' "$rendered" | kubectl --context "$CONTEXT" "${APPLY_ARGS[@]}" -f - ;;

@@ -1,0 +1,63 @@
+# Guardrail attach point #2 of 2 — GATEWAY-ENFORCED via promptGuard.
+#
+# Here the GATEWAY calls Bedrock's ApplyGuardrail API out-of-band: on the request before it
+# reaches the model, and on the response before it reaches the client. The model call itself
+# carries no guardrail (this policy targets the route whose backend is the UNguarded
+# bedrock-llama3-8b), so anything blocked here was blocked by the gateway.
+#
+# Three consequences worth knowing, all of them differences from the native form in 12-:
+#
+#  1. `region` is REQUIRED here. The native form inherits the provider's region; this filter has
+#     no provider to inherit from, so the region is explicit. Point it at a region where the
+#     guardrail does not exist and you get a failure that looks like an auth problem.
+#  2. It authenticates SEPARATELY. `policies.auth.aws` below is this filter's own credential —
+#     not the backend's. Omit it and the guardrail call falls back to whatever ambient AWS
+#     credentials the proxy has, which is usually none, while the model call keeps working on
+#     the backend's secret. That asymmetry is the interesting failure mode to probe: one
+#     credential for the model, another for the guard.
+#  3. A block is the GATEWAY's response, so the status code is ours to choose (below) rather
+#     than Bedrock's intervention body. That is what makes these tests assertable on a code.
+#
+# Each promptGuard list item holds EXACTLY ONE filter type (CRD rule:
+# ExactlyOneOf=regex;webhook;openAIModeration;bedrockGuardrails;googleModelArmor). `response` is
+# not part of that set — it is the custom deny response for the filter in the same item, which is
+# why it sits alongside rather than in its own entry. Several filter types = several items.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: bedrock-promptguard
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: bedrock-guard-promptguard
+  backend:
+    ai:
+      promptGuard:
+        request:
+          - bedrockGuardrails:
+              identifier: %%BEDROCK_GUARDRAIL_ID%%
+              version: "%%BEDROCK_GUARDRAIL_VERSION%%"
+              region: us-west-2                  # REQUIRED here — nothing to inherit from
+              policies:
+                auth:
+                  aws:
+                    secretRef:
+                      name: bedrock-secret       # this filter's OWN credential (see note 2)
+            response:
+              message: "blocked by bedrock guardrail on the request"
+              statusCode: 403
+        response:
+          - bedrockGuardrails:
+              identifier: %%BEDROCK_GUARDRAIL_ID%%
+              version: "%%BEDROCK_GUARDRAIL_VERSION%%"
+              region: us-west-2
+              policies:
+                auth:
+                  aws:
+                    secretRef:
+                      name: bedrock-secret
+            response:
+              message: "blocked by bedrock guardrail on the response"
+              statusCode: 403

@@ -61,6 +61,13 @@ Supported tokens:
 | `%%CLUSTER%%` | bare cluster name | from `CLUSTER=` |
 | `%%GATEWAY%%` | gateway name | `agw` (override `GATEWAY=`) |
 | `%%HOST%%` | gateway host | `<GATEWAY>.<CLUSTER>.test` (override `HOST=`) |
+| `%%BEDROCK_GUARDRAIL_ID%%` | AWS Bedrock guardrail id | `BEDROCK_GUARDRAIL_ID` in `.env` — no default |
+| `%%BEDROCK_GUARDRAIL_VERSION%%` | its version, or `DRAFT` | `BEDROCK_GUARDRAIL_VERSION` in `.env` — no default |
+
+The first three always have a value. The `.env`-sourced ones are substituted **only when
+non-empty**: an unset var leaves the literal `%%TOKEN%%` in place so it trips the leftover-token
+error below, rather than rendering an empty value that the CRD rejects for a less obvious reason.
+Most bundles reference neither and are unaffected.
 
 Any unrecognized `%%FOO%%` left after rendering is a hard error (catches typos). The
 check scans the whole rendered file **including comments**, so don't write a literal
