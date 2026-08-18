@@ -1,0 +1,55 @@
+# Routes for the two guardrail attach points. Deliberately TWO HTTPRoutes rather than one route
+# with two rules: the promptGuard policy in 42- attaches via targetRefs to an HTTPRoute, and that
+# targets the whole route — so a shared route would apply the gateway-side guardrail to the
+# native-passthrough path too, and no test could tell the two mechanisms apart.
+#
+#   /bedrock/guard/native       → bedrock-llama3-8b-guarded  (guardrail rides the model call)
+#   /bedrock/guard/promptguard  → bedrock-llama3-8b          (UNguarded backend; the guardrail
+#                                                             comes only from the 42- policy)
+#
+# The promptguard path points at the plain backend from 10- on purpose: if it pointed at the
+# guarded backend, both mechanisms would fire and a block could not be attributed to either.
+#
+# No path conflict with 20-: those are /bedrock/<model> prefixes plus an Exact /bedrock, and
+# Gateway API resolves the more specific prefix first.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bedrock-guard-native
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bedrock/guard/native
+      backendRefs:
+        - name: bedrock-llama3-8b-guarded
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: bedrock-guard-promptguard
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /bedrock/guard/promptguard
+      backendRefs:
+        - name: bedrock-llama3-8b
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "120s"
