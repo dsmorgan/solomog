@@ -37,6 +37,42 @@ tasks:
     desc: Install prerequisites via Homebrew and create the solomog symlink
     cmds: [bash scripts/setup.sh]
 
+  setup:sudo:
+    desc: "One-time per machine: let solomog edit /etc/hosts without a sudo password"
+    summary: |
+      Install a narrow /etc/sudoers.d fragment so solomog's ONE privileged operation —
+      the whole-file /etc/hosts rewrite in scripts/lib/hosts.sh, which pins a gateway
+      LoadBalancer IP to a .test hostname — runs with no password prompt. Point: a long
+      unattended run (stack / expose / apply) no longer stalls mid-install waiting for you.
+
+      The granted rule is
+        <you> ALL=(root) NOPASSWD: /usr/bin/tee /etc/hosts
+      and it is GENERATED from the same variable hosts.sh executes ($SOLOMOG_HOSTS_TEE,
+      called by absolute path), so the command spec cannot drift from the command run.
+      sudoers matches arguments too — the grant is that one path and nothing else, which
+      is why hosts.sh dedups unprivileged and overwrites the whole file rather than
+      using `tee -a` / `sed -i`.
+
+      Trade-off, plainly: afterwards anything running as your user can rewrite /etc/hosts
+      with no prompt (hostname redirection on this machine). No shell, no other file, no
+      other command. Idempotent, and a no-op if some other sudoers rule already allows it.
+      Not needed for DNS=real (vsphere/OPNsense) clusters — those touch no /etc/hosts.
+
+      Cluster-free (machine setup, like `setup`).
+
+      Variables:
+        CHECK=true    verify only — no writes, no prompt (exit 1 if still password-gated)
+        REMOVE=true   remove the fragment
+
+      Examples:
+        solomog setup:sudo
+        solomog setup:sudo CHECK=true
+        solomog setup:sudo REMOVE=true
+    env:
+      CHECK: '{{.CHECK | default ""}}'
+      REMOVE: '{{.REMOVE | default ""}}'
+    cmds: [bash scripts/setup-sudo.sh]
+
   versions:update:
     desc: "Check pinned versions against GitHub latest (read-only — does not write versions.env)"
     cmds: [bash scripts/versions-update.sh]

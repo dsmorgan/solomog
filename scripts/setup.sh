@@ -75,4 +75,9 @@ if [ "${#MISSING[@]}" -ne 0 ]; then
 fi
 
 echo ""
+echo "==> Optional (one-time): solomog setup:sudo"
+echo "    Lets solomog rewrite /etc/hosts with no password prompt, so an unattended"
+echo "    'solomog stack …' does not stall mid-install. See: solomog help setup:sudo"
+
+echo ""
 echo "==> Done. Try: solomog"

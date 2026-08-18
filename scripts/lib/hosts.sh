@@ -6,10 +6,24 @@
 # world-readable file), so the only privileged operation is one fixed, exactly-
 # matchable command. That lets a passwordless setup be a single narrow sudoers rule:
 #     <user> ALL=(root) NOPASSWD: /usr/bin/tee /etc/hosts
-# (Interactive use is unchanged — sudo just prompts once.) The old append-only rule
-# (`tee -a /etc/hosts`) is NOT enough: appends can't remove a stale line, and the
-# resolver takes the FIRST match, so a changed LB IP would leave the old entry
-# winning (this actually happened — three stacked agw entries, oldest first).
+# installed once by `solomog setup:sudo` ([scripts/setup-sudo.sh]), which BUILDS that
+# rule from $SOLOMOG_HOSTS_TEE below — so the command spec can never drift from the
+# command actually run. (Interactive use is unchanged — sudo just prompts once.) The old
+# append-only rule (`tee -a /etc/hosts`) is NOT enough: appends can't remove a stale
+# line, and the resolver takes the FIRST match, so a changed LB IP would leave the old
+# entry winning (this actually happened — three stacked agw entries, oldest first).
+#
+# sudoers matches the FULLY-QUALIFIED path, and sudo resolves a bare `tee` through the
+# caller's PATH (macOS sets no secure_path) — a brew coreutils `tee` earlier on PATH
+# would silently stop matching the rule and start prompting again. Hence the absolute
+# path here, as one variable shared with the installer.
+if [ -z "${SOLOMOG_HOSTS_TEE:-}" ]; then
+  if [ -x /usr/bin/tee ]; then
+    SOLOMOG_HOSTS_TEE=/usr/bin/tee
+  else
+    SOLOMOG_HOSTS_TEE="$(command -v tee)"
+  fi
+fi
 
 # Pure dedup: hosts-file content on stdin → content with <host> removed on stdout.
 # awk compares whole fields (no regex), so the dots in a hostname can never wildcard-
@@ -44,7 +58,8 @@ _solomog_hosts_strip() {   # args: <host>  (content on stdin)
   '
 }
 
-# Replace any existing line(s) for <host> with "<ip> <host>". Needs sudo (see above).
+# Replace any existing line(s) for <host> with "<ip> <host>". Needs sudo (see above) —
+# passwordless after `solomog setup:sudo`, one prompt per sudo timestamp otherwise.
 solomog_hosts_set() {   # args: <host> <ip>
   local host="$1" ip="$2" content
   # Guard locally, not via the caller's errexit: if the strip fails (unreadable
@@ -53,5 +68,5 @@ solomog_hosts_set() {   # args: <host> <ip>
     echo "Error: could not read/dedup /etc/hosts — refusing to overwrite it." >&2
     return 1
   }
-  printf '%s\n%s %s\n' "$content" "$ip" "$host" | sudo tee /etc/hosts >/dev/null
+  printf '%s\n%s %s\n' "$content" "$ip" "$host" | sudo "$SOLOMOG_HOSTS_TEE" /etc/hosts >/dev/null
 }

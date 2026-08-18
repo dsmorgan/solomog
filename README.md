@@ -57,10 +57,38 @@ bash scripts/setup.sh
 
 # 4. Verify
 solomog            # lists every available scenario
+
+# 5. Optional, once per machine: passwordless /etc/hosts edits (see below)
+solomog setup:sudo
 ```
 
 > `solomog` is a thin wrapper that runs `task` from the repo root regardless of
 > your current directory, so the commands below work from anywhere.
+
+### Passwordless /etc/hosts (one-time)
+
+`expose` / `route-host` pin a gateway LoadBalancer IP to a `.test` hostname in
+`/etc/hosts` — solomog's **only** privileged operation. Left as-is, a long
+unattended run (`solomog stack …`) can stall halfway waiting for a sudo password.
+
+```bash
+solomog setup:sudo              # install the rule (prompts once)
+solomog setup:sudo CHECK=true   # verify only — no writes, no prompt
+solomog setup:sudo REMOVE=true  # undo
+```
+
+It writes `/etc/sudoers.d/solomog` granting exactly one command with exactly one
+argument — `<you> ALL=(root) NOPASSWD: /usr/bin/tee /etc/hosts` — and *generates*
+that line from the same variable [scripts/lib/hosts.sh](scripts/lib/hosts.sh)
+executes, so the sudoers spec can't drift from the command actually run (sudoers
+matches the fully-qualified path **and** the arguments). The line dedup that
+precedes the write is unprivileged, which is what keeps the grant this narrow.
+
+Trade-off, plainly: afterwards anything running as your user can rewrite
+`/etc/hosts` with no prompt — hostname redirection on this machine. It grants no
+shell, no other file, no other command. Skip it if that's not a trade you want;
+everything still works, sudo just prompts. Not needed at all for `DNS=real`
+(vsphere/OPNsense) clusters — those write no `/etc/hosts` entries.
 
 ---
 
@@ -196,8 +224,9 @@ After a Docker Desktop restart, host routing between clusters is gone — recove
 ### Expose a gateway (Gateway + TLS + DNS) and route apps
 
 `expose` creates the Gateway, an mkcert TLS cert/secret, and wires the vcluster
-LoadBalancer IP into `/etc/hosts` (the `/etc/hosts` edit needs `sudo`). Apps attach
-their own HTTPRoute when invoked with `ROUTE=true` — all in one CLI call:
+LoadBalancer IP into `/etc/hosts` (the `/etc/hosts` edit needs `sudo` — run
+[`solomog setup:sudo`](#passwordless-etchosts-one-time) once and it stops prompting).
+Apps attach their own HTTPRoute when invoked with `ROUTE=true` — all in one CLI call:
 
 ```bash
 # Gateway + TLS + DNS, then route two apps onto it (distinct default paths)
