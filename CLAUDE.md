@@ -344,7 +344,9 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   .BUNDLE}}`); apply-bundle.sh / test-bundle.sh loop over the list (one run-dir per bundle
   for tests, with a combined tally). `bundles:show` stays single-bundle (discovery).
 - `bundles:list` / `bundles:show` (via [scripts/bundles.sh](scripts/bundles.sh)) are
-  cluster-free discovery; `apply` is framed through `run.sh` like other leaf tasks.
+  cluster-free discovery; `solomog bundles:list FILTER=<substr>` filters names
+  (case-insensitive, literal). Do not use `MATCH=` here — go-task reserves
+  `.MATCH` for wildcard captures. `apply` is framed through `run.sh` like other leaf tasks.
 - **Testing**: a bundle's `tests/` subdir holds `*.sh` tests run by `solomog test BUNDLE=…`
   ([scripts/test-bundle.sh](scripts/test-bundle.sh)) in sorted order. **A test is just the
   command(s)** — no required format/scaffolding; the runner runs the file and judges pass/fail

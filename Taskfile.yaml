@@ -1010,7 +1010,27 @@ tasks:
       HOST: '{{.HOST | default ""}}'
 
   bundles:list:
-    desc: "List available custom-config bundles (bundles/ and bundles/private/)."
+    desc: "List available custom-config bundles (bundles/ and bundles/private/). FILTER=<substr> filters names."
+    summary: |
+      List custom-config bundles under bundles/ and bundles/private/, with the first
+      README line and a (private) tag. Cluster-free (discovery only — does not apply
+      anything). FILTER=<substr> keeps only names that contain that substring
+      (case-insensitive, literal — not a regex). Empty FILTER lists everything.
+
+      FILTER not MATCH: go-task reserves MATCH for wildcard task captures, so a
+      CLI MATCH=… never reaches the script.
+
+      Variables:
+        FILTER    substring to filter bundle names   default empty (all)
+
+      Examples:
+        solomog bundles:list
+        solomog bundles:list FILTER=citizens
+        solomog bundles:list FILTER=outsystems
+    env:
+      # CLI-only on purpose: a FILTER sitting in .env would silently shrink every list.
+      # Named FILTER (not MATCH) because go-task's MATCH var is the wildcard capture array.
+      FILTER: '{{.FILTER | default ""}}'
     cmds:
       - bash scripts/bundles.sh list
 

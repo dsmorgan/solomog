@@ -391,6 +391,7 @@ app — e.g. recreating a specific customer's routes/policies — drop manifests
 
 ```bash
 solomog bundles:list                                   # what's available
+solomog bundles:list FILTER=acme                       # names containing a substring
 solomog bundles:show BUNDLE=acme                       # files in apply order
 solomog apply BUNDLE=acme CLUSTER=aaa                   # apply, in order
 solomog apply BUNDLE=acme CLUSTER=aaa DRY_RUN=true      # validate only (server-side)
