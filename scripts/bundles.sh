@@ -6,8 +6,14 @@ set -euo pipefail
 #
 # Usage:
 #   bundles.sh list           pretty list of bundles (+ first README line, private tag)
+#                             FILTER=<substr> filters names (case-insensitive, literal)
 #   bundles.sh show <name>    files in apply order, with [tmpl] markers
 #   bundles.sh names          bare names, one per line (used by apply-bundle.sh)
+#
+# Env:
+#   FILTER   optional substring; list only. Empty = all. Not used by names/show.
+#   MATCH    alias for FILTER when invoking this script directly. Do not use MATCH
+#            as a go-task CLI var — MATCH is reserved for wildcard captures.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLES="$REPO_DIR/bundles"
@@ -29,13 +35,45 @@ _each_bundle() {
   done
 }
 
+# FILTER is the Taskfile CLI knob. MATCH is a direct-script alias (go-task reserves .MATCH).
+_filter_needle() {
+  if [ -n "${FILTER:-}" ]; then
+    printf '%s' "$FILTER"
+  else
+    printf '%s' "${MATCH:-}"
+  fi
+}
+
+# Case-insensitive literal substring on the bundle directory name. Empty needle = keep.
+_name_matches() {
+  local needle
+  needle="$(_filter_needle)"
+  [ -z "$needle" ] && return 0
+  printf '%s' "$1" | grep -qiF -- "$needle"
+}
+
+# Same rows as _each_bundle, restricted to FILTER/MATCH (list only).
+_list_rows() {
+  local name dir priv
+  _each_bundle | while IFS=$'\t' read -r name dir priv; do
+    _name_matches "$name" || continue
+    printf '%s\t%s\t%s\n' "$name" "$dir" "$priv"
+  done
+}
+
 case "$MODE" in
   names)
     _each_bundle | cut -f1
     ;;
 
   list)
-    if [ -z "$(_each_bundle)" ]; then
+    rows="$(_list_rows)"
+    if [ -z "$rows" ]; then
+      needle="$(_filter_needle)"
+      if [ -n "$needle" ]; then
+        printf "No bundles matching '%s'.\n" "$needle"
+        exit 0
+      fi
       printf '%sNo bundles yet.%s Create one:  mkdir -p bundles/<name> && add NN-*.yaml\n' "$B" "$R"
       printf 'See %sbundles/README.md%s for the convention.\n' "$D" "$R"
       exit 0
@@ -44,7 +82,7 @@ case "$MODE" in
     # Note: end the loop body with statements that return 0 even when the
     # README/desc is absent — otherwise a trailing `[ -n "$desc" ] && printf`
     # returns 1 for the LAST bundle, failing the pipeline under set -e/pipefail.
-    _each_bundle | while IFS=$'\t' read -r name dir priv; do
+    printf '%s\n' "$rows" | while IFS=$'\t' read -r name dir priv; do
       desc=""
       if [ -f "$dir/README.md" ]; then
         desc="$(grep -m1 -v '^[[:space:]]*$' "$dir/README.md" | sed 's/^#\{1,\} *//')"

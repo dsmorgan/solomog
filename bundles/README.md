@@ -6,6 +6,7 @@ generalizing into a product or app module.
 
 ```bash
 solomog bundles:list                              # what's available
+solomog bundles:list FILTER=example               # names containing a substring
 solomog bundles:show BUNDLE=example               # files in apply order
 solomog apply BUNDLE=example CLUSTER=aaa           # apply it
 solomog apply BUNDLE=example CLUSTER=aaa DRY_RUN=true   # validate only (server-side)
