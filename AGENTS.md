@@ -38,9 +38,12 @@ refuses to start**. Consequences:
 
 Everything that doesn't need a schedulable pod works against a **control-plane-only
 Kubernetes API server** via solomog's built-in **external-cluster path** (`CONTEXT=`,
-see `scripts/lib/target.sh`): CLI/help, `bundles:list`/`show`, `versions:show`,
-`helmfile build`/`template` (pulls the real community charts — good install-machinery
-check), and `solomog apply` / `solomog test` for pod-free bundles.
+see `scripts/lib/target.sh`): CLI/`solomog help <task>`, `bundles:list`/`show`
+(`FILTER=<substr>`), `versions:show`, `solomog export` (no cluster), `helmfile
+build`/`template` (pulls the real community charts — good install-machinery check),
+and `solomog apply` / `solomog test` for pod-free bundles (`BUNDLE`/`BUNDLES` may
+name several). Single-cluster tasks require `CLUSTER=` (or `CONTEXT=`); there is no
+default name.
 
 Start the services (they do NOT persist across VM restarts — this is session startup, so
 it's intentionally not in the update script):

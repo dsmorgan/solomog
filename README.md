@@ -5,9 +5,11 @@ environments with Solo.io products and sample apps preinstalled — so you can s
 the setup and get to the work that matters: testing, validating configs, and
 reproducing customer issues.
 
-Supports **agentgateway**, **kagent**, **kgateway**, and **Istio** (ambient + sidecar), in
-both **Solo enterprise** and **community/OSS** editions, on single or multi-cluster
-topologies.
+Supports **agentgateway**, **kagent**, **kgateway**, **Gloo Gateway**, and **Istio**
+(ambient + sidecar), in both **Solo enterprise** and **community/OSS** editions, on
+single or multi-cluster topologies. Optional add-ons: Solo UI, Solo Portal, and
+Prometheus/Grafana. Optional cluster backends besides local vind: EKS and a vSphere
+homelab provisioner.
 
 ---
 
@@ -18,8 +20,8 @@ These must be present **before** running `bash scripts/setup.sh`:
 | Dependency | Purpose | Install |
 |---|---|---|
 | **Docker Desktop** | Runs the vcluster containers; the flat-network routing reaches into its VM | https://docs.docker.com/desktop/ |
-| **vind** (or `vcluster`) | Creates the local virtual clusters | https://www.vcluster.com/docs |
-| **meshctl** | Gloo Mesh CLI (expected at `~/.gloo-mesh/bin/meshctl`, on `$PATH`) | https://docs.solo.io/gloo-mesh-enterprise/latest/setup/cli/ |
+| **vcluster** (`vind`) | Creates the local virtual clusters | https://www.vcluster.com/docs |
+| **kubectl** | Talks to those clusters; ships with Docker Desktop | https://kubernetes.io/docs/tasks/tools/ |
 | **Homebrew** | Installs the remaining tools below | https://brew.sh |
 
 `bash scripts/setup.sh` installs the rest via Homebrew:
@@ -56,7 +58,10 @@ bash scripts/setup.sh
 #      export PATH="$HOME/.local/bin:$PATH"
 
 # 4. Verify
-solomog            # lists every available scenario
+solomog                 # lists every available task
+solomog help expose     # per-task variables, defaults, and examples
+#    `solomog help <task>` is the source of truth for knobs. The wrapper strips
+#    go-task's resolved vars/env trailer so license keys never print.
 
 # 5. Optional, once per machine: passwordless /etc/hosts edits (see below)
 solomog setup:sudo
@@ -100,10 +105,14 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
   recover with `solomog net:repair CLUSTERS="…"` (clusters / Istio / certs survive).
 - **vcluster docker driver.** Clusters are created with `vcluster create --driver
   docker` (vcluster-in-Docker) using default config, then `vcluster connect`ed.
-- **kube context naming.** The docker driver registers contexts as
-  `vcluster-docker_NAME` (e.g. `vcluster-docker_cluster-one`) — note the Docker
-  *network* is `vcluster.NAME`, which is different. Scripts/helmfiles use the
-  `vcluster-docker_` context form.
+- **`CLUSTER` is required on single-cluster tasks.** There is no default name.
+  Pass `CLUSTER=<name>` (or `CONTEXT=` for an unregistered kube context).
+  Multi-cluster Istio tasks default to `cluster-one cluster-two` (or `…-three`).
+- **kube context naming.** Scripts resolve `CLUSTER` through
+  [scripts/lib/target.sh](scripts/lib/target.sh): `CONTEXT` override → the
+  `.solomog/contexts` registry (EKS / vSphere) → the vind default
+  `vcluster-docker_<name>`. The Docker *network* is `vcluster.<name>`, which is
+  different and only used by inter-cluster routing.
 - **Shared root CA** is generated once into `certs/` (gitignored) and reused across
   runs. Delete `certs/` to rotate. Multi-cluster Istio mTLS depends on this.
 - **Enterprise chart repos/versions** in
@@ -151,33 +160,51 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
 ```bash
 # General-purpose: any combination on one cluster, installed in dependency order
 solomog stack CLUSTER=cluster-one PRODUCTS="istio kgateway agentgateway"
-solomog stack PRODUCTS="istio gloo-mesh" ISTIO_MODE=sidecar
+solomog stack CLUSTER=cluster-one PRODUCTS="istio gloo-mesh" ISTIO_MODE=sidecar
 
-# Shortcuts
-solomog istio:ambient:single
-solomog istio:sidecar:single
-solomog gloo-mesh:single                 # istio + Gloo Mesh mgmt plane
-solomog kgateway                         # enterprise kgateway 2.2.x
-solomog kgateway:with-istio
-solomog gloo-gateway                     # Gloo Gateway 1.21.x (separate product)
-solomog agentgateway
-solomog kagent                           # Enterprise evaluation topology (experimental)
+# Shortcuts (CLUSTER is required — there is no default name)
+solomog istio:ambient:single CLUSTER=cluster-one
+solomog istio:sidecar:single CLUSTER=cluster-one
+solomog gloo-mesh:single CLUSTER=cluster-one     # istio + Gloo Mesh mgmt plane
+solomog kgateway CLUSTER=cluster-one             # enterprise kgateway 2.2.x
+solomog kgateway:with-istio CLUSTER=cluster-one
+solomog gloo-gateway CLUSTER=cluster-one         # Gloo Gateway 1.21.x (separate product)
+solomog agentgateway CLUSTER=cluster-one
+solomog kagent CLUSTER=cluster-one               # Enterprise evaluation topology (experimental)
 
 # Community editions (no license key needed)
-solomog kgateway EDITION=community
-solomog gloo-gateway EDITION=community
-solomog kagent EDITION=community         # Stable OSS kagent
-solomog kagent EDITION=community KAGENT_PROVIDER=ollama
+solomog kgateway EDITION=community CLUSTER=cluster-one
+solomog gloo-gateway EDITION=community CLUSTER=cluster-one
+solomog kagent EDITION=community CLUSTER=cluster-one
+solomog kagent EDITION=community CLUSTER=cluster-one KAGENT_PROVIDER=ollama
 ```
+
+Enterprise agentgateway accepts two CLI-only install flags (never put them in
+`.env` — they would leak onto the next unrelated cluster):
+
+- `TOKEN_EXCHANGE=true` — enable the OBO token-exchange STS and restart the `agw` proxy
+- `OAUTH_ISSUER=true` — gateway acts as an OAuth authorization server at `/oauth-issuer`
+  (needs `TOKEN_EXCHANGE=true` and `OKTA_*` in `.env`)
+
+`solomog help agentgateway` lists the related JWKS / callback knobs. Enterprise
+kgateway has `KGATEWAY_ELS_CRD` and `KGATEWAY_SKIP_SHARED_CRDS` for the same
+reason (`solomog help kgateway`).
 
 Kagent defaults to `KAGENT_PROVIDER=openAI` and reads `OPENAI_API_KEY`; use
 `anthropic` with `CLAUDE_API_KEY`, or `ollama` with no API key. Both editions
 install a bundled PostgreSQL suitable for short PoVs. The install summary prints
-the relevant UI port-forward command. Enterprise defaults to the chart's bundled
-auto-IdP (the documented quickstart path — no IdP setup needed); set
-`KAGENT_OIDC_ISSUER` + `SOLO_UI_OIDC_*` to put it behind a real IdP. A cluster
-whose shared management release is already on an external IdP stops with the two
-choices spelled out, since either default would break one of the two UIs.
+the UI port-forward: Enterprise is the shared Solo UI at
+`http://localhost:4000/ke/` (`/age/` is agentgateway, `/ie/` is Istio — always
+name the prefix; bare `/` redirects to whichever product is enabled first).
+Community kagent ships its own UI at `http://localhost:8080/`.
+
+Enterprise defaults to the chart's bundled auto-IdP (the documented quickstart
+path — no IdP setup needed); set `KAGENT_OIDC_ISSUER` + `SOLO_UI_OIDC_*` to put
+it behind a real IdP. `SOLO_UI_OIDC_*` alone does **not** switch kagent off the
+auto-IdP. A cluster whose shared management release is already on an external
+IdP stops with the two choices spelled out (`KAGENT_OIDC_ISSUER` to join that
+IdP, or `KAGENT_AUTOAUTH=true` to reset the release to the bundled IdP), since
+either silent default would break one of the two UIs.
 
 Enterprise kagent 0.5.x documents Kubernetes 1.32–1.36, Gateway API 1.5.0,
 agentgateway 2026.7.0, and Istio 1.26–1.29. Standalone evaluation is allowed.
@@ -194,7 +221,8 @@ solomog stack PRODUCTS="istio agentgateway kagent" CLUSTER=a1 ISTIO_VERSION=1.29
 ```bash
 solomog istio:ambient:multi-flat         # 2 clusters, shared (flat) network
 solomog istio:ambient:multi-gateway      # 2 clusters, multi-network (east-west wired)
-solomog istio:ambient:multi-3            # 3 clusters (supports mixed versions)
+solomog istio:ambient:multi-3            # 3 clusters, flat (supports mixed versions)
+solomog istio:ambient:multi-3-gateway    # 3 clusters, east-west full mesh
 # sidecar:* variants exist for each
 ```
 
@@ -206,6 +234,11 @@ each cluster with one shared root CA. Per-cluster Istio version overrides
 
 After a Docker Desktop restart, host routing between clusters is gone — recover with
 `solomog net:repair CLUSTERS="…"` (auto-detects flat vs gateway; no full mesh re-run).
+
+Registered **vSphere** clusters can join a gateway-topology mesh
+(`istio:ambient:multi-gateway CLUSTERS="s6 s7"`) — they must already exist; mixing
+vind + external is refused; flat is refused (it needs Docker-bridge routing). East-west
+gateways sit on MetalLB IPs, so there is no host routing to repair.
 
 > **`CLUSTER` / `CLUSTERS` are aliases.** Single-cluster tasks take the first name
 > from whichever you set; multi-cluster tasks take the whole list. So a singular/plural
@@ -223,8 +256,9 @@ After a Docker Desktop restart, host routing between clusters is gone — recove
 
 ### Expose a gateway (Gateway + TLS + DNS) and route apps
 
-`expose` creates the Gateway, an mkcert TLS cert/secret, and wires the vcluster
-LoadBalancer IP into `/etc/hosts` (the `/etc/hosts` edit needs `sudo` — run
+`expose` creates the Gateway and makes it reachable. On local-LB targets (vind,
+vSphere without `DNS=real`) that means an mkcert TLS cert/secret plus an
+`/etc/hosts` line (needs `sudo` — run
 [`solomog setup:sudo`](#passwordless-etchosts-one-time) once and it stops prompting).
 Apps attach their own HTTPRoute when invoked with `ROUTE=true` — all in one CLI call:
 
@@ -254,6 +288,11 @@ The hostname defaults to **`<NAME>.<CLUSTER>.test`** (e.g. `agw.a1.test`, `kgw.a
 `.test` is the RFC 6761 name reserved for testing (`.local` is avoided: it collides with
 mDNS/Bonjour and resolves slowly), and including the cluster keeps hostnames unique when
 multiple clusters are up.
+
+On a **vSphere** cluster, `DNS=real` switches off mkcert + `/etc/hosts` and instead
+upserts a flat hostname on the homelab DNS (`SOLOMOG_DOMAIN`) with a Certwarden
+Let's Encrypt cert. See `solomog help expose` and `.env.example`. EKS uses the
+cloud LoadBalancer hostname (no `/etc/hosts`).
 
 ### Shared Solo UI, Portal & monitoring add-ons
 
@@ -307,14 +346,14 @@ solomog monitoring expose ROUTE=true CLUSTER=a1
 
 ```bash
 solomog apps:bookinfo CLUSTER=cluster-one
-solomog apps:online-boutique
-solomog apps:utils                       # httpbin, curl, netshoot
-solomog apps:utils CLUSTER=a1 ROUTE=true # also route httpbin through the gateway (any gateway)
-                                         #   at /httpbin — the universal routing smoke test
-solomog apps:mock-openai                 # OpenAI-compatible mock LLM + agentgateway route
-                                         #   (needs enterprise agentgateway installed)
-solomog apps:mcp-stripe                  # stripe-mock exposed as MCP tools via OpenAPI
-                                         #   (needs enterprise agentgateway; add ROUTE=true to route)
+solomog apps:online-boutique CLUSTER=cluster-one
+solomog apps:utils CLUSTER=cluster-one           # httpbin, curl, netshoot
+solomog apps:utils CLUSTER=a1 ROUTE=true         # also route httpbin through the gateway (any gateway)
+                                                 #   at /httpbin — the universal routing smoke test
+solomog apps:mock-openai CLUSTER=a1              # OpenAI-compatible mock LLM + agentgateway backend
+                                                 #   (needs enterprise agentgateway; add ROUTE=true)
+solomog apps:mcp-stripe CLUSTER=a1               # stripe-mock exposed as MCP tools via OpenAPI
+                                                 #   (needs enterprise agentgateway; add ROUTE=true)
 ```
 
 Both AI/MCP apps need a gateway to be reachable — run `solomog expose` (above) first
@@ -356,9 +395,17 @@ solomog cluster:list                         # vind + registered EKS/vsphere/ext
 solomog cluster:show CLUSTER=a1
 
 # Stand up / tear down an EKS cluster and register it for solomog CLUSTER=…
+# Needs eksctl + AWS creds (`solomog aws:refresh`, or export them in the shell).
 solomog eks:create CLUSTER=dmorgan-agw
 solomog eks:delete CLUSTER=dmorgan-agw
+# Keyless SigV4 from the agentgateway proxy to AgentCore (replaces ≤12h env creds):
+solomog eks:irsa CLUSTER=dmorgan-agw
 ```
+
+`cluster:list` marks the current kubectl context with `*`. A `~` means kubectl is
+on that same cluster through a different context name (eksctl and
+`aws eks update-kubeconfig` each write their own). Status for EKS is live when
+AWS creds work, otherwise `—`.
 
 Once registered (or with `CONTEXT=`), install/expose/graph/routes use that cluster like
 a local vind one — solomog does not create or network it.
@@ -394,21 +441,55 @@ solomog bundles:list                                   # what's available
 solomog bundles:list FILTER=acme                       # names containing a substring
 solomog bundles:show BUNDLE=acme                       # files in apply order
 solomog apply BUNDLE=acme CLUSTER=aaa                   # apply, in order
+solomog apply BUNDLES="llmroute-vertex llmroute-bbr" CLUSTER=aaa   # several, left-to-right
 solomog apply BUNDLE=acme CLUSTER=aaa DRY_RUN=true      # validate only (server-side)
+solomog test BUNDLE=acme CLUSTER=aaa                    # run bundles/<name>/tests/*.sh
+solomog export BUNDLE=acme                              # portable, secret-safe hand-off (no cluster)
 
 # recreate a whole customer env in one chained call:
 solomog agentgateway:ui expose apply BUNDLE=acme ROUTE=true CLUSTER=aaa
 ```
 
+`BUNDLE` and `BUNDLES` are aliases; either may name several bundles, applied (or
+tested) left-to-right. `export` packages one bundle's declarative manifests for
+someone who is not using solomog — hooks are copied into `manual-steps/`, not run.
+
 A bundle is `bundles/<name>/` (committed) or `bundles/private/<name>/` (gitignored, for
 anything sensitive). Files apply in `LC_ALL=C` sorted order, so prefix them with a
 zero-padded number (`01-`, `10-`, `20-`) to sequence. Files ending `.yaml.tmpl` are
-rendered with `%%CLUSTER%%` / `%%GATEWAY%% `/ `%%HOST%%` placeholders before apply
-(plain `.yaml` is applied verbatim). A `.sh` file is *run* at its place in the order —
+rendered with `%%CLUSTER%%` / `%%GATEWAY%%` / `%%HOST%%` (and, when set,
+`%%BEDROCK_GUARDRAIL_ID%%` / `%%BEDROCK_GUARDRAIL_VERSION%%`) before apply; plain
+`.yaml` is applied verbatim. A `.sh` file is *run* at its place in the order —
 the escape hatch for imperative steps like creating a Secret from a key in `.env`
 (`--from-literal="…=$CLAUDE_API_KEY"`), so the value never lands in a committed file.
 `kubectl apply` is idempotent (safe to re-run) and nothing is pruned. See
 [bundles/README.md](bundles/README.md) for the full convention.
+
+### Short-lived credentials
+
+Bundle backends that talk to GCP or AWS consume tokens from `.env`. Refresh writes
+**only** `.env` (in-place, after a backup under `.solomog/env-backups/`); re-run
+`apply` to push the secret into the cluster. Chain them — the wrapper re-reads
+`.env` between tasks:
+
+```bash
+solomog gcp:refresh apply BUNDLE=llmroute-vertex CLUSTER=aaa     # ~1h GCP token
+solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=aaa    # ≤12h SSO creds
+```
+
+`AWS_PROFILE` / `AWS_SSO_SESSION` live in `.env`. The `agentcore` CLI is the
+opposite posture on purpose: it runs in *your* shell (never reads `.env`), so it
+wants the auto-refreshing SSO **profile**, not those static keys:
+
+```bash
+solomog agentcore:list                   # discover projects; verify against AWS
+solomog agentcore:prune                  # drop local state for runtimes AWS no longer has
+eval "$(solomog agentcore:env NAME=<project>)"   # stdout is shell-only — must be eval'd
+solomog agentcore:shell NAME=<project>   # same creds, already cd'd into the project
+```
+
+Projects are discovered (any directory holding `agentcore/agentcore.json`) — no
+bundle or runtime name is hardcoded.
 
 ### Versions & teardown
 
@@ -432,7 +513,8 @@ GLOO_MESH_LICENSE_KEY=...         # overrides for Gloo Mesh mgmt plane
 KGATEWAY_LICENSE_KEY=...          # overrides for enterprise kgateway
 GLOO_GATEWAY_LICENSE_KEY=...      # overrides for Gloo Gateway
 AGENTGATEWAY_LICENSE_KEY=...      # overrides for agentgateway
-KAGENT_LICENSE_KEY=...           # overrides for Enterprise kagent
+KAGENT_LICENSE_KEY=...            # overrides for Enterprise kagent
+PORTAL_LICENSE_KEY=...            # overrides for Solo Portal (own entitlement)
 ```
 
 A product-specific key always wins; otherwise the product falls back to
@@ -456,30 +538,26 @@ solomog
 ├── .env / .env.example         # secrets + template (.env gitignored; env:sync aligns them)
 ├── versions.env                # pinned product versions
 ├── scripts/
-│   ├── setup.sh                # install prereqs + link solomog
-│   ├── vind-create.sh          # create vclusters (docker driver, default config) + connect
-│   ├── vind-teardown.sh        # destroy solomog-created clusters (with confirmation)
-│   ├── networking.sh           # inter-cluster Docker routing (flat / gateway)
+│   ├── setup.sh / setup-sudo.sh  # install prereqs + link solomog; passwordless /etc/hosts
+│   ├── vind-create.sh / vind-teardown.sh
+│   ├── networking.sh / mesh-eastwest.sh / net-repair.sh
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order
 │   ├── prepare-kagent.sh       # validate provider + create Enterprise JWT/OIDC secrets
 │   ├── mesh.sh                 # multi-cluster Istio (istio module per cluster, shared CA)
-│   ├── net-repair.sh           # re-apply inter-cluster Docker routing after a Docker restart
-│   ├── expose.sh               # Gateway + TLS + DNS (backfills sub-host /etc/hosts)
-│   ├── route-host.sh           # route a Service on its own sub-host under expose's wildcard
-│   ├── routes.sh               # terminal view of agentgateway routing (CR status)
-│   ├── graph.sh                # interactive HTML graph (+ optional /config_dump enrichment)
+│   ├── expose.sh / route-host.sh
+│   ├── routes.sh / graph.sh    # inspect agentgateway config
 │   ├── clusters.sh             # cluster:list / cluster:show
-│   ├── env-backup.sh / env-sync.sh / env-diff.sh  # .env hygiene (lib/envfile.sh)
-│   ├── install-agentgateway-ui.sh  # enable agentgateway on shared management + tracing + route
-│   ├── install-portal.sh       # Solo Portal (portal-crds + controller) + starter Portal
-│   ├── install-monitoring.sh   # Prometheus/Grafana + product dashboards + route
-│   ├── apply-bundle.sh         # apply a custom-config bundle to a cluster, in order
-│   ├── bundles.sh              # list / show available bundles
-│   ├── versions-update.sh      # check pinned versions against GitHub (read-only)
+│   ├── env-backup.sh / env-sync.sh / env-diff.sh
+│   ├── gcp-refresh.sh / aws-refresh.sh / agentcore-env.sh
+│   ├── install-agentgateway-ui.sh / install-portal.sh / install-monitoring.sh
+│   ├── apply-bundle.sh / test-bundle.sh / export-bundle.sh / bundles.sh
+│   ├── eks-create.sh / eks-delete.sh / eks-irsa.sh
+│   ├── versions-update.sh
 │   ├── lib/target.sh           # CLUSTER → kube context (vind / registry / CONTEXT)
-│   ├── lib/envfile.sh          # .env backup / in-place set / sync-from-example
-│   └── apps/install-bookinfo.sh
+│   ├── lib/hosts.sh            # the one privileged /etc/hosts write
+│   ├── lib/gateway.sh / lib/envfile.sh
+│   └── apps/
 ├── clusters/                   # vcluster configs (single, multi, multi-3)
 ├── taskfiles/vsphere.yaml      # OPTIONAL include: all vsphere:* tasks (homelab provisioner)
 ├── terraform/                  # OpenTofu roots: vsphere-init (template) + vsphere-k3s (workspace/cluster)
