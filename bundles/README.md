@@ -15,21 +15,75 @@ solomog apply BUNDLE=example CLUSTER=aaa DRY_RUN=true   # validate only (server-
 solomog agentgateway:ui expose apply BUNDLE=acme ROUTE=true CLUSTER=aaa
 ```
 
-## Layout (hybrid: committed + private)
+## Layout
 
 ```
 bundles/
-  <name>/            # committed — shareable, versioned with the repo
-    01-namespace.yaml
+  <name>/                  # committed — shareable, versioned with the repo
+    README.md              # required — see below
+    01-namespace.yaml      # root = configure/install, applied in order
     10-route.yaml.tmpl
-    README.md        # optional: what this recreates, prerequisites
+    tests/                 # test cases that validate the bundle
+    docs/                  # supporting documentation
+    custref/               # customer-supplied config references (for re-creates)
+    helpers/               # scripts to log in, authenticate, prep, or change the SUT
   private/
-    <name>/          # GITIGNORED — sensitive/customer-specific config
+    <name>/                # GITIGNORED — sensitive/customer-specific config
 ```
 
+Every subdirectory is optional; a bundle with only a root and `tests/` is normal. Add one when
+you have something to put in it.
+
+**Only the root is applied.** `apply-bundle.sh` lists the bundle's top-level entries and keeps
+names ending in `.yaml` / `.yml` / `.yaml.tmpl` / `.sh` — a directory never matches, so nothing
+under `tests/`, `docs/`, `custref/`, or `helpers/` is ever applied. That is what makes `helpers/`
+safe for scripts that must not run at apply time.
+
+`agentcore/` is a reserved sixth name: `solomog agentcore:list` / `:env` / `:shell` discover
+projects with `find bundles -name agentcore.json -path '*/agentcore/*'`, so a bundle holding an
+AWS AgentCore project must use exactly that directory name.
+
+### Committed or private
+
 Put anything sensitive (internal hostnames, real secrets, customer specifics) under
-`bundles/private/<name>/` — that path is gitignored and never committed. A private
+`bundles/private/<name>/` — that path is gitignored and never committed here. A private
 bundle of the same name overrides a committed one.
+
+Go **private** when the bundle is tied to a named customer, engagement, or ticket; carries
+`custref/`; reproduces one customer's specific issue rather than a product behavior; or quotes
+customer environments and internal findings. Otherwise commit it: generic capability demos,
+product behaviors worth keeping, reusable routing or policy patterns.
+
+Neither kind may contain secrets — values live in `.env` and hooks inject them (see below).
+
+In a private bundle, **only the directory carries the customer name**. Object names, namespaces,
+route paths, env-var prefixes and synthetic hostnames are all derived from the *technology*, so
+the bundle lifts to a reusable one by renaming one directory and nothing else.
+
+### README.md
+
+Required, and it is a **CLI surface rather than a document**:
+
+- `solomog bundles:list` prints the **first non-blank line**, leading `#`s stripped, as the
+  bundle's description.
+- `solomog bundles:show BUNDLE=<name>` prints the **whole file**, indented, untruncated.
+
+So:
+
+1. **Keep it to about a screen — roughly 60 lines.** `show` dumps all of it, and a README that
+   scrolls is one nobody reads. Detail goes in `docs/`, linked from the README.
+2. **Line 1 is a heading describing the bundle in one line**, written to fit a `bundles:list`
+   row — a short noun phrase, not a sentence that wraps.
+3. **The rest covers**, in order: how to deploy and test it as `solomog` commands to copy; the
+   few dependency facts worth knowing (credentials needed in `.env`, product version floor,
+   whether it is clash-safe alongside other bundles); and pointers to fuller detail in `docs/`.
+
+A compact status table (covers · needs · versions · clash-safe · verified) carries most of item 3
+in a few lines. Findings, evidence, run sheets and per-test rationale belong in `docs/`.
+
+```markdown
+# agw-okta-mcp — Okta edge JWT + OBO impersonation to an MCP backend
+```
 
 ## Ordering
 
@@ -148,8 +202,40 @@ solomog test BUNDLE=<name> CLUSTER=aaa
 The runner reports pass/fail per test plus totals, exits non-zero if any failed, and
 **captures every run** to `.solomog/test-runs/<name>-<timestamp>/` (gitignored): a `<test>.log`
 per test (output + exit code) and a `summary` — the record of what you validated, to attach
-to a ticket or diff over time. The `tests/` subdir is ignored by `apply` (it only globs files
-in the bundle root), so apply and test stay separate.
+to a ticket or diff over time. `apply` only globs files in the bundle root, so `tests/` — like
+every other subdirectory — is never applied, and apply and test stay separate.
+
+Three habits worth keeping:
+
+- **Self-skip rather than fail on a missing credential.** `exit 0` with a line naming which one
+  and how to get it; one absent provider shouldn't stop the other legs.
+- **Assert the thing, not the status code.** HTTP 200 proves the request was accepted, not that
+  it did what you claim — assert a value that can only come from the path under test.
+- **Print how to read a failure.** A test that says `✗ FAIL` costs a debugging session; one that
+  says what a given error message actually means costs a minute.
+
+Order tests cheap-first: preflight (versions, credentials, object status), then a minimal
+known-good path, then the real assertions. A failure in the control is what stops you reading an
+environment problem as a product defect.
+
+## Helper scripts (`helpers/`)
+
+Scripts here are run **by hand**, so assume nothing has sourced `.env`. Only go-task's dotenv and
+bundle hooks get it — `bash helpers/foo.sh` does not, which makes a freshly refreshed credential
+look absent. Load through solomog's own helper rather than reading `.env` yourself:
+
+```bash
+. "$SOLOMOG_LIB/target.sh"     # or walk up for scripts/lib/target.sh when run standalone
+solomog_aws_preflight "helpers/foo.sh"
+```
+
+`solomog_aws_env_load` also unsets `AWS_CREDENTIAL_EXPIRATION`, which `.env` never carries — a
+stale one left in the shell poisons otherwise-fresh creds and every AWS call fails as "expired"
+while `.env` looks perfect.
+
+A helper that mutates something outside the cluster (creating a cloud bucket, registering an IdP
+app) should do one thing, idempotently, and stop. Don't guess retention, lifecycle or policy for
+someone else's account.
 
 ## Short-lived credentials (GCP / Vertex)
 
