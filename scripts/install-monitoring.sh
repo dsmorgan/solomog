@@ -73,8 +73,15 @@ spec:
   podMetricsEndpoints:
     - port: metrics
   selector:
-    matchLabels:
-      app.kubernetes.io/name: agentgateway-proxy
+    # NOT app.kubernetes.io/name — the dataplane pod sets that to the GATEWAY'S OWN NAME
+    # (app.kubernetes.io/name=agw for `solomog expose`), so a fixed value like
+    # "agentgateway-proxy" only matches when the Gateway happens to carry the workshop's name,
+    # and silently scrapes nothing otherwise. The namespaceSelector above already limits this to
+    # agentgateway-system, so "has a Gateway API gateway-name label" identifies the dataplane
+    # pods there regardless of what the Gateway is called.
+    matchExpressions:
+      - key: gateway.networking.k8s.io/gateway-name
+        operator: Exists
 EOF
 
   echo "==> [agentgateway] Grafana dashboard (AgentGateway Overview)"
