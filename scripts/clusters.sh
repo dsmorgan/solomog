@@ -50,18 +50,6 @@ _ctx_for() {
   printf 'vcluster-docker_%s' "$1"
 }
 
-_type_for() {   # args: <cluster> <context>
-  if [ -n "$(_registry_lookup "$1")" ]; then
-    case "$2" in
-      arn:aws:eks:*) printf 'eks' ;;
-      vsphere_*)     printf 'vsphere' ;;
-      *)             printf 'external' ;;
-    esac
-  else
-    printf 'vind'
-  fi
-}
-
 _eks_region() {   # args: <context> → region or empty
   case "$1" in
     arn:aws:eks:*) printf '%s' "$1" | awk -F: '{print $4}' ;;
@@ -290,7 +278,7 @@ case "$MODE" in
     while IFS= read -r name; do
       [ -n "$name" ] || continue
       ctx="$(_ctx_for "$name")"
-      typ="$(_type_for "$name" "$ctx")"
+      typ="$(solomog_cluster_type "$name")"
       region="$(_eks_region "$ctx")"
       status="$(_status_for "$name" "$typ" "$ctx")"
       mark="$(_mark_for "$ctx" "$current" "$current_server")"
@@ -362,7 +350,7 @@ EOF
     _load_vclusters
     _load_aws
     ctx="$(_ctx_for "$NAME")"
-    typ="$(_type_for "$NAME" "$ctx")"
+    typ="$(solomog_cluster_type "$NAME")"
     region="$(_eks_region "$ctx")"
     status="$(_status_for "$NAME" "$typ" "$ctx")"
     current="$(_current_context)"

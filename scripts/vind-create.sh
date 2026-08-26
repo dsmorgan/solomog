@@ -17,7 +17,8 @@ fi
 CLUSTERS=("$@")
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Records the clusters solomog created, so teardown never touches hand-made clusters.
+# Records the clusters solomog created (cluster:list / stale-prune). Destroy is
+# name-explicit: `solomog teardown CLUSTER=…` / `vind:delete` never defaults to all.
 STATE_FILE="$REPO_DIR/.solomog/clusters"
 
 if ! command -v vcluster &>/dev/null; then

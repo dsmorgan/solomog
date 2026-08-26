@@ -10,7 +10,8 @@ set -euo pipefail
 # Spec: docs/specs/vsphere-provisioner.md.
 #
 # Env:
-#   CLUSTER     vsphere cluster name(s), space-separated (required — no default; destructive)
+#   CLUSTER     vsphere cluster name(s), space-separated (required — no default; destructive).
+#               Non-vsphere names are refused (use that type's delete, or `solomog teardown`).
 #   FORCE       "true" skips the confirmation prompt (for scripted teardown)
 #   VSPHERE_*   from .env (full set — destroy re-reads the placement data sources)
 #   OPNSENSE_*  optional — when set, each cluster's DNS=real records are deleted too
@@ -87,8 +88,11 @@ delete_one() {   # args: <cluster>
   solomog_deregister_context "$cluster"
 }
 
-CLUSTERS="${CLUSTER:-}"
-: "${CLUSTERS:?set CLUSTER=<name> — destructive, so no default}"
+CLUSTERS="${CLUSTER:-${CLUSTERS:-}}"
+solomog_require_cluster_list "$CLUSTERS" "vsphere:delete"
+for n in $CLUSTERS; do
+  [ -n "$n" ] && solomog_require_kind "$n" "vsphere" "vsphere:delete"
+done
 
 vsphere_preflight "vsphere:delete" full
 
