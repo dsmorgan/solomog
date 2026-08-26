@@ -29,16 +29,17 @@ tasks:
   # ─── Meta ─────────────────────────────────────────────────────────────────
 
   default:
+    internal: true
     desc: List all available scenarios
     cmds: [bash scripts/list.sh]
     silent: true
 
   setup:
-    desc: Install prerequisites via Homebrew and create the solomog symlink
+    desc: Install Homebrew prereqs and the solomog symlink
     cmds: [bash scripts/setup.sh]
 
   setup:sudo:
-    desc: "One-time per machine: let solomog edit /etc/hosts without a sudo password"
+    desc: "Passwordless /etc/hosts (one-time per machine)"
     summary: |
       Install a narrow /etc/sudoers.d fragment so solomog's ONE privileged operation —
       the whole-file /etc/hosts rewrite in scripts/lib/hosts.sh, which pins a gateway
@@ -74,16 +75,16 @@ tasks:
     cmds: [bash scripts/setup-sudo.sh]
 
   versions:update:
-    desc: "Check pinned versions against GitHub latest (read-only — does not write versions.env)"
+    desc: "Check pins against GitHub latest (read-only)"
     cmds: [bash scripts/versions-update.sh]
 
   versions:show:
-    desc: Show currently pinned product versions
+    desc: Show pinned product versions
     cmds: [cat versions.env]
     silent: true
 
   cluster:list:
-    desc: "List solomog-tracked clusters (vind + EKS/external): type, region, context, status."
+    desc: "List tracked clusters (type, context, status)"
     aliases: ["clusters:list", "clusters", "cluster"]
     summary: |
       List clusters solomog knows about from local registries (.solomog/clusters for
@@ -108,7 +109,7 @@ tasks:
     silent: true
 
   cluster:show:
-    desc: "Show detail for one tracked cluster: CLUSTER=<name> (alias CLUSTERS)."
+    desc: "Show one tracked cluster (CLUSTER=<name>)"
     aliases: ["clusters:show"]
     summary: |
       Detail view for one cluster: type, context, region (EKS), status (running/gone
@@ -133,7 +134,7 @@ tasks:
     silent: true
 
   routes:
-    desc: "Show the routing config on a cluster's agentgateway(s): routes, host/path, backends, policies, active status. CLUSTER=<name> [WIDE=true]"
+    desc: "Show agentgateway routes, backends, and policies"
     summary: |
       A brief, read-only view of the routing config on a cluster's agentgateway(s):
       each Gateway → its listeners → the HTTPRoutes attached to it (host/path →
@@ -167,7 +168,7 @@ tasks:
   # one cluster, in dependency order. Single-product tasks below are shortcuts.
 
   stack:
-    desc: 'Compose products on one cluster: PRODUCTS="istio kgateway kagent" CLUSTER=<name> (required)'
+    desc: 'Compose any products onto a cluster'
     summary: |
       Create a cluster and install any combination of products onto it, in dependency
       order (istio → gloo-mesh → kgateway → gloo-gateway → agentgateway → kagent), regardless of
@@ -261,7 +262,7 @@ tasks:
   # ─── Istio — single cluster ───────────────────────────────────────────────
 
   istio:ambient:single:
-    desc: "1 cluster · Istio ambient mode · EDITION={{.EDITION}}"
+    desc: "1 cluster · Istio ambient"
     summary: |
       Install Istio in ambient mode on one cluster. Shortcut for:
       stack PRODUCTS="istio" ISTIO_MODE=ambient (mode is fixed by this task —
@@ -281,7 +282,7 @@ tasks:
       ISTIO_MODE: ambient
 
   istio:sidecar:single:
-    desc: "1 cluster · Istio sidecar mode · EDITION={{.EDITION}}"
+    desc: "1 cluster · Istio sidecar"
     summary: |
       Install Istio in sidecar mode on one cluster. Shortcut for:
       stack PRODUCTS="istio" ISTIO_MODE=sidecar (mode is fixed by this task —
@@ -301,7 +302,7 @@ tasks:
       ISTIO_MODE: sidecar
 
   gloo-mesh:single:
-    desc: "1 cluster · Istio + Gloo Mesh Enterprise mgmt plane · EDITION={{.EDITION}}"
+    desc: "1 cluster · Istio + Gloo Mesh mgmt plane"
     summary: |
       Install Istio + the Gloo Mesh Enterprise management plane on one cluster.
       Shortcut for: stack PRODUCTS="istio gloo-mesh".
@@ -331,7 +332,7 @@ tasks:
   # 3-cluster scenarios support mixed Istio versions via versions.env overrides.
 
   istio:ambient:multi-flat:
-    desc: "2 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    desc: "2 clusters · ambient · flat network"
     summary: |
       Build a 2-cluster ambient Istio mesh on a flat (shared) network — one root CA,
       flat pod routing (networking.sh) so clusters reach each other directly. Host
@@ -351,7 +352,7 @@ tasks:
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-flat:
-    desc: "2 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    desc: "2 clusters · sidecar · flat network"
     summary: |
       Build a 2-cluster sidecar Istio mesh on a flat (shared) network — one root CA,
       flat pod routing (networking.sh) so clusters reach each other directly. Host
@@ -371,7 +372,7 @@ tasks:
       ISTIO_MODE: sidecar
 
   istio:ambient:multi-gateway:
-    desc: "2 clusters · ambient · multi-network (east-west) · EDITION={{.EDITION}}"
+    desc: "2 clusters · ambient · east-west"
     summary: |
       Build a 2-cluster ambient Istio mesh on separate networks (east-west gateway
       topology): per-cluster networks, one shared root CA, east-west gateways exposed
@@ -392,7 +393,7 @@ tasks:
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-gateway:
-    desc: "2 clusters · sidecar · multi-network (east-west) · EDITION={{.EDITION}}"
+    desc: "2 clusters · sidecar · east-west"
     summary: |
       Build a 2-cluster sidecar Istio mesh on separate networks (east-west gateway
       topology): per-cluster networks, one shared root CA, east-west gateways exposed
@@ -413,7 +414,7 @@ tasks:
       ISTIO_MODE: sidecar
 
   istio:ambient:multi-3:
-    desc: "3 clusters · ambient · flat network · EDITION={{.EDITION}}"
+    desc: "3 clusters · ambient · flat network"
     summary: |
       Build a 3-cluster ambient Istio mesh on a flat (shared) network — one root CA
       across all three, flat pod routing. Per-cluster Istio version overrides
@@ -434,7 +435,7 @@ tasks:
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-3:
-    desc: "3 clusters · sidecar · flat network · EDITION={{.EDITION}}"
+    desc: "3 clusters · sidecar · flat network"
     summary: |
       Build a 3-cluster sidecar Istio mesh on a flat (shared) network — one root CA
       across all three, flat pod routing. Per-cluster Istio version overrides
@@ -455,7 +456,7 @@ tasks:
       ISTIO_MODE: sidecar
 
   istio:ambient:multi-3-gateway:
-    desc: "3 clusters · ambient · multi-network (east-west) · EDITION={{.EDITION}}"
+    desc: "3 clusters · ambient · east-west"
     summary: |
       Build a 3-cluster ambient Istio mesh on separate networks (east-west gateway topology):
       per-cluster networks, one shared root CA, east-west gateways exposed and linked in a FULL
@@ -477,7 +478,7 @@ tasks:
       ISTIO_MODE: ambient
 
   istio:sidecar:multi-3-gateway:
-    desc: "3 clusters · sidecar · multi-network (east-west) · EDITION={{.EDITION}}"
+    desc: "3 clusters · sidecar · east-west"
     summary: |
       Build a 3-cluster sidecar Istio mesh on separate networks (east-west gateway topology):
       per-cluster networks, one shared root CA, east-west gateways exposed and linked in a FULL
@@ -499,7 +500,7 @@ tasks:
       ISTIO_MODE: sidecar
 
   net:repair:
-    desc: "Re-apply inter-cluster Docker routing after a Docker Desktop restart (mesh survives; only routing is lost)."
+    desc: "Re-apply inter-cluster routing after a Docker restart"
     summary: |
       A Docker Desktop restart wipes the host-level routing between vcluster networks (it lives in
       the Docker VM), silently disconnecting a multi-cluster mesh — the clusters, Istio, gateways,
@@ -520,7 +521,7 @@ tasks:
   # ─── kgateway ────────────────────────────────────────────────────────────
 
   kgateway:
-    desc: "1 cluster · kgateway standalone · EDITION={{.EDITION}}"
+    desc: "1 cluster · kgateway"
     summary: |
       Install kgateway on one cluster. Shortcut for: stack PRODUCTS="kgateway".
 
@@ -554,7 +555,7 @@ tasks:
       KGATEWAY_SKIP_SHARED_CRDS: '{{.KGATEWAY_SKIP_SHARED_CRDS | default "false"}}'
 
   kgateway:with-istio:
-    desc: "1 cluster · kgateway + Istio sidecar · EDITION={{.EDITION}}"
+    desc: "1 cluster · kgateway + Istio sidecar"
     summary: |
       Install Istio (sidecar) + kgateway on one cluster. Shortcut for:
       stack PRODUCTS="istio kgateway" ISTIO_MODE=sidecar (mode fixed by this task).
@@ -578,7 +579,7 @@ tasks:
   # so it can later attach to other Solo products without reshaping the CLI.
 
   portal:
-    desc: "Install Solo Portal (portal-crds + controller) on CLUSTER · enterprise only · needs SEFK"
+    desc: "Install Solo Portal on CLUSTER (enterprise, needs SEFK)"
     summary: |
       Install Solo Portal (portal-crds + portal controller) into portal-system, then
       apply a starter PortalParameters (in-memory store) + Portal so a portal web
@@ -616,7 +617,7 @@ tasks:
   # ─── Gloo Gateway (distinct from kgateway) ────────────────────────────────
 
   gloo-gateway:
-    desc: "1 cluster · Gloo Gateway 1.21.x · EDITION={{.EDITION}}"
+    desc: "1 cluster · Gloo Gateway"
     summary: |
       Install Gloo Gateway (gloo-ee 1.21.x) on one cluster. Shortcut for:
       stack PRODUCTS="gloo-gateway". A distinct product from kgateway.
@@ -636,7 +637,7 @@ tasks:
   # ─── agentgateway ────────────────────────────────────────────────────────
 
   agentgateway:
-    desc: "1 cluster · agentgateway · EDITION={{.EDITION}}"
+    desc: "1 cluster · agentgateway"
     summary: |
       Install agentgateway on one cluster. Shortcut for: stack PRODUCTS="agentgateway".
 
@@ -681,7 +682,7 @@ tasks:
   # ─── kagent ──────────────────────────────────────────────────────────────
 
   kagent:
-    desc: "1 cluster · kagent · EDITION={{.EDITION}} (Enterprise path is experimental)"
+    desc: "1 cluster · kagent (Enterprise path is experimental)"
     summary: |
       Install kagent on one cluster. Community installs the stable OSS CRDs,
       controller, bundled PostgreSQL, and UI. Enterprise installs the Solo build
@@ -738,7 +739,7 @@ tasks:
       SOLO_LICENSE_KEY: '{{.SOLO_LICENSE_KEY | default (env "SOLO_LICENSE_KEY") | default ""}}'
 
   agentgateway:ui:
-    desc: "1 cluster · agentgateway + Solo UI (management chart) · enterprise only. Route the UI with expose ROUTE=true."
+    desc: "1 cluster · agentgateway + Solo UI"
     summary: |
       Install agentgateway, then the Solo UI (management chart) on top. Enterprise only
       (community is rejected). With ROUTE=true, also routes the UI at ui.<gw>.<cluster>.test.
@@ -790,7 +791,7 @@ tasks:
   # target agentgateway (enterprise or community GatewayClass auto-resolved).
 
   expose:
-    desc: "Create + expose a Gateway (TLS + /etc/hosts). Run 'solomog help expose' for options."
+    desc: "Create a Gateway (TLS + hostname)"
     summary: |
       Create a Gateway and make it reachable locally: mkcert TLS cert (HOST + *.HOST),
       the Gateway resource (HTTP + HTTPS listeners), and an /etc/hosts entry (needs sudo).
@@ -842,7 +843,7 @@ tasks:
   # `expose` auto-detects the gateway). Route Grafana via expose ROUTE=true.
 
   monitoring:
-    desc: "Install Prometheus + Grafana on CLUSTER; auto-detects product dashboards (DASHBOARDS=agentgateway|none). Route Grafana with expose ROUTE=true."
+    desc: "Prometheus + Grafana on CLUSTER"
     summary: |
       Install Prometheus + Grafana (kube-prometheus-stack, OSS, edition-agnostic) on a
       cluster. Auto-detects products from GatewayClasses and layers on their dashboards.
@@ -877,7 +878,7 @@ tasks:
   # order. The escape hatch for config not worth generalizing into a product/app.
 
   apply:
-    desc: "Apply custom bundle(s) (BUNDLE=<name> or BUNDLES=\"a b\") to CLUSTER in order. DRY_RUN=true to validate. See bundles:list."
+    desc: "Apply bundle(s) to CLUSTER (BUNDLE= or BUNDLES=)"
     summary: |
       Apply a custom-config bundle (a directory of manifests under bundles/<name>/) to a
       cluster, in sorted order. .sh hooks run in place; .yaml.tmpl files render %%TOKEN%%
@@ -921,7 +922,7 @@ tasks:
       BEDROCK_GUARDRAIL_VERSION: '{{.BEDROCK_GUARDRAIL_VERSION | default ""}}'
 
   graph:
-    desc: "Open an interactive graph of a cluster's agentgateway config in the browser: CLUSTER=<name>. OPEN=false to just write the HTML."
+    desc: "Open an agentgateway config graph in the browser"
     summary: |
       Snapshot a cluster's agentgateway configuration and render it as an interactive,
       self-contained HTML graph in your browser: a top-down hierarchy rooted at the Gateway
@@ -975,7 +976,7 @@ tasks:
       DUMP_TIMEOUT: '{{.DUMP_TIMEOUT | default "15"}}'
 
   export:
-    desc: "Export a bundle as a portable, secret-safe hand-off package: BUNDLE=<name> [OUT=… CLUSTER=… EDITION=…]. Stateless (no cluster)."
+    desc: "Export a bundle as a secret-safe hand-off package"
     summary: |
       Package a bundle's DECLARATIVE config (its .yaml / .yaml.tmpl) into a portable,
       secret-safe directory you can hand to someone NOT using solomog. Stateless — touches
@@ -1010,7 +1011,7 @@ tasks:
       HOST: '{{.HOST | default ""}}'
 
   bundles:list:
-    desc: "List available custom-config bundles (bundles/ and bundles/private/). FILTER=<substr> filters names."
+    desc: "List custom-config bundles (FILTER=<substr>)"
     summary: |
       List custom-config bundles under bundles/ and bundles/private/, with the first
       README line and a (private) tag. Cluster-free (discovery only — does not apply
@@ -1035,7 +1036,7 @@ tasks:
       - bash scripts/bundles.sh list
 
   bundles:show:
-    desc: "Show a bundle's manifests in apply order: BUNDLE=<name> (alias BUNDLES)."
+    desc: "Show a bundle's manifests in apply order"
     summary: |
       Show a bundle's manifests in apply order, with [tmpl]/[exec] markers. Cluster-free
       (discovery only — does not apply anything).
@@ -1049,7 +1050,7 @@ tasks:
       - bash scripts/bundles.sh show {{.BUNDLES}}
 
   test:
-    desc: "Run bundle test(s) (BUNDLE=<name> or BUNDLES=\"a b\", tests/*.sh) against CLUSTER; TESTS=\"54 56\" runs a subset; captures results to .solomog/test-runs/."
+    desc: "Run bundle tests against CLUSTER"
     summary: |
       Run a bundle's tests (bundles/<name>/tests/*.sh) against a cluster, in sorted order.
       Each test inherits CONTEXT/CLUSTER/GATEWAY/HOST + .env; pass/fail is the exit code.
@@ -1089,7 +1090,7 @@ tasks:
   # ─── Credentials ──────────────────────────────────────────────────────────
 
   gcp:refresh:
-    desc: "Refresh GCP_ACCESS_TOKEN in .env (~1h), then re-run your bundle. Run 'solomog help gcp:refresh' for details."
+    desc: "Refresh GCP_ACCESS_TOKEN in .env (~1h)"
     summary: |
       Re-fetch a GCP access token (gcloud auth print-access-token) into .env as
       GCP_ACCESS_TOKEN (in-place — stays in its .env.example section; backs up first).
@@ -1102,7 +1103,7 @@ tasks:
       - bash scripts/run.sh "Refresh GCP access token" bash scripts/gcp-refresh.sh
 
   aws:refresh:
-    desc: "Refresh AWS creds in .env (SSO export-credentials; sso-login if stale). Re-run your bundle to apply. AWS_PROFILE/AWS_SSO_SESSION overridable."
+    desc: "Refresh AWS SSO creds in .env"
     summary: |
       Export AWS SSO credentials (access key + secret + session token) into .env (in-place —
       stays in the Upstream credentials section; backs up first), running `aws sso login`
@@ -1124,7 +1125,7 @@ tasks:
   # static keys aws:refresh stashes for bundles. Un-framed (no run.sh) like bundles:list —
   # agentcore:env's stdout must stay pure shell for `eval`, and shell mode is interactive.
   agentcore:list:
-    desc: "List AgentCore projects (name, region, in AWS?, dir). Verified against AWS by default."
+    desc: "List AgentCore projects (verified against AWS)"
     summary: |
       List every AgentCore project (any dir holding agentcore/agentcore.json) with its region,
       whether the runtime exists, and its path. Projects are discovered from disk — no project
@@ -1154,7 +1155,7 @@ tasks:
       - bash scripts/agentcore-env.sh list
 
   agentcore:prune:
-    desc: "Drop local deployed-state entries for runtimes AWS no longer has. DRY_RUN=true to preview."
+    desc: "Drop local AgentCore state AWS no longer has"
     summary: |
       Reconcile local state after a runtime was deleted outside the CLI (delete-stack / console),
       which leaves deployed-state.json claiming a runtime that no longer exists.
@@ -1177,7 +1178,7 @@ tasks:
       - bash scripts/agentcore-env.sh prune
 
   agentcore:env:
-    desc: "Print AWS SSO exports for the agentcore CLI: eval \"$(solomog agentcore:env NAME=<project>)\"."
+    desc: "Print AWS SSO exports for the agentcore CLI"
     summary: |
       Put a working AWS identity for the `agentcore` CLI into your CURRENT shell. Resolves
       credentials through the SSO PROFILE (auto-refreshing — nothing to re-stash, unlike
@@ -1206,7 +1207,7 @@ tasks:
       - bash scripts/agentcore-env.sh env
 
   agentcore:shell:
-    desc: "Interactive subshell in an AgentCore project dir with SSO creds + its region: NAME=<project>."
+    desc: "Subshell in an AgentCore project with SSO creds"
     summary: |
       Same credentials as agentcore:env, but drops you in an interactive subshell already cd'd
       into the project directory (the one holding agentcore/agentcore.json), with AWS_REGION
@@ -1231,7 +1232,7 @@ tasks:
       - bash scripts/agentcore-env.sh shell
 
   env:backup:
-    desc: "Copy .env → .solomog/env-backups/<timestamp>.env (gitignored). Also runs before refresh/sync."
+    desc: "Snapshot .env to .solomog/env-backups/"
     summary: |
       Snapshot the repo-root .env into .solomog/env-backups/<YYYYMMDD-HHMMSS>.env (mode 600).
       Keeps the newest 20 backups. aws:refresh / gcp:refresh / env:sync also backup automatically
@@ -1246,7 +1247,7 @@ tasks:
       - bash scripts/run.sh "Backup .env" bash scripts/env-backup.sh
 
   env:sync:
-    desc: "Rebuild .env from .env.example (comments/sections) overlaying your values. Backs up first."
+    desc: "Rebuild .env from .env.example (keeps your values)"
     summary: |
       Rebuild .env from .env.example so section order and explanatory comments stay aligned with
       the template, while keeping your existing values. Keys only in your .env land under a
@@ -1265,7 +1266,7 @@ tasks:
       - bash scripts/run.sh "Sync .env from .env.example" bash scripts/env-sync.sh
 
   env:diff:
-    desc: "Show key drift between .env and .env.example (names only — never prints values)."
+    desc: "Show key drift vs .env.example (names only)"
     summary: |
       Compare keys in .env vs .env.example. Reports missing keys (run env:sync), local-only /
       stale keys, and CLI-only keys that should not persist. Never prints secret values.
@@ -1279,7 +1280,7 @@ tasks:
       - bash scripts/run.sh "Diff .env vs .env.example" bash scripts/env-diff.sh
 
   eks:create:
-    desc: "Create an EKS cluster (eksctl --with-oidc) + register its kube context. CLUSTER=<name> required. Run 'solomog help eks:create'."
+    desc: "Create an EKS cluster and register its kube context"
     summary: |
       Provision the EKS cluster for the agentgateway EKS tier: `eksctl create cluster --with-oidc`
       then `aws eks update-kubeconfig`, printing the kube CONTEXT to thread through the rest of the
@@ -1314,7 +1315,7 @@ tasks:
       OWNER: '{{.OWNER | default ""}}'
 
   eks:delete:
-    desc: "Tear down named EKS cluster(s) (delete Gateway/LB svcs first → eksctl delete → deregister). CLUSTER=<name> required. Run 'solomog help eks:delete'."
+    desc: "Tear down named EKS cluster(s)"
     summary: |
       Safely delete EKS cluster(s) solomog installed onto — the complement to eks:create. Deletes
       the Gateways + LoadBalancer Services FIRST so AWS drops the ELBs (whose ENIs would otherwise
@@ -1352,7 +1353,7 @@ tasks:
       GATEWAY: '{{.GATEWAY | default ""}}'
 
   eks:irsa:
-    desc: "Give the agentgateway proxy a keyless AWS identity (IRSA) on an EKS CLUSTER — replaces the expiring env-injected creds. Run 'solomog help eks:irsa'."
+    desc: "IRSA for the agentgateway proxy on EKS"
     summary: |
       Wire the agentgateway proxy ServiceAccount to an IAM role via IRSA (uc05 Trust path A), so
       it signs SigV4 to AgentCore keyless — no more <=12h SSO-cred expiry + rollout dance. Creates
@@ -1387,7 +1388,7 @@ tasks:
   # Deployed to CLUSTER (CLUSTER required); context resolves via lib/target.sh (vind, EKS, vsphere).
 
   apps:bookinfo:
-    desc: "Deploy Bookinfo sample app to CLUSTER (CLUSTER required)"
+    desc: "Deploy Bookinfo to CLUSTER"
     summary: |
       Deploy the Istio Bookinfo sample app to a cluster.
 
@@ -1402,7 +1403,7 @@ tasks:
       CONTEXT: '{{.CONTEXT | default ""}}'
 
   apps:online-boutique:
-    desc: "Deploy Online Boutique sample app to CLUSTER (CLUSTER required)"
+    desc: "Deploy Online Boutique to CLUSTER"
     summary: |
       Deploy the Online Boutique sample app to a cluster.
 
@@ -1419,7 +1420,7 @@ tasks:
       CONTEXT: '{{.CONTEXT | default ""}}'
 
   apps:utils:
-    desc: "Deploy utils (httpbin, curl, netshoot). Route httpbin with ROUTE=true [ROUTE_PATH=/httpbin]."
+    desc: "Deploy utils (httpbin, curl, netshoot)"
     summary: |
       Deploy utility workloads (httpbin, curl, netshoot). httpbin is a plain Service
       backend, so it works on ANY gateway (agw/kgw, auto-detected). With ROUTE=true, adds
@@ -1449,7 +1450,7 @@ tasks:
       GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'
 
   apps:mock-openai:
-    desc: "Deploy mock OpenAI server (vLLM sim) to CLUSTER. Add route with ROUTE=true [ROUTE_PATH=/openai]."
+    desc: "Deploy mock OpenAI (vLLM sim) to CLUSTER"
     summary: |
       Deploy a mock OpenAI server (vLLM simulator) in its own namespace, with an
       EnterpriseAgentgatewayBackend. agentgateway-only. With ROUTE=true, also adds an
@@ -1476,7 +1477,7 @@ tasks:
       CONTEXT: '{{.CONTEXT | default ""}}'
 
   apps:mcp-stripe:
-    desc: "Deploy stripe-mock as MCP tools via OpenAPI to CLUSTER. Add route with ROUTE=true [ROUTE_PATH=/mcp]."
+    desc: "Deploy stripe-mock as MCP tools to CLUSTER"
     summary: |
       Deploy stripe-mock exposed as MCP tools (via OpenAPI) in the stripe-mock namespace,
       with an EnterpriseAgentgatewayBackend. agentgateway-only. With ROUTE=true, also adds
@@ -1504,7 +1505,7 @@ tasks:
 
   teardown:
     aliases: ["delete"]
-    desc: "Destroy named clusters of any type (vind, vsphere, EKS). CLUSTER=<name> required. Prompts first. Run 'solomog help teardown'."
+    desc: "Destroy named clusters (vind, vsphere, EKS)"
     summary: |
       Type-agnostic destroy. Requires CLUSTER=<name> or CLUSTERS="a b" — it does not
       default to all clusters. Detects each name (vind / vsphere / eks), prompts once
@@ -1530,7 +1531,7 @@ tasks:
       FORCE: '{{.FORCE | default ""}}'
 
   vind:delete:
-    desc: "Destroy named vcluster (vind) clusters. CLUSTER=<name> required. Prompts first. Run 'solomog help vind:delete'."
+    desc: "Destroy named vcluster (vind) clusters"
     summary: |
       Destroy vcluster instances by name. Requires CLUSTER=<name> or CLUSTERS="a b" —
       it does not default to all clusters. Explicit names are not filtered against

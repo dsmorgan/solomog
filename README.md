@@ -58,8 +58,10 @@ bash scripts/setup.sh
 #      export PATH="$HOME/.local/bin:$PATH"
 
 # 4. Verify
-solomog                 # lists every available task
+solomog                 # grouped index (one screen)
+solomog help products   # tasks in a group
 solomog help expose     # per-task variables, defaults, and examples
+solomog help --all      # every task, grouped
 #    `solomog help <task>` is the source of truth for knobs. The wrapper strips
 #    go-task's resolved vars/env trailer so license keys never print.
 
@@ -68,7 +70,11 @@ solomog setup:sudo
 ```
 
 > `solomog` is a thin wrapper that runs `task` from the repo root regardless of
-> your current directory, so the commands below work from anywhere.
+> your current directory, so the commands below work from anywhere. Bare `solomog`
+> (and `solomog help`) print a grouped index. Drill down with `solomog help
+> <group>` (`setup`, `cluster`, `products`, `istio`, `apps`, `bundles`, `creds`),
+> `solomog help --all` for every task, or `solomog help <task>` for knobs and
+> examples.
 
 ### Passwordless /etc/hosts (one-time)
 
@@ -552,7 +558,8 @@ solomog
 ├── versions.env                # pinned product versions
 ├── scripts/
 │   ├── setup.sh / setup-sudo.sh  # install prereqs + link solomog; passwordless /etc/hosts
-│   ├── run.sh / list.sh        # per-step framing; the bare `solomog` scenario list
+│   ├── run.sh / list.sh        # per-step framing; the grouped `solomog` help index
+│   ├── lib/help.sh             # index / group / --all pages (catalog in help-catalog.txt)
 │   ├── vind-create.sh / vind-teardown.sh / teardown.sh
 │   ├── networking.sh / mesh-eastwest.sh / net-repair.sh
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates

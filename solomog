@@ -41,30 +41,25 @@ _solomog_audit() {
   printf '%s\n' "$line" >> "$dir/${month}.log" 2>/dev/null || true
 }
 
-# Bare `solomog` (no args) → just the task list, no framing (not audited).
+# Bare `solomog` (no args) → grouped index, no framing (not audited).
 if [ $# -eq 0 ]; then
-  exec task
+  exec bash "$SCRIPT_DIR/scripts/list.sh"
 fi
 
-# `solomog help [task...]` → detailed per-task help (variables/options + examples),
-# via go-task's --summary. Meta command: no mog framing, not audited. With no task it
-# points at the full list. Tasks without a summary fall back to their one-line desc.
+# `solomog help [topic...]` → grouped index, a group/prefix page, --all, or
+# per-task --summary. Meta command: no mog framing, not audited. `task --summary`
+# appends resolved `vars:`/`env:` (license keys, tokens); help.sh strips that
+# trailer. Summaries use "Variables:" (never a bare "vars:"/"env:" line).
 if [ "$1" = "help" ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
   shift
+  # shellcheck source=scripts/lib/help.sh
+  source "$SCRIPT_DIR/scripts/lib/help.sh"
   if [ $# -eq 0 ]; then
-    echo "Detailed task help:  solomog help <task>   (e.g. solomog help expose)"
-    echo "Full task list:      solomog"
+    solomog_help_index
     exit 0
   fi
-  # `task --summary` appends the task's resolved `vars:`/`env:` blocks — which include
-  # .env SECRET VALUES (license keys, tokens). Strip that trailer so help never leaks
-  # credentials; keep only the summary prose. Our summaries use "Variables:" (capital,
-  # plural), never a bare "vars:"/"env:" line, so this can't clip real help content.
-  task --summary "$@" 2>&1 | awk '
-    /^(vars|env):/ { skip=1; next }
-    /^task:/       { skip=0; print; next }
-    !skip          { print }'
-  exit ${PIPESTATUS[0]}
+  solomog_help_dispatch "$@"
+  exit $?
 fi
 
 # `solomog agentcore:env ...` → shell-eval-able exports. Meta command: no mog framing, not

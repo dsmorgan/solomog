@@ -14,7 +14,7 @@ version: '3'
 tasks:
 
   init:
-    desc: "One-time vSphere setup: content library + Ubuntu template in vCenter. Homelab only. Run 'solomog help vsphere:init'."
+    desc: "One-time vSphere setup (content library + Ubuntu template)"
     summary: |
       One-time homelab setup for the vsphere:* provisioner: creates a vCenter content
       library and imports the pinned Ubuntu cloud-image OVA (UBUNTU_OVA_URL in
@@ -36,7 +36,7 @@ tasks:
       - bash scripts/run.sh "vSphere one-time init (content library + template)" bash scripts/vsphere-init.sh
 
   create:
-    desc: "Create a k3s cluster on the homelab vCenter (1 server + N agents) + register its kube context. CLUSTER=<name> required. Run 'solomog help vsphere:create'."
+    desc: "Create a homelab k3s cluster on vCenter"
     summary: |
       Provision a k3s cluster on the homelab vCenter 7.0.3 — the vSphere analog of
       eks:create: OpenTofu clones the Ubuntu template into 1 server + NODES agent VMs
@@ -67,7 +67,7 @@ tasks:
       SNAPSHOT: '{{.SNAPSHOT | default ""}}'
 
   stop:
-    desc: "Pause a vsphere cluster: graceful VM shutdown, state preserved, host RAM/CPU freed. CLUSTER=<name> required."
+    desc: "Pause a vsphere cluster (graceful VM shutdown)"
     summary: |
       Gracefully shut down every node VM (open-vm-tools guest shutdown; hard
       power-off fallback), freeing the host resources the cluster was holding.
@@ -85,7 +85,7 @@ tasks:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
 
   start:
-    desc: "Resume a stopped vsphere cluster: power on + wait for all nodes Ready. CLUSTER=<name> required."
+    desc: "Resume a stopped vsphere cluster"
     summary: |
       Power every node VM back on and wait for all nodes Ready — the complement to
       vsphere:stop. IPs, kubeconfig, LB VIPs, and everything installed on the
@@ -102,7 +102,7 @@ tasks:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
 
   snapshot:
-    desc: "Take (or inspect) the baseline snapshot vsphere:reset reverts to. CLUSTER=<name> required. Run 'solomog help vsphere:snapshot'."
+    desc: "Take or inspect the baseline snapshot"
     summary: |
       (Re)take the "solomog-baseline" snapshot of every node VM — the revert point
       for vsphere:reset. Replaces any existing baseline, so run it when the current
@@ -124,7 +124,7 @@ tasks:
       ACTION: '{{.ACTION | default ""}}'
 
   reset:
-    desc: "Revert a vsphere cluster to its baseline snapshot (~clean cluster in VM-boot time). CLUSTER=<name> required. Run 'solomog help vsphere:reset'."
+    desc: "Revert a vsphere cluster to its baseline snapshot"
     summary: |
       Revert every node VM to "solomog-baseline" (fresh k3s + MetalLB), power back
       on, and wait for all nodes Ready — a clean cluster in roughly VM-boot time
@@ -147,7 +147,7 @@ tasks:
       FORCE: '{{.FORCE | default ""}}'
 
   delete:
-    desc: "Tear down a solomog-created vSphere k3s cluster (prompts first). CLUSTER=<name> required. Run 'solomog help vsphere:delete'."
+    desc: "Tear down a solomog-created vSphere k3s cluster"
     summary: |
       Destroy a vsphere:create cluster: prompt, `tofu destroy` its workspace (only
       state-tracked VMs — never VMs found by name), free its node-IP allocations,
