@@ -1,0 +1,76 @@
+# solomog help catalog — parsed by scripts/lib/help.sh (bash 3.2).
+# Group membership is prefix-plus-map: a task's first colon-component (or the
+# whole name if unprefixed) looks up `prefix`; new apps:foo / eks:bar land in
+# the right group with no catalog edit. Unmapped tasks still appear under Other
+# in `solomog help --all`.
+#
+# Lines (TAB-separated):
+#   group   <name>  <index blurb>  <page title>
+#   alias   <alias> <group>          extra help-topic names for a group
+#   prefix  <key>   <group>          first-component (or whole name) → group
+#   lead    <group> <task>           display first in that group (catalog order)
+#   see     <group> <footer line>    extra line on the group page
+#   ptitle  <prefix> <page title>    prefix-page heading (eks, vsphere, …)
+
+group	setup	machine + versions	Setup — machine prerequisites and pinned versions
+group	cluster	list, create, destroy (vind, eks, vsphere)	Cluster — list, create, and destroy
+group	products	stack, agentgateway, kgateway, kagent, …	Products — install onto a cluster
+group	istio	single-cluster and multi-cluster mesh	Istio — single-cluster and multi-cluster mesh
+group	apps	expose, sample apps, routes, graph	Apps — gateway, samples, and inspect
+group	bundles	apply, test, export	Bundles — custom config
+group	creds	aws/gcp refresh, .env, agentcore	Creds — tokens, .env, and AgentCore
+
+alias	clusters	cluster
+
+prefix	setup	setup
+prefix	versions	setup
+prefix	cluster	cluster
+prefix	eks	cluster
+prefix	vsphere	cluster
+prefix	vind	cluster
+prefix	teardown	cluster
+prefix	stack	products
+prefix	kgateway	products
+prefix	agentgateway	products
+prefix	gloo-gateway	products
+prefix	gloo-mesh	products
+prefix	kagent	products
+prefix	portal	products
+prefix	monitoring	products
+prefix	istio	istio
+prefix	net	istio
+prefix	expose	apps
+prefix	apps	apps
+prefix	routes	apps
+prefix	graph	apps
+prefix	apply	bundles
+prefix	test	bundles
+prefix	export	bundles
+prefix	bundles	bundles
+prefix	env	creds
+prefix	agentcore	creds
+prefix	gcp	creds
+prefix	aws	creds
+
+lead	setup	setup
+lead	setup	setup:sudo
+lead	cluster	cluster:list
+lead	cluster	cluster:show
+lead	cluster	teardown
+lead	products	stack
+lead	istio	istio:ambient:single
+lead	istio	istio:sidecar:single
+lead	apps	expose
+lead	bundles	apply
+lead	bundles	test
+lead	bundles	export
+
+see	products	Istio shortcuts:  solomog help istio
+see	cluster	EKS tasks:        solomog help eks
+see	cluster	vSphere tasks:    solomog help vsphere
+
+ptitle	eks	EKS — create, IRSA, and delete
+ptitle	vsphere	vSphere — homelab k3s on vCenter
+ptitle	env	.env — backup, sync, and diff
+ptitle	agentcore	AgentCore — list, env, shell, prune
+ptitle	versions	Versions — pins in versions.env
