@@ -306,6 +306,12 @@ module so it can coordinate one Helm release across products:
   `DASHBOARDS="agentgateway"` / `none`. Dashboards are vendored in [dashboards/](dashboards/) and
   loaded as labeled ConfigMaps the Grafana sidecar picks up. New product dashboards: drop the JSON
   in `dashboards/`, add an `install_<product>_dashboards` branch.
+  ⚠ **Known-broken (open):** the agentgateway PodMonitor now selects correctly (on the
+  Gateway API `gateway-name` label — NOT `app.kubernetes.io/name`, which the dataplane pod
+  sets to the *Gateway's own name*), but Prometheus still generates **no podMonitor scrape
+  pool at all** — every active pool is a serviceMonitor — so agentgateway series stay absent.
+  `podMonitorSelector` / `podMonitorNamespaceSelector` are both `{}` and an operator restart
+  changes nothing. Don't re-debug the selector; the defect is downstream of it.
 
 ### Host-based routing for UIs (vs path-based for apps)
 Apps route **by path** on the shared gateway host (`/openai`, `/httpbin`) — covered by expose's
@@ -351,32 +357,38 @@ is the fix. Install paths must always name the product prefix, never bare `/`.
 For bespoke / customer-repro config not worth generalizing into a product or app, use a
 **bundle**: a directory of manifests under `bundles/<name>/` applied in order by
 [scripts/apply-bundle.sh](scripts/apply-bundle.sh) via `solomog apply BUNDLE=<name> CLUSTER=…`.
+
+**[bundles/README.md](bundles/README.md) is the authoring convention and the source of truth
+for bundle *layout*** — read it before creating or restructuring one. What follows here is the
+machinery behind it (what to change in `apply-bundle.sh` / `test-bundle.sh`), not a substitute.
 - **Hybrid git layout**: `bundles/<name>/` is committed; `bundles/private/<name>/` is
   gitignored (sensitive config) and **overrides** a committed bundle of the same name.
-- **Ordering**: `LC_ALL=C` byte sort. Zero-pad numeric prefixes (`01-`, `10-`, `20-`) —
-  byte sort puts `2` after `10`, so padding (not `sort -V`, which BSD/macOS sort lacks)
-  is what guarantees sequence. Leave gaps to insert later.
-- **Templating**: files ending `.yaml.tmpl` are rendered with a `sed` allow-list of
-  `%%TOKEN%%` placeholders (`%%CLUSTER%%`, `%%GATEWAY%%`, `%%HOST%%`, and when set
-  `%%BEDROCK_GUARDRAIL_ID%%` / `%%BEDROCK_GUARDRAIL_VERSION%%`); plain `.yaml` is
-  applied verbatim. The `%%TOKEN%%` syntax (NOT `$VAR`/envsubst) is deliberate — it can't
-  clash with `$` in manifests and needs no gettext dep. Add new vars to `render()` in
-  apply-bundle.sh **and** the leftover-token error's "Supported tokens" list. A leftover
-  `%%FOO%%` after rendering is a hard error — and the check scans the whole file
-  *including comments*, so never write a literal `%%WORD%%` in a `.tmpl` unless it's a
-  real token (this bit the example bundle once). Guardrail tokens have no default — a
-  tmpl that references them fails unless `.env` (or the CLI) supplies them.
-- **Executable hooks**: a `.sh` file is *run* (not applied) at its sorted position —
-  the escape hatch for imperative steps, mainly **secrets from `.env`** (e.g.
-  `kubectl create secret … --from-literal="…=$CLAUDE_API_KEY" | kubectl apply -f -`). The
-  value stays in `.env` (gitignored, auto-sourced), so the hook carries no secret and is
-  committable. Hooks inherit the env + `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` + **`SOLOMOG_LIB`**
-  (`scripts/lib` — source shared helpers like `hosts.sh` from there rather than re-implementing
-  them or walking `../..`, which differs for `bundles/private/<name>`; cwd = bundle
-  dir) and are **skipped under DRY_RUN** (can't assume a script is side-effect free).
-  This is why secrets are NOT done as declarative manifests — a Secret with a real value
-  can't be committed, and a bundle file would put it in plaintext on disk; the env-sourced
-  hook keeps the value only in `.env`.
+- **Only the bundle root is applied.** apply-bundle.sh lists top-level entries and keeps
+  `.yaml` / `.yml` / `.yaml.tmpl` / `.sh` — a directory never matches. So the standard
+  subdirs (`tests/`, `docs/`, `custref/`, `helpers/`) are structurally un-appliable; that
+  is what makes `helpers/` safe for scripts that must not run at apply time. `agentcore/`
+  is a **reserved** name — `agentcore:list`/`:env`/`:shell` discover projects with
+  `find bundles -name agentcore.json -path '*/agentcore/*'`. Don't add a root-level file
+  filter that would break either property.
+- **Ordering**: `LC_ALL=C` byte sort, zero-padded numeric prefixes. Padding — not `sort -V`,
+  which BSD/macOS sort lacks — is what guarantees sequence.
+- **Templating**: `.yaml.tmpl` is rendered through a `sed` allow-list of `%%TOKEN%%`
+  placeholders; plain `.yaml` applies verbatim. `%%TOKEN%%` (NOT `$VAR`/envsubst) is
+  deliberate — it can't clash with a `$` in a manifest and needs no gettext dep.
+  **Adding a token means two edits**: `render()` in apply-bundle.sh *and* the
+  leftover-token error's "Supported tokens" list. A leftover `%%FOO%%` is a hard error,
+  and the check scans the whole file **including comments**, so never write a literal
+  `%%WORD%%` in a `.tmpl` unless it's a real token (this bit the example bundle once).
+  `.env`-sourced tokens (the `%%BEDROCK_GUARDRAIL_*%%` pair) have **no default** and are
+  substituted only when non-empty, so an unset one trips that error rather than rendering
+  an empty value the CRD rejects less legibly. The current token table is in bundles/README.md.
+- **Executable hooks**: a `.sh` file is *run* (not applied) at its sorted position — the
+  escape hatch for imperative steps, mainly secrets sourced from `.env` so the value never
+  lands in a committed file. Hooks inherit the env + `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` +
+  **`SOLOMOG_LIB`** (`scripts/lib` — source shared helpers like `hosts.sh` from there rather
+  than re-implementing them or walking `../..`, which differs for `bundles/private/<name>`;
+  cwd = bundle dir) and are **skipped under DRY_RUN** (an arbitrary script can't be assumed
+  side-effect free).
 - **No prune, idempotent**: `kubectl apply` only; removing a file never deletes a resource.
   `DRY_RUN=true` → `--dry-run=server` (real validation; needs a live cluster, and a CR that
   depends on an earlier file's namespace/CRD will fail under dry-run since nothing's written).
@@ -398,23 +410,32 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   (vars the bundle needs, secrets flagged), `PREREQUISITES.md`, best-effort
   `install/values.yaml`, and a README. A backstop scans the package for real `.env`
   values and redacts leaks. Default output: `.solomog/exports/<bundle>-<ts>/`.
-- **Testing**: a bundle's `tests/` subdir holds `*.sh` tests run by `solomog test BUNDLE=…`
+- **Testing**: `tests/*.sh` run by `solomog test BUNDLE=…`
   ([scripts/test-bundle.sh](scripts/test-bundle.sh)) in sorted order. **A test is just the
-  command(s)** — no required format/scaffolding; the runner runs the file and judges pass/fail
-  by exit code. It exports `CONTEXT/CLUSTER/GATEWAY/HOST` + inherits `.env`, so tests substitute
-  with plain shell vars (`$HOST` etc.) — portable/copy-pasteable, no `%%TOKEN%%`. Assertion idiom
-  is `curl --fail-with-body` (HTTP ≥400 → non-zero exit). Keep curl tests as one-liners; kubectl
-  checks may need a little shell logic. Don't reintroduce response-parsing scaffolding in examples.
-  Runs are captured to `.solomog/test-runs/<bundle>-<ts>/` (gitignored). `apply` ignores the
-  `tests/` subdir (globs files only), so apply and test stay separate.
+  command(s)** — the runner execs the file and judges pass/fail by exit code, with no
+  scaffolding. It exports `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` and inherits `.env`, so tests
+  substitute with plain shell vars (`$HOST`), never `%%TOKEN%%` — that's what keeps them
+  copy-pasteable for a customer. Runs are captured to `.solomog/test-runs/<bundle>-<ts>/`
+  (gitignored). `apply` globs files only, so `tests/` is never applied. Authoring conventions
+  (self-skip, assert the thing not the status code, cheap-control-first ordering) are in
+  bundles/README.md — don't reintroduce response-parsing scaffolding in examples.
   - **Python-based tests**: the runner only globs/execs `*.sh`, so a Python test is a `.sh`
     that shells out. Don't `pip install` (system Python is PEP 668 externally-managed) — run
     via **`uv run --with <dep> --python 3.x`** (ephemeral, cached, isolated deps; `uv` is a
-    setup.sh prerequisite). **Gotcha:** uv-managed Python uses certifi, NOT the macOS keychain,
-    so HTTPS to the mkcert gateway fails with `CERTIFICATE_VERIFY_FAILED`. Add `--with truststore`
-    and `import truststore; truststore.inject_into_ssl()` so TLS uses the OS trust store (where
-    `mkcert -install`, run by `expose`, put the CA). See `bundles/mcp-in-cluster/tests/`.
-- **Short-lived creds**: `solomog gcp:refresh` ([scripts/gcp-refresh.sh](scripts/gcp-refresh.sh))
+    setup.sh prerequisite). Two gotchas that look like product bugs:
+    - **TLS.** uv-managed Python uses certifi, NOT the macOS keychain, so HTTPS to the mkcert
+      gateway fails with `CERTIFICATE_VERIFY_FAILED`. Add `--with truststore` and
+      `import truststore; truststore.inject_into_ssl()` so TLS uses the OS trust store (where
+      `mkcert -install`, run by `expose`, put the CA). See `bundles/mcp-in-cluster/tests/`.
+    - **Pin the MCP SDK: `--with 'mcp<2'`.** `mcp` 2.0.0 renamed `streamablehttp_client`, so a
+      bare `--with mcp` resolves to a new major and the test dies on import — a fresh failure in
+      a test that passed yesterday, with nothing in the bundle changed. Repo is mid-migration:
+      `grep -rl -- "--with mcp" bundles/` still finds unpinned callers. Pin any new one.
+
+### Credentials & `.env` plumbing
+Not bundle-specific, though bundles are the main consumer: cloud backends read short-lived
+tokens out of `.env`, and these tasks keep them fresh.
+- **`solomog gcp:refresh`** ([scripts/gcp-refresh.sh](scripts/gcp-refresh.sh))
   re-fetches a GCP token (`gcloud auth print-access-token`) into `.env` as `GCP_ACCESS_TOKEN`
   (general GCP token, not Vertex-specific) — ONLY updates `.env`; re-run the bundle to push it
   into the cluster secret. Writes are **in-place** (via [scripts/lib/envfile.sh](scripts/lib/envfile.sh))
@@ -424,7 +445,7 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   invocation, so `apply` sees the freshly written token. (A raw `task gcp:refresh apply` in one
   process reads `.env` once — would miss it.) Token is short-lived (~1h); re-run manually when
   a backend 401s.
-  `solomog aws:refresh` ([scripts/aws-refresh.sh](scripts/aws-refresh.sh)) is the **same
+- **`solomog aws:refresh`** ([scripts/aws-refresh.sh](scripts/aws-refresh.sh)) is the **same
   pattern for AWS Bedrock**: SSO issues temporary creds (access key + secret + session token,
   ≤12h), so it runs `aws configure export-credentials` (and `aws sso login` first if the
   session is stale) and updates the three `AWS_*` vars in place. `AWS_PROFILE` (set in
@@ -434,7 +455,7 @@ For bespoke / customer-repro config not worth generalizing into a product or app
   manually when a route 401/403s. Same dotenv-reread chaining: `solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=…`.
   **Reading AWS creds back out of `.env` goes through `solomog_aws_env_load`**
   ([scripts/lib/target.sh](scripts/lib/target.sh)) — never `export "$(grep ^KEY= .env)"`.
-  **`solomog agentcore:env` / `agentcore:shell` take the OPPOSITE cred posture on purpose**
+- **`solomog agentcore:env` / `agentcore:shell` take the OPPOSITE cred posture on purpose**
   ([scripts/agentcore-env.sh](scripts/agentcore-env.sh)): the `agentcore` CLI runs in the user's
   interactive shell, which never reads `.env`, so they resolve creds through the **SSO profile
   only** (auto-refreshing from the SSO cache) and *unset* all four static vars — stale statics
@@ -623,44 +644,23 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   dependencies. The checks still encode the 0.5.4 ranges — revalidate for 0.5.5.
 - **`gloo-mesh` in community mode is a no-op** (Gloo Mesh Enterprise has no OSS
   build) — the module emits `releases: []`. Don't add community repos for it.
-- Chart coordinates **verified** against docs for both editions:
-  - `istio` — enterprise: gloo-operator 0.5.2 / istio 1.30.x; community: upstream
-    charts (istio-release), ambient profile, ~1.26.x.
-  - `kgateway` — enterprise 2.2.x (`us-docker.pkg.dev/.../enterprise-kgateway`);
-    community 2.3.x (`cr.kgateway.dev/kgateway-dev/charts`).
-  - `agentgateway` — enterprise CalVer line (`.../enterprise-agentgateway`); community
-    1.4.x (`cr.agentgateway.dev/charts`). Both editions ship a `-crds` chart.
-    **CalVer is Solo's direction of travel for agentgateway (and increasingly other
-    products) — a naming scheme, not an LTS/"latest"/unstable channel by itself.**
-    Channel/support window is documented separately; solomog's default
-    `AGENTGATEWAY_VERSION` tracks the CalVer feature set used by active PoVs. Older
-    SemVer pins (e.g. v2.3.x) remain available for customer-env mirroring.
-    ([docs](https://docs.solo.io/agentgateway/2.3.x/reference/versions/#supported-versions))
-    Consequence: the `EnterpriseAgentgatewayBackend` CEL rules differ by line — CalVer
-    lets a `policies` block hold just `auth`, but on 2.3.x `policies` must also include a
-    non-empty `policies.ai`. Solo workshops written for CalVer may need a `policies.ai`
-    added to validate on 2.3.x (this is why the `bundles/llmroute` backends carry
-    `modelAliases`/`promptCaching`). See versions.env.
-  - `kagent` — enterprise 0.5.5 (`kagent-enterprise-crds` +
-    `kagent-enterprise` from `us-docker.pkg.dev/solo-public/kagent-enterprise-helm/charts`);
-    community stable 0.9.12 (`kagent-crds` + `kagent` from
-    `ghcr.io/kagent-dev/kagent/helm`). Enterprise 0.5.4 embedded upstream
-    0.10.0-beta10 (0.5.5 publishes no appVersion); OSS deliberately stays on the
-    latest plain stable SemVer tag.
-    Both install kmcp and bundled PostgreSQL by default. Enterprise additionally
-    enables kagent on the singleton management release and requires JWT/OIDC
-    secrets prepared by `scripts/prepare-kagent.sh`.
-  - `gloo-gateway` — 1.21.x (classic Helm repos).
-  - `management` (shared Solo UI) — 0.5.5,
-    `us-docker.pkg.dev/solo-public/solo-enterprise-helm/charts` (verified against
-    the current Enterprise kagent quickstart).
-  - `portal` (Solo Portal add-on) — `portal-crds` + `portal` at `PORTAL_VERSION` (default
-    2.2.4, aligned with enterprise `KGATEWAY_VERSION`), same OCI registry as SEFK
-    (`us-docker.pkg.dev/solo-public/enterprise-kgateway/charts`). License:
-    `licensing.licenseKey` ← `PORTAL_LICENSE_KEY`. Verified:
-    [docs.solo.io/kgateway/2.3.x/portal/setup/](https://docs.solo.io/kgateway/2.3.x/portal/setup/).
-  - `kube-prometheus-stack` 80.4.2 (prometheus-community) for the monitoring add-on.
-  Only the `gloo-mesh` mgmt-plane repo remains an unverified `TODO`.
+- **Chart coordinates are not duplicated here — don't reintroduce a version table.**
+  Versions live in [versions.env](versions.env); registry URLs, chart names, namespaces,
+  and the docs link each was verified against live in
+  [enterprise.yaml](helmfiles/environments/enterprise.yaml) and
+  [community.yaml.gotmpl](helmfiles/environments/community.yaml.gotmpl), one commented
+  block per product. All are verified except the `gloo-mesh` mgmt plane (`TODO`). A copy
+  in this file just means a version bump needs two edits and silently drifts.
+  Two consequences worth knowing without opening those files:
+  - **agentgateway CalVer vs SemVer changes CRD validation.** On the CalVer line an
+    `EnterpriseAgentgatewayBackend` `policies` block may hold just `auth`; on 2.3.x the
+    stricter CEL rule also demands a non-empty `policies.ai`. So a Solo workshop manifest
+    written for CalVer fails to validate on a 2.3.x customer-mirror pin until you add one
+    — this is why the `bundles/llmroute` backends carry `modelAliases`/`promptCaching`.
+    CalVer is a naming scheme, **not** an LTS/latest/unstable channel; see versions.env.
+  - **kagent installs kmcp and a bundled PostgreSQL in both editions.** Enterprise also
+    enables kagent on the singleton `management` release and needs the JWT/OIDC secrets
+    `scripts/prepare-kagent.sh` creates.
 - Enterprise and community are on **different version lines** for kgateway,
   agentgateway, and kagent. `community.yaml.gotmpl` overrides their product versions
   from `*_COMMUNITY_VERSION` env vars — don't assume one version fits both editions.
@@ -712,6 +712,11 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   renders the charts — use it to confirm chart names/versions actually exist.)
 - A plain YAML parser will (correctly) reject the unrendered `{{ }}` in `.gotmpl`
   files — use `helmfile build`, not a YAML linter, for those.
+- **Hermetic unit tests** (fixtures, no cluster, no vCenter, no secrets — run both after
+  touching the libraries they cover):
+  `bash scripts/test-envfile.sh` (in-place `.env` rewriting, [scripts/lib/envfile.sh](scripts/lib/envfile.sh))
+  and `bash scripts/test-vsphere-lib.sh` (IP/VIP allocators, [scripts/lib/vsphere.sh](scripts/lib/vsphere.sh);
+  keep it hermetic via the `VSPHERE_POOL_FILE` / `VSPHERE_INIT_STATE` overrides).
 
 ## Status / open questions
 
@@ -728,7 +733,7 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   existing agentgateway management release using `KAGENT_LICENSE_KEY`, so
   `management_license_key` prefers it, while the product controllers keep their
   separate kagent/agentgateway/Istio keys.
-- vcluster config (`clusters/*.yaml`) k3s `extraArgs` format should be checked
-  against the installed vcluster version (the schema changed across 0.19+).
+- **agentgateway metrics don't reach Prometheus** — the PodMonitor selector is fixed but
+  no podMonitor scrape pool is generated (see the `monitoring` add-on note above).
 - Community/upstream chart versions differ from enterprise version lines
   (kgateway, istio) — `versions.env` is pinned to enterprise values by default.
