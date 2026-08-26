@@ -194,10 +194,24 @@ curl --fail-with-body -sS https://$HOST/anthropic \
   commands verbatim-runnable is the point.
 - **kubectl checks** are fine too (see `01-routes-programmed.sh`); a local assertion just
   needs a bit of shell logic. Curl smoke tests stay one-liners.
+- **Python tests are a `.sh` that shells out** — the runner only globs `*.sh`. Use
+  `uv run --with <dep> --python 3.x`, not `pip install` (system Python is PEP 668
+  externally-managed). Write two flags in from the start: **`--with 'mcp<2'`** (mcp 2.0.0 renamed
+  `streamablehttp_client`, so an unpinned test breaks on import one day with nothing changed) and
+  **`--with truststore`** plus `import truststore; truststore.inject_into_ssl()` (uv's Python
+  trusts certifi, not the macOS keychain, so the mkcert gateway otherwise fails
+  `CERTIFICATE_VERIFY_FAILED`). See `bundles/mcp-in-cluster/tests/`.
 
 ```bash
-solomog test BUNDLE=<name> CLUSTER=aaa
+solomog test BUNDLE=<name> CLUSTER=aaa              # every test, in order
+solomog test BUNDLE=<name> CLUSTER=aaa TESTS="54"   # just the tests whose name starts with 54
+solomog test BUNDLE=<name> CLUSTER=aaa TESTS="54 56"
 ```
+
+`TESTS=` takes space-separated filename **prefixes** — the knob for iterating on one test instead
+of re-running the suite. A prefix that matches nothing warns and keeps going, so a typo reads as a
+clean run; check the runner reported the test you meant. Number tests with a padded two-digit
+prefix (`54-cid-composite.sh`) to keep those handles stable.
 
 The runner reports pass/fail per test plus totals, exits non-zero if any failed, and
 **captures every run** to `.solomog/test-runs/<name>-<timestamp>/` (gitignored): a `<test>.log`

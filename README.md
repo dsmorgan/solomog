@@ -120,7 +120,8 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
   and [versions.env](versions.env) are starting points — verify them against the
   versions you actually run (search for `TODO`).
 - **Short-lived clusters.** Designed for create → use for hours/days → tear down.
-  Teardown always prompts before destroying anything.
+  Teardown names its targets explicitly (there is no destroy-all) and prompts before
+  destroying anything unless you pass `FORCE=true`.
 - **Enterprise kagent is resource-heavy and experimental.** Solo recommends at
   least 2 vCPU / 8 GB per cluster; the bundled management plane includes
   ClickHouse and PostgreSQL. Its secured Istio/agentgateway topology has a
@@ -444,6 +445,7 @@ solomog apply BUNDLE=acme CLUSTER=aaa                   # apply, in order
 solomog apply BUNDLES="llmroute-vertex llmroute-bbr" CLUSTER=aaa   # several, left-to-right
 solomog apply BUNDLE=acme CLUSTER=aaa DRY_RUN=true      # validate only (server-side)
 solomog test BUNDLE=acme CLUSTER=aaa                    # run bundles/<name>/tests/*.sh
+solomog test BUNDLE=acme CLUSTER=aaa TESTS="54 56"      # only tests whose name starts with these
 solomog export BUNDLE=acme                              # portable, secret-safe hand-off (no cluster)
 
 # recreate a whole customer env in one chained call:
@@ -462,8 +464,14 @@ rendered with `%%CLUSTER%%` / `%%GATEWAY%%` / `%%HOST%%` (and, when set,
 `.yaml` is applied verbatim. A `.sh` file is *run* at its place in the order —
 the escape hatch for imperative steps like creating a Secret from a key in `.env`
 (`--from-literal="…=$CLAUDE_API_KEY"`), so the value never lands in a committed file.
-`kubectl apply` is idempotent (safe to re-run) and nothing is pruned. See
-[bundles/README.md](bundles/README.md) for the full convention.
+`kubectl apply` is idempotent (safe to re-run) and nothing is pruned.
+
+Only the bundle **root** is applied, so a bundle can carry standard subdirectories without
+them ever being deployed: `tests/` (run by `solomog test`), `docs/` (detail the README links
+to), `custref/` (customer-supplied config being recreated), and `helpers/` (scripts you run by
+hand — log in, mint a token, mutate the system under test). All optional. See
+[bundles/README.md](bundles/README.md) for the full convention, including the required
+per-bundle `README.md` that `bundles:list` and `bundles:show` print.
 
 ### Short-lived credentials
 
@@ -539,10 +547,12 @@ and agentgateway charts continue to use their own keys.
 solomog
 ├── solomog                     # CLI wrapper → runs `task` from repo root
 ├── Taskfile.yaml               # all scenarios (the `solomog <scenario>` targets)
+├── CLAUDE.md / AGENTS.md       # architecture + conventions; Cursor Cloud agent notes
 ├── .env / .env.example         # secrets + template (.env gitignored; env:sync aligns them)
 ├── versions.env                # pinned product versions
 ├── scripts/
 │   ├── setup.sh / setup-sudo.sh  # install prereqs + link solomog; passwordless /etc/hosts
+│   ├── run.sh / list.sh        # per-step framing; the bare `solomog` scenario list
 │   ├── vind-create.sh / vind-teardown.sh / teardown.sh
 │   ├── networking.sh / mesh-eastwest.sh / net-repair.sh
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
@@ -557,16 +567,25 @@ solomog
 │   ├── install-agentgateway-ui.sh / install-portal.sh / install-monitoring.sh
 │   ├── apply-bundle.sh / test-bundle.sh / export-bundle.sh / bundles.sh
 │   ├── eks-create.sh / eks-delete.sh / eks-irsa.sh
+│   ├── vsphere-*.sh            # homelab lifecycle: init/create/delete/stop/start/snapshot/reset
+│   ├── vsphere-snapshot.py     # pyvmomi (vCenter 7.0.x has no REST snapshot API)
+│   ├── test-envfile.sh / test-vsphere-lib.sh   # hermetic unit tests (no cluster, no vCenter)
 │   ├── versions-update.sh
 │   ├── lib/target.sh           # CLUSTER → kube context (vind / registry / CONTEXT)
 │   ├── lib/hosts.sh            # the one privileged /etc/hosts write
-│   ├── lib/gateway.sh / lib/envfile.sh
+│   ├── lib/gateway.sh / lib/envfile.sh / lib/ui.sh
+│   ├── lib/vsphere.sh / lib/opnsense.sh   # IP+VIP allocators; DNS=real record upserts
+│   ├── lib/graph/              # vendored cytoscape.min.js for the self-contained graph
 │   └── apps/
-├── clusters/                   # vcluster configs (single, multi, multi-3)
+├── certs/                      # generated shared root CA (gitignored; delete to rotate)
+├── docs/specs/                 # design specs (vsphere-provisioner.md)
 ├── taskfiles/vsphere.yaml      # OPTIONAL include: all vsphere:* tasks (homelab provisioner)
 ├── terraform/                  # OpenTofu roots: vsphere-init (template) + vsphere-k3s (workspace/cluster)
 ├── bundles/                    # custom-config bundles (bundles/private/ is gitignored)
+│                               #   see bundles/README.md for the authoring convention
 ├── dashboards/                 # vendored Grafana dashboards (agentgateway-overview.json)
+├── .solomog/                   # gitignored runtime state: contexts registry, clusters,
+│                               #   exports/, test-runs/, env-backups/, audit/, vsphere/
 ├── helmfiles/
 │   ├── commons.yaml            # shared environment definitions (bases)
 │   ├── environments/           # default + enterprise/community + ambient/sidecar
