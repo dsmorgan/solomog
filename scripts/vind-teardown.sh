@@ -1,22 +1,38 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# Destroys vcluster instances that solomog created. Prompts for confirmation.
+# Destroys named vcluster (vind) instances. Prompts for confirmation unless FORCE=true.
 #
-# solomog records every cluster it creates in .solomog/clusters. With no args,
-# teardown only considers those — your hand-made vclusters are never touched.
-# Passing explicit names overrides this (you take responsibility for the name).
+# CLUSTER / CLUSTERS is required — there is no default-to-all. Explicit names are
+# not filtered against .solomog/clusters (you take responsibility for the name),
+# but registered eks/vsphere/external names are refused (use that type's delete,
+# or `solomog teardown`).
 #
 # Always prunes stale .solomog/clusters entries (tracked but already gone from
-# `vcluster list`) when the list is available — even if there's nothing left to
-# delete — so cluster:list doesn't keep showing "gone" forever.
+# `vcluster list`) when the list is available, so cluster:list doesn't keep
+# showing "gone" forever.
 #
-# Usage:
-#   vind-teardown.sh                          # destroy all solomog-created clusters
-#   vind-teardown.sh cluster-one [cluster-two] # destroy specific cluster(s), tracked or not
+# Env:
+#   CLUSTER / CLUSTERS  space-separated names (required — destructive)
+#   FORCE               "true" skips the confirmation prompt
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
+
 STATE_FILE="$REPO_DIR/.solomog/clusters"
+
+CLUSTER="${CLUSTER:-${CLUSTERS:-}}"
+solomog_require_cluster_list "$CLUSTER" "vind:delete"
+
+NAMES=()
+for n in $CLUSTER; do
+  [ -n "$n" ] && NAMES+=("$n")
+done
+
+for n in "${NAMES[@]}"; do
+  solomog_require_kind "$n" "vind" "vind:delete"
+done
 
 if ! command -v vcluster &>/dev/null; then
   echo "Error: 'vcluster' not found in PATH" >&2
@@ -75,49 +91,23 @@ prune_stale_tracking() {
 
 prune_stale_tracking
 
-# Collect non-empty positional args (Task passes an empty string when CLUSTER is unset).
-ARGS=()
-for a in "$@"; do [[ -n "$a" ]] && ARGS+=("$a"); done
-
-CLUSTERS=()
-if [[ ${#ARGS[@]} -gt 0 ]]; then
-  CLUSTERS=("${ARGS[@]}")
-  EXPLICIT=true
-else
-  EXPLICIT=false
-  # Only solomog-created clusters that still exist.
-  if [[ -f "$STATE_FILE" ]]; then
-    while IFS= read -r tracked; do
-      [[ -z "$tracked" ]] && continue
-      if cluster_exists "$tracked"; then
-        CLUSTERS+=("$tracked")
-      fi
-    done < "$STATE_FILE"
+echo ""
+echo "The following vind clusters will be destroyed:"
+for cluster in "${NAMES[@]}"; do
+  echo "  - $cluster"
+done
+echo "(explicit names — not filtered against solomog's tracking)"
+echo ""
+if [ "${FORCE:-false}" != "true" ]; then
+  read -rp "Continue? [y/N] " confirm
+  echo ""
+  if [[ ! "$confirm" =~ ^[Yy] ]]; then
+    echo "Teardown cancelled."
+    exit 1
   fi
 fi
 
-if [[ ${#CLUSTERS[@]} -eq 0 ]]; then
-  echo "No solomog-created clusters to tear down."
-  echo "(Hand-made clusters are never auto-targeted. Use 'CLUSTER=<name>' to remove one explicitly.)"
-  exit 0
-fi
-
-echo ""
-echo "The following clusters will be destroyed:"
-for cluster in "${CLUSTERS[@]}"; do
-  echo "  - $cluster"
-done
-$EXPLICIT && echo "(explicit names — not filtered against solomog's tracking)"
-echo ""
-read -rp "Continue? [y/N] " confirm
-echo ""
-
-if [[ ! "$confirm" =~ ^[Yy] ]]; then
-  echo "Teardown cancelled."
-  exit 0
-fi
-
-for cluster in "${CLUSTERS[@]}"; do
+for cluster in "${NAMES[@]}"; do
   echo "==> Deleting: $cluster"
   if vcluster delete "$cluster" 2>/dev/null; then
     untrack_cluster "$cluster"

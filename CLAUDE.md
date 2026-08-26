@@ -154,7 +154,7 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   driver's naming). So a registered external cluster (e.g. EKS `CLUSTER=dmorgan-agw`) is used
   exactly like a vind one; `CONTEXT=` is only for an unregistered context. `solomog_is_external
   <cluster>` is true when `CONTEXT` is set or the cluster is registered — solomog then only
-  installs onto it (never vind-create/teardown/networks it). Single-cluster tasks have **no
+  installs onto it (never vind-creates/networks it). Single-cluster tasks have **no
   default cluster name** (`solomog_require_cluster` fails if both `CLUSTER` and `CONTEXT` are
   empty). New context-consuming scripts must resolve via `solomog_context`, never hardcode
   `vcluster-docker_`. The Docker *network* is `vcluster.<name>` — different; only networking.sh
@@ -174,6 +174,11 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   New cluster-scoped tasks should follow the same first-vs-full pattern so the
   singular/plural slip stays harmless; when adding a multi-cluster task, also add
   it to `_solomog_task_takes_cluster_list` in the wrapper so the warning stays accurate.
+- **`teardown` is type-agnostic destroy; `*:delete` is type-specific.** `solomog teardown`
+  (alias `delete`) requires `CLUSTER=` / `CLUSTERS=` — it never defaults to all clusters —
+  classifies each name (`solomog_cluster_type` in [scripts/lib/target.sh](scripts/lib/target.sh):
+  vind / vsphere / eks) and dispatches. Mixed lists are fine. `vind:delete` /
+  `vsphere:delete` / `eks:delete` refuse the wrong type. All prompt unless `FORCE=true`.
 - **License resolution** is centralized in
   [helmfiles/environments/default.yaml.gotmpl](helmfiles/environments/default.yaml.gotmpl):
   `<product>_license_key` = product-specific env var `| default SOLO_LICENSE_KEY`.
@@ -557,10 +562,11 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   no `mapfile`/`readarray` (use `while IFS= read -r`), no `${var,,}`/`${var^^}`
   (use `[[ "$x" =~ ^[Yy] ]]` or `tr`), and guard empty arrays before `"${a[@]}"`
   under `set -u`.
-- **Teardown only destroys solomog-created clusters.** `vind-create.sh` records each
-  cluster it creates in `.solomog/clusters` (gitignored); `vind-teardown.sh` with no
-  args only targets those that still exist, so hand-made clusters are never nuked.
-  Explicit `CLUSTER=<name>` overrides this.
+- **Teardown requires an explicit CLUSTER list.** `solomog teardown` (and `delete` /
+  `vind:delete` / `vsphere:delete` / `eks:delete`) never defaults to all clusters —
+  omit `CLUSTER=` / `CLUSTERS=` and the command fails listing known names. Hand-made
+  vclusters are still never auto-targeted; naming one explicitly is on you.
+  `vind-teardown.sh` prunes stale `.solomog/clusters` entries as a side effect.
 - **Taskfile is plain YAML, not gotmpl.** A flow sequence containing a template,
   e.g. `cmds: [bash x.sh {{.VAR}}]`, breaks the YAML parser because `{{` opens an
   inline mapping. Use block style:

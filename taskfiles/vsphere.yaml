@@ -153,7 +153,8 @@ tasks:
       state-tracked VMs — never VMs found by name), free its node-IP allocations,
       delete its DNS=real records from OPNsense (when OPNSENSE_* creds are set;
       best-effort), remove the vsphere_<name> kube context, and deregister it from
-      .solomog/contexts. The complement to vsphere:create; destructive.
+      .solomog/contexts. The complement to vsphere:create; destructive. Non-vsphere
+      names are refused (use that type's delete, or `solomog teardown`).
 
       Variables:
         CLUSTER / CLUSTERS   registered cluster name(s), space-separated (required —

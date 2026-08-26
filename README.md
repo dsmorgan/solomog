@@ -496,9 +496,13 @@ bundle or runtime name is hardcoded.
 ```bash
 solomog versions:show
 solomog versions:update                  # check GitHub (read-only — does not write versions.env)
-solomog teardown                         # prompts, then destroys all solomog-created clusters
-solomog teardown CLUSTER=cluster-one     # destroy just one cluster
+solomog teardown CLUSTER=aaa             # type-agnostic; prompts; vind / vsphere / EKS
+solomog teardown CLUSTERS="aaa hl1 e1"   # mixed types in one run
+solomog vind:delete CLUSTER=aaa          # vind-only (also: vsphere:delete, eks:delete)
 ```
+
+`CLUSTER` / `CLUSTERS` is required — there is no destroy-all. `teardown` (alias `delete`)
+detects each name's type and dispatches; the `*:delete` tasks refuse the wrong type.
 
 ---
 
@@ -539,7 +543,7 @@ solomog
 ├── versions.env                # pinned product versions
 ├── scripts/
 │   ├── setup.sh / setup-sudo.sh  # install prereqs + link solomog; passwordless /etc/hosts
-│   ├── vind-create.sh / vind-teardown.sh
+│   ├── vind-create.sh / vind-teardown.sh / teardown.sh
 │   ├── networking.sh / mesh-eastwest.sh / net-repair.sh
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order

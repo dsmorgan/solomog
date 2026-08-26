@@ -1314,9 +1314,9 @@ tasks:
       OWNER: '{{.OWNER | default ""}}'
 
   eks:delete:
-    desc: "Tear down an EKS cluster safely (delete Gateway/LB svcs first → eksctl delete → deregister). CLUSTER=<name> required. Run 'solomog help eks:delete'."
+    desc: "Tear down named EKS cluster(s) (delete Gateway/LB svcs first → eksctl delete → deregister). CLUSTER=<name> required. Run 'solomog help eks:delete'."
     summary: |
-      Safely delete an EKS cluster solomog installed onto — the complement to eks:create. Deletes
+      Safely delete EKS cluster(s) solomog installed onto — the complement to eks:create. Deletes
       the Gateways + LoadBalancer Services FIRST so AWS drops the ELBs (whose ENIs would otherwise
       pin the subnets and fail the VPC delete → orphaned VPC → burned VPC-quota slot), waits for
       them to drain, then `eksctl delete cluster`, then deregisters from .solomog/contexts and
@@ -1324,11 +1324,14 @@ tasks:
       in kubectx). Also self-heals orphans: deletes any LB left in the VPC (and the k8s-elb-* SGs the
       ELB leaves behind), and if the control plane is already gone deletes the eksctl-<name>-*
       CloudFormation stacks directly (disabling termination protection). MUTATES AWS. EKS only.
+      Non-eks names are refused (use that type's delete, or `solomog teardown`).
 
       Needs AWS creds: `solomog aws:refresh` (writes .env; the task reloads it, robust to stale shell creds) or export them in the shell. Plus eksctl.
 
       Variables:
-        CLUSTER     registered EKS cluster name (required — no default; destructive)
+        CLUSTER / CLUSTERS  registered EKS cluster name(s), space-separated (required —
+                            no default; destructive; one prompt for the whole batch)
+        FORCE       true → skip the confirmation prompt (scripted teardown)   default false
         EKS_REGION  cluster region (preferred)      explicit override
         AWS_REGION  region (fallback)               default: derived from the context ARN
         GATEWAY     gateway name (default agw)       informational; all Gateways + LB svcs are removed
@@ -1337,11 +1340,13 @@ tasks:
         export AWS_PROFILE=AdministratorAccess-170015905430
         eval "$(aws configure export-credentials --format env)"
         solomog eks:delete CLUSTER=dmorgan-agw
+        solomog eks:delete CLUSTERS="e1 e2"
     cmds:
       - bash scripts/run.sh "Delete EKS cluster {{.CLUSTER}}" bash scripts/eks-delete.sh
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
       CONTEXT: '{{.CONTEXT | default ""}}'
+      FORCE: '{{.FORCE | default ""}}'
       EKS_REGION: '{{.EKS_REGION | default ""}}'
       AWS_REGION: '{{.AWS_REGION | default ""}}'
       GATEWAY: '{{.GATEWAY | default ""}}'
@@ -1498,23 +1503,52 @@ tasks:
   # ─── Teardown ─────────────────────────────────────────────────────────────
 
   teardown:
-    desc: "Destroy solomog-created clusters: all, or some via CLUSTER=<name> / CLUSTERS=\"a b\". Prompts first."
+    aliases: ["delete"]
+    desc: "Destroy named clusters of any type (vind, vsphere, EKS). CLUSTER=<name> required. Prompts first. Run 'solomog help teardown'."
     summary: |
-      Destroy clusters and clean up. Prompts for confirmation first. With no CLUSTER(S),
-      targets only the clusters solomog created (tracked in .solomog/clusters) that still
-      exist — hand-made clusters are never touched. An explicit name overrides that.
-      Always prunes stale .solomog/clusters entries (tracked but already gone) when
-      `vcluster list` is available, even if there's nothing left to delete.
+      Type-agnostic destroy. Requires CLUSTER=<name> or CLUSTERS="a b" — it does not
+      default to all clusters. Detects each name (vind / vsphere / eks), prompts once
+      with name+type, then dispatches to vind:delete / vsphere:delete / eks:delete.
+      Mixed lists are fine. A registered generic external cluster is refused (solomog
+      did not create it). FORCE=true skips the prompt (children run unattended).
+
+      Type-specific: solomog vind:delete / vsphere:delete / eks:delete.
 
       Variables:
-        CLUSTER    single cluster to destroy
-        CLUSTERS   space-separated clusters to destroy (alias of CLUSTER)
-                   (omit both → all solomog-created clusters)
+        CLUSTER / CLUSTERS   cluster name(s), space-separated (required — no default;
+                             destructive; one prompt for the whole batch)
+        FORCE      true → skip the confirmation prompt (scripted teardown)   default false
 
       Examples:
-        solomog teardown
         solomog teardown CLUSTER=aaa
-    vars:
-      CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default ""}}'
+        solomog teardown CLUSTERS="aaa hl1 dmorgan-agw"
+        solomog delete CLUSTER=aaa
     cmds:
-      - bash scripts/vind-teardown.sh {{.CLUSTERS}}
+      - bash scripts/run.sh "Tear down {{.CLUSTER}}" bash scripts/teardown.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      FORCE: '{{.FORCE | default ""}}'
+
+  vind:delete:
+    desc: "Destroy named vcluster (vind) clusters. CLUSTER=<name> required. Prompts first. Run 'solomog help vind:delete'."
+    summary: |
+      Destroy vcluster instances by name. Requires CLUSTER=<name> or CLUSTERS="a b" —
+      it does not default to all clusters. Explicit names are not filtered against
+      .solomog/clusters (you take responsibility for the name), but registered
+      eks/vsphere/external names are refused (use that type's delete, or
+      `solomog teardown`). Prunes stale .solomog/clusters entries when `vcluster list`
+      is available. FORCE=true skips the prompt.
+
+      Variables:
+        CLUSTER / CLUSTERS   vind cluster name(s), space-separated (required — no default;
+                             destructive; one prompt for the whole batch)
+        FORCE      true → skip the confirmation prompt (scripted teardown)   default false
+
+      Examples:
+        solomog vind:delete CLUSTER=aaa
+        solomog vind:delete CLUSTERS="aaa bbb"
+    cmds:
+      - bash scripts/run.sh "Delete vind cluster {{.CLUSTER}}" bash scripts/vind-teardown.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      FORCE: '{{.FORCE | default ""}}'

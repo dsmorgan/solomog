@@ -9,8 +9,9 @@
 #   3. else                                 → vind default "vcluster-docker_<cluster>".
 #
 # A target is EXTERNAL when CONTEXT is set OR the cluster is in the registry. solomog only installs
-# onto external targets — it never vind-create/teardown/networks them (and vind-teardown only
-# targets clusters recorded in .solomog/clusters, which an external one isn't).
+# onto external targets — it never vind-creates/networks them. `solomog teardown` is type-agnostic
+# (vind / vsphere / eks) and requires an explicit CLUSTER/CLUSTERS list; type-specific deletes are
+# vind:delete / vsphere:delete / eks:delete.
 #
 # So the user says `CLUSTER=dmorgan-agw` for a registered EKS cluster exactly like `CLUSTER=aaa`
 # for a vind one; CONTEXT is only needed for a context solomog hasn't recorded.
@@ -58,6 +59,24 @@ solomog_is_vsphere() {   # args: [<cluster>]
   esac
 }
 
+# Echo vind|eks|vsphere|external for a cluster name. Registry-based — ignores ambient
+# CONTEXT= so a leftover EKS context cannot recast a vind name. Unregistered names
+# are vind (teardown / vind:delete). Unregistered EKS goes through eks:delete CONTEXT=…
+# directly, not through this classifier.
+solomog_cluster_type() {   # args: <cluster>
+  local mapped
+  mapped="$(_solomog_registry_lookup "${1:-}")"
+  if [ -n "$mapped" ]; then
+    case "$mapped" in
+      arn:aws:eks:*) printf 'eks' ;;
+      vsphere_*)     printf 'vsphere' ;;
+      *)             printf 'external' ;;
+    esac
+    return
+  fi
+  printf 'vind'
+}
+
 # Human-readable cluster label for display (routes/graph headers, filenames) and
 # for hostname/descr derivation in expose. A user-supplied CLUSTER is already the
 # right label — only derive one when it's empty (bare CONTEXT= override):
@@ -84,6 +103,75 @@ solomog_require_cluster() {   # args: <cluster-value> [<task-label>]
     echo "  → set CLUSTER=<name>           e.g. CLUSTER=ea1"
     echo "    or CONTEXT=<kube-context>    to target an unregistered external context"
     echo "  (note: it's CLUSTER, capitalized — a lowercase 'cluster=' is ignored by the task runner.)"
+  } >&2
+  exit 1
+}
+
+# Known cluster names (vind tracking ∪ external registry), one per line, sorted.
+_solomog_known_names() {
+  local root clusters
+  root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  clusters="$root/.solomog/clusters"
+  # `true` so a missing file doesn't fail the brace under `set -o pipefail`.
+  {
+    [ -f "$clusters" ] && awk 'NF{print $1}' "$clusters"
+    [ -f "$(_solomog_registry)" ] && awk 'NF{print $1}' "$(_solomog_registry)"
+    true
+  } | awk 'NF' | LC_ALL=C sort -u
+}
+
+# Require an explicit CLUSTER/CLUSTERS list for destructive tasks. Unlike
+# solomog_require_cluster, CONTEXT= is not a substitute (that would still be a
+# silent default). Whitespace-only counts as missing. Lists known clusters so
+# the fix is copy-pasteable. Exits 1.
+solomog_require_cluster_list() {   # args: <cluster-value> [<task-label>]
+  local val="${1:-}" task="${2:-this task}" names name typ
+  # Word-split: a blank / whitespace-only value is missing. Function-local set.
+  # shellcheck disable=SC2086
+  set -- $val
+  [ $# -ge 1 ] && return 0
+  names="$(_solomog_known_names)"
+  {
+    echo "Error: ${task} requires CLUSTER=<name> or CLUSTERS=\"a b\"."
+    echo "  It does not default to all clusters."
+    echo "  Known clusters:"
+    if [ -z "$names" ]; then
+      echo "    (none — solomog cluster:list)"
+    else
+      while IFS= read -r name; do
+        [ -n "$name" ] || continue
+        typ="$(solomog_cluster_type "$name")"
+        printf '    %-20s %s\n' "$name" "$typ"
+      done <<EOF
+$names
+EOF
+    fi
+    echo "  Examples:"
+    echo "    solomog ${task} CLUSTER=<name>"
+    echo "    solomog ${task} CLUSTERS=\"aaa hl1 dmorgan-agw\""
+    echo "  (note: it's CLUSTER, capitalized — a lowercase 'cluster=' is ignored by the task runner.)"
+  } >&2
+  exit 1
+}
+
+# Require <cluster> to classify as <expected> (vind|eks|vsphere). Exits 1 on mismatch
+# with a pointer at the type-specific delete / type-agnostic teardown.
+solomog_require_kind() {   # args: <cluster> <expected> [<task-label>]
+  local cluster="${1:-}" expected="${2:-}" task="${3:-this task}" got
+  got="$(solomog_cluster_type "$cluster")"
+  [ "$got" = "$expected" ] && return 0
+  {
+    echo "Error: ${task} is for ${expected} clusters, but CLUSTER='${cluster}' is ${got}."
+    case "$got" in
+      vind|eks|vsphere)
+        echo "  → solomog ${got}:delete CLUSTER=${cluster}"
+        echo "    or  solomog teardown CLUSTER=${cluster}"
+        ;;
+      *)
+        echo "  Registered as a generic external cluster — solomog will not destroy it."
+        echo "  Delete it yourself, then drop it from .solomog/contexts if it still shows in cluster:list."
+        ;;
+    esac
   } >&2
   exit 1
 }
