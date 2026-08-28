@@ -16,6 +16,8 @@ fi
 # instead of scattered mini-summaries. Per-task progress framing (step delimiters)
 # still lives in the scripts.
 source "$SCRIPT_DIR/scripts/lib/ui.sh"
+# shellcheck source=scripts/lib/validate.sh
+source "$SCRIPT_DIR/scripts/lib/validate.sh"
 
 # Audit log: one compact line per run, in a monthly-rotated file beside the test runs
 # (.solomog/audit/YYYY-MM.log — gitignored). Records timestamp, ok/FAIL, exit code, total
@@ -157,6 +159,13 @@ if [ -z "${SOLOMOG_SERIOUS:-}" ] && [ -f "$SCRIPT_DIR/.env" ]; then
   SOLOMOG_SERIOUS="$_sm_v"; unset _sm_v
 fi
 export SOLOMOG_SERIOUS
+
+# Reject unknown tasks and unknown KEY= names before any task runs (and before
+# the 🗿 bookends). A typo mid-chain used to fail only when that token's turn
+# arrived — after earlier installs had already completed.
+if ! solomog_validate_cli; then
+  exit 1
+fi
 
 solomog_intro "$MOG_MODE"
 solomog_clock_reset   # grand-total clock (this process; task subprocesses don't touch it)

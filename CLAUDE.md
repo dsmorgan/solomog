@@ -553,10 +553,14 @@ trailer with an awk filter (drops everything from a `^vars:`/`^env:` line until 
 `Variables:`). If you change the help path, preserve that filter.
 
 **Framing + timing live at two levels.** The `solomog` wrapper owns the run: it splits
-the command line into task names vs `KEY=VALUE` globals, runs each task as its own `task`
-invocation (this is why dotenv re-reads between tasks — see gcp:refresh), times each, stops
-on first failure, and prints ONE grand-total summary plus start/end 🗿 banter. Leaf tasks
-must go through `scripts/run.sh "<title>" <command...>`, which prints a step delimiter only
+the command line into task names vs `KEY=VALUE` globals, **preflights the whole line**
+(unknown tasks and unknown `KEY=` names fail before any task runs — `monitor` never
+reaches `expose`), then runs each task as its own `task` invocation (this is why
+dotenv re-reads between tasks — see gcp:refresh), times each, stops on first failure,
+and prints ONE grand-total summary plus start/end 🗿 banter. `SOLOMOG_ALLOW_UNKNOWN_VARS=true`
+(CLI, prefix, or `.env`) downgrades unknown KEY names to warnings; unknown tasks still
+fail. Version *values* are not pre-checked. Leaf tasks must go through
+`scripts/run.sh "<title>" <command...>`, which prints a step delimiter only
 (timing/summary are the wrapper's job — don't add per-task summaries there). `stack.sh` /
 `mesh.sh` frame their own multi-step progress + a content summary (what was built). Don't
 call `helmfile`/scripts bare from a task.
@@ -712,11 +716,13 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   renders the charts — use it to confirm chart names/versions actually exist.)
 - A plain YAML parser will (correctly) reject the unrendered `{{ }}` in `.gotmpl`
   files — use `helmfile build`, not a YAML linter, for those.
-- **Hermetic unit tests** (fixtures, no cluster, no vCenter, no secrets — run both after
+- **Hermetic unit tests** (fixtures, no cluster, no vCenter, no secrets — run after
   touching the libraries they cover):
-  `bash scripts/test-envfile.sh` (in-place `.env` rewriting, [scripts/lib/envfile.sh](scripts/lib/envfile.sh))
-  and `bash scripts/test-vsphere-lib.sh` (IP/VIP allocators, [scripts/lib/vsphere.sh](scripts/lib/vsphere.sh);
-  keep it hermetic via the `VSPHERE_POOL_FILE` / `VSPHERE_INIT_STATE` overrides).
+  `bash scripts/test-envfile.sh` (in-place `.env` rewriting, [scripts/lib/envfile.sh](scripts/lib/envfile.sh)),
+  `bash scripts/test-vsphere-lib.sh` (IP/VIP allocators, [scripts/lib/vsphere.sh](scripts/lib/vsphere.sh);
+  keep it hermetic via the `VSPHERE_POOL_FILE` / `VSPHERE_INIT_STATE` overrides),
+  and `bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
+  injects fixture task/key lists — no live `task --list` in the assertion cases).
 
 ## Status / open questions
 

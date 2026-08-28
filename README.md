@@ -70,11 +70,12 @@ solomog setup:sudo
 ```
 
 > `solomog` is a thin wrapper that runs `task` from the repo root regardless of
-> your current directory, so the commands below work from anywhere. Bare `solomog`
-> (and `solomog help`) print a grouped index. Drill down with `solomog help
-> <group>` (`setup`, `cluster`, `products`, `istio`, `apps`, `bundles`, `creds`),
-> `solomog help --all` for every task, or `solomog help <task>` for knobs and
-> examples.
+> your current directory, so the commands below work from anywhere. It rejects
+> unknown tasks and unknown `KEY=` names before any task runs (`monitor` →
+> `monitoring`). Bare `solomog` (and `solomog help`) print a grouped index. Drill
+> down with `solomog help <group>` (`setup`, `cluster`, `products`, `istio`,
+> `apps`, `bundles`, `creds`), `solomog help --all` for every task, or
+> `solomog help <task>` for knobs and examples.
 
 ### Passwordless /etc/hosts (one-time)
 
