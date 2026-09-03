@@ -161,7 +161,9 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
 - **Standalone** is the one path with no cluster in it. Standalone agentgateway is a
   single self-contained binary — no control plane, no CRDs — so `solomog standalone` runs it
   as a Docker container against `standalone/<name>/config.yaml`, and none of products /
-  editions / Istio mode apply. See [standalone/README.md](standalone/README.md).
+  editions / Istio mode apply. Instances are still tracked targets: they appear in
+  `cluster:list` and are destroyed by `teardown` like anything else.
+  See [standalone/README.md](standalone/README.md).
 
 ---
 
@@ -491,10 +493,26 @@ the proxy needs no Kubernetes API access. So this path runs it as a Docker conta
 local config file, and never creates or touches a cluster.
 
 ```bash
-solomog standalone:list                       # configs available + instances running
-solomog standalone NAME=minimal               # start it; prints the gateway and UI URLs
-solomog standalone:logs NAME=minimal
-solomog standalone:stop NAME=minimal
+solomog standalone:list                        # instances: name, state, config, UI URL
+solomog standalone NAME=minimal                # start it; prints the gateway and UI URLs
+solomog standalone:logs INSTANCE=minimal
+solomog standalone:stop INSTANCE=minimal       # container goes; config and state stay
+solomog standalone:delete INSTANCE=minimal     # the instance stops existing
+```
+
+`NAME` picks the config; `INSTANCE` names the running thing and defaults to `NAME`. Set it to
+run the same config twice — the second gets its own config copy under `.solomog/standalone/`,
+so the two never fight over one file, and its UI edits stay out of the repo:
+
+```bash
+solomog standalone NAME=minimal INSTANCE=scratch    # lands on the next free ports
+```
+
+Instances are registered, so they are ordinary solomog targets rather than a separate world:
+
+```bash
+solomog cluster:list                     # standalone rows beside vind / eks / vsphere
+solomog teardown CLUSTER=scratch         # one delete for any target, whatever its type
 ```
 
 Configs live in [standalone/](standalone/), one directory per instance, each holding a

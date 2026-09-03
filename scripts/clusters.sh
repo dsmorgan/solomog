@@ -47,6 +47,10 @@ _registry_lookup() {   # args: <cluster> → context or empty
 _ctx_for() {
   local mapped; mapped="$(_registry_lookup "$1")"
   if [ -n "$mapped" ]; then printf '%s' "$mapped"; return; fi
+  # No kube context exists for a standalone instance — there is no cluster. Name the docker
+  # container instead, which is the thing you actually address, and mirrors how the vind
+  # rows name their context.
+  if solomog_is_standalone "$1"; then printf 'docker/solomog-standalone-%s' "$1"; return; fi
   printf 'vcluster-docker_%s' "$1"
 }
 
@@ -68,9 +72,17 @@ _tracked_external() {
   awk 'NF{print $1}' "$CONTEXTS_FILE"
 }
 
+# Echo registered standalone instance names (one per line). Not clusters — `solomog
+# standalone` runs agentgateway as a bare Docker container — but they ARE solomog-managed
+# targets, so they belong in this table rather than in a separate world the user has to
+# remember to check.
+_tracked_standalone() {
+  solomog_standalone_names
+}
+
 # Union of all known names, sorted.
 _all_names() {
-  { _tracked_vind; _tracked_external; } | awk 'NF' | LC_ALL=C sort -u
+  { _tracked_vind; _tracked_external; _tracked_standalone; } | awk 'NF' | LC_ALL=C sort -u
 }
 
 # Current kubectl context, or empty if unavailable.
@@ -210,6 +222,18 @@ _vsphere_status() {   # args: <context>
 
 # Status for list/show. Vind: running|gone|?. EKS: AWS probe or —. vsphere: kubectl
 # probe. Other external: —.
+# Live state of a standalone instance's container: running | stopped | gone.
+_standalone_status() {   # args: <instance>
+  local out
+  command -v docker >/dev/null 2>&1 || { printf '?'; return; }
+  out="$(docker ps -a --filter "name=^solomog-standalone-$1$" --format '{{.State}}' 2>/dev/null | head -1)"
+  case "$out" in
+    running)      printf '%srunning%s' "$G" "$R" ;;
+    "")           printf 'gone' ;;
+    *)            printf '%s' "$out" ;;
+  esac
+}
+
 _status_for() {   # args: <cluster> <type> <context>
   case "$2" in
     vind)
@@ -221,6 +245,9 @@ _status_for() {   # args: <cluster> <type> <context>
       ;;
     vsphere)
       _vsphere_status "$3"
+      ;;
+    standalone)
+      _standalone_status "$1"
       ;;
     *) printf '—' ;;
   esac

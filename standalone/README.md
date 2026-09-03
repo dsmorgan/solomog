@@ -8,12 +8,55 @@ CRDs, and the proxy needs no Kubernetes API access — so solomog runs it as a p
 container. Nothing here touches a cluster.
 
 ```
-solomog standalone:list                 # what exists, what is running
-solomog standalone NAME=minimal         # start it, print the URLs
-solomog standalone:validate NAME=llm    # check a config; no cluster, no license
-solomog standalone:logs NAME=minimal
-solomog standalone:stop NAME=minimal
+solomog standalone:list                        # instances (name, state, config, URL) + spare configs
+solomog standalone NAME=minimal                # start it, print the URLs
+solomog standalone:validate NAME=llm           # check a config; no cluster, no license
+solomog standalone:logs INSTANCE=minimal
+solomog standalone:stop INSTANCE=minimal       # container goes; config and state stay
+solomog standalone:delete INSTANCE=minimal     # the instance stops existing
 ```
+
+## Config vs instance
+
+`NAME` picks the config directory. `INSTANCE` names the running thing and defaults to `NAME`,
+so you can ignore it until you want two at once:
+
+```
+solomog standalone NAME=minimal                    # instance "minimal"
+solomog standalone NAME=minimal INSTANCE=scratch   # a second one, same config
+```
+
+The second instance gets its own copy of the config at `.solomog/standalone/scratch/`, so the
+two never fight over one `config.yaml` or `data.db`, and anything you change in the scratch
+instance's UI stays out of the repo. Host ports are probed upward, so it lands on the next
+free pair rather than colliding. Re-running an existing scratch instance resumes it; delete it
+to start again from the source config.
+
+## Stopping vs deleting
+
+The same distinction the cluster tasks make:
+
+| | Container | Config | State | Registry |
+| --- | --- | --- | --- | --- |
+| `standalone:stop` | removed | kept | kept | kept |
+| `standalone:delete` | removed | kept | removed | removed |
+
+So `stop` is a pause — re-run and you are back where you were. `delete` makes the instance
+stop existing. It leaves the config under `standalone/<name>/` alone, because that is source,
+not state, the same reason tearing down a cluster does not delete your helmfiles; it prints
+the `rm -rf` if you want that too.
+
+## It is a first-class target, not an island
+
+Instances are registered, so they show up beside real clusters and obey the same verbs:
+
+```
+solomog cluster:list                    # standalone rows alongside vind / eks / vsphere
+solomog teardown CLUSTER=<instance>     # one delete for any target, whatever its type
+```
+
+`solomog standalone:delete` is the type-specific form, matching `vind:delete` / `eks:delete` /
+`vsphere:delete`. `teardown` is the type-agnostic one and handles mixed lists.
 
 ## What ships here
 
@@ -61,6 +104,13 @@ deliberate: it is how you build a config by clicking. But the writer re-emits th
 the parsed structure, so every comment goes with it (the `# yaml-language-server: $schema`
 hint is re-added; nothing else survives). Copy a documented example to a scratch name before
 clicking around in it, or expect to restore it. SQLite state (`data.db*`) is gitignored.
+
+**The UI writes a price catalog into the config dir.** Enabling LLM cost tracking downloads
+`base-costs.json` (~180 KB) beside your config and adds a `config.modelCatalog` reference to
+it. Both are gitignored/omitted from the committed examples because they are generated. A
+config whose catalog file is missing is not fatal — the gateway warns `will load when the
+files become valid`, watches the path, and serves normally — so a fresh clone works and you
+just refresh the catalog in the UI when you want cost data.
 
 **Config changes hot-reload.** The gateway watches the file, so an edit from your editor or
 from the UI is live within a second or two — no restart. The log line is

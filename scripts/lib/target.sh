@@ -32,6 +32,54 @@ _solomog_registry_lookup() {   # args: <cluster>
   awk -v c="$1" '$1==c{print $2; exit}' "$reg"
 }
 
+# ─── standalone instances (no cluster) ───────────────────────────────────────
+# `solomog standalone` runs agentgateway as a Docker container with no Kubernetes at all.
+# Those instances are still solomog-managed TARGETS, so they are registered here — one name
+# per line in .solomog/standalone-instances. That registry is what lets cluster:list show
+# them and `teardown` classify and destroy them alongside real clusters, without needing
+# Docker to be up just to identify a name.
+#
+# The file is named -instances, not just `standalone`, because .solomog/standalone/ is the
+# directory holding scratch instances' runtime state — one path cannot be both.
+
+_solomog_standalone_registry() {
+  printf '%s/.solomog/standalone-instances' "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+}
+
+# True when <name> is a registered standalone instance.
+solomog_is_standalone() {   # args: <name>
+  local reg; reg="$(_solomog_standalone_registry)"
+  [ -n "${1:-}" ] || return 1
+  [ -f "$reg" ] || return 1
+  awk -v c="$1" 'NF && $1==c{found=1} END{exit !found}' "$reg"
+}
+
+# Record a standalone instance name (idempotent).
+solomog_register_standalone() {   # args: <name>
+  local reg; reg="$(_solomog_standalone_registry)"
+  [ -n "${1:-}" ] || return 1
+  mkdir -p "$(dirname "$reg")"
+  solomog_is_standalone "$1" && return 0
+  printf '%s\n' "$1" >> "$reg"
+}
+
+# Drop a standalone instance name from the registry.
+solomog_unregister_standalone() {   # args: <name>
+  local reg tmp; reg="$(_solomog_standalone_registry)"
+  [ -n "${1:-}" ] || return 1
+  [ -f "$reg" ] || return 0
+  tmp="$(mktemp "${reg}.XXXXXX")"
+  awk -v c="$1" 'NF && $1!=c' "$reg" > "$tmp"
+  mv "$tmp" "$reg"
+}
+
+# Echo registered standalone instance names, one per line.
+solomog_standalone_names() {
+  local reg; reg="$(_solomog_standalone_registry)"
+  [ -f "$reg" ] || return 0
+  awk 'NF{print $1}' "$reg" | LC_ALL=C sort -u
+}
+
 # Echo the kube context for a cluster name (CONTEXT override → registry → vind default).
 solomog_context() {   # args: <cluster>
   if [ -n "${CONTEXT:-}" ]; then printf '%s' "$CONTEXT"; return; fi
@@ -74,6 +122,11 @@ solomog_cluster_type() {   # args: <cluster>
     esac
     return
   fi
+  # Checked after the contexts registry so a real cluster always wins the name, and before
+  # the vind default so `teardown` never mistakes a standalone instance for a vcluster.
+  # standalone.sh refuses to create an instance whose name is already a tracked cluster, so
+  # in practice the two sets are disjoint.
+  if solomog_is_standalone "${1:-}"; then printf 'standalone'; return; fi
   printf 'vind'
 }
 

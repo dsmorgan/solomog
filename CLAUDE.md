@@ -449,6 +449,30 @@ container** against a local config file, and never touches a cluster.
 - **Config format is `LocalConfig`, not CRDs.** `standalone/<name>/config.yaml`. This is why
   standalone is a sibling tree to `bundles/` rather than a bundle flavor: bundles are
   kubectl manifests, and neither schema converts to the other.
+- **`NAME` is the config; `INSTANCE` is the running thing** (defaults to `NAME`). When they
+  differ, the config is copied to `.solomog/standalone/<INSTANCE>/` and mounted from there —
+  two instances must never share one config dir, since both would write `config.yaml` and
+  `data.db`. A scratch instance is re-seeded only when its copy is absent, so re-running
+  resumes rather than clobbering. Actions that address a running instance (`stop`, `delete`,
+  `logs`) take `INSTANCE` and accept `NAME` as an alias.
+- **Instances are REGISTERED, in `.solomog/standalone-instances`** (helpers in
+  [scripts/lib/target.sh](scripts/lib/target.sh): `solomog_is_standalone`,
+  `solomog_register_standalone`, `solomog_unregister_standalone`, `solomog_standalone_names`).
+  That registry is what makes standalone a first-class target rather than an isolated island:
+  `solomog_cluster_type` returns `standalone`, `cluster:list` shows a row (Context column =
+  `docker/<container>`, since no kube context exists), and `teardown` classifies and destroys
+  it. A registry file — not live Docker discovery — because `teardown` must classify a name
+  even when Docker is down, or it would mistake an instance for a vcluster and run the wrong
+  destroy. Checked AFTER the contexts registry (a real cluster always wins a name) and BEFORE
+  the vind fallback. `run` refuses a name already tracked as a cluster, so the sets stay
+  disjoint. **The file is `standalone-instances`, not `standalone`** — `.solomog/standalone/`
+  is the scratch state directory, and one path cannot be both (this collided in development).
+- **`stop` vs `delete` mirrors the cluster verbs.** `stop` removes only the container; the
+  registry entry, config, and state stay, so re-running resumes. `delete` makes the instance
+  stop existing: container, registry entry, and runtime state — but NOT the config under
+  `standalone/`, which is source, not state (tearing down a cluster does not delete your
+  helmfiles either). It prints the `rm -rf` for the config rather than running it. Prompts
+  unless `FORCE=true`, and `teardown` passes `FORCE=true` after its own batch prompt.
 - **The UI is the gateway's OWN, compiled into the binary.** Do not confuse it with the Solo
   Enterprise UI *management chart* that `agentgateway:ui` installs onto a cluster.
   Three placements, all real: omit the `ui` key → admin interface only; `ui: {}` → also
@@ -494,6 +518,12 @@ container** against a local config file, and never touches a cluster.
   Config changes **hot-reload** (the gateway watches the file; `state_manager loaded config
   from File(...)`), in both directions — verified by POSTing `/api/config` and by editing the
   file back.
+- **The UI writes generated state into the config dir.** Enabling LLM cost tracking pulls a
+  ~180KB `base-costs.json` beside `config.yaml` and adds `config.modelCatalog: [{file: …}]`.
+  Both are gitignored / kept out of the committed examples. A dangling `modelCatalog` file
+  reference is NOT fatal (verified): `--validate-only` passes, and at runtime the gateway logs
+  `model catalog load failed; will load when the files become valid`, watches the path, and
+  serves normally. So a fresh clone is fine.
 - **UI backend API, for scripted checks:** the internal `ui` route serves `/ui` plus
   `/api/runtime`, `/api/config` (GET the live config, POST to replace it — no PUT/PATCH),
   `/api/cel`, `/api/logs`, `/api/costs`. `/config_dump` on the admin port shows the resolved

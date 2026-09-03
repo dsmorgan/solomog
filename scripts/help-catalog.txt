@@ -68,11 +68,14 @@ lead	bundles	test
 lead	bundles	export
 lead	standalone	standalone
 lead	standalone	standalone:list
+lead	standalone	standalone:delete
 
 see	products	Istio shortcuts:  solomog help istio
 see	cluster	EKS tasks:        solomog help eks
 see	cluster	vSphere tasks:    solomog help vsphere
 see	standalone	Needs no cluster — Docker only. Version pin: AGENTGATEWAY_STANDALONE_VERSION.
+see	standalone	Instances also show in cluster:list and delete via  solomog teardown CLUSTER=<name>
+see	cluster	Standalone (no-cluster) instances:  solomog help standalone
 
 ptitle	eks	EKS — create, IRSA, and delete
 ptitle	vsphere	vSphere — homelab k3s on vCenter
