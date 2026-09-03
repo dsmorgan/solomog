@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# LLM routing with no cluster: two providers behind one OpenAI-compatible endpoint.
+#
+#   solomog standalone NAME=llm
+#   curl http://127.0.0.1:4000/v1/chat/completions -H 'content-type: application/json' \
+#     -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}'
+#
+# `$OPENAI_API_KEY` / `$ANTHROPIC_API_KEY` are expanded from the environment when the
+# gateway loads the file, so the secrets stay in .env and never land in git. solomog
+# detects the references and passes those variables into the container. An unset variable
+# aborts the whole config load, so `solomog standalone:validate NAME=llm` names any that
+# are missing before you start.
+config:
+  storage:
+    mode: file
+
+gateways:
+  default:
+    port: 4000
+
+ui: {}
+
+llm:
+  gateways: default
+  models:
+    - name: gpt-4o
+      provider: openAI
+      params:
+        model: gpt-4o
+        apiKey: $OPENAI_API_KEY
+    - name: claude
+      provider: anthropic
+      params:
+        model: claude-sonnet-4-5
+        apiKey: $ANTHROPIC_API_KEY
+
+# All three capabilities are declared and attached to the one gateway. Leaving one out
+# invites the UI's onboarding wizard to "enable" it, and its save writes a top-level
+# `<section>.port` (llm defaults to 4000, mcp to 3000) rather than attaching — which
+# collides with a gateway already on that port. Attach, never port.
+
+mcp:
+  gateways: default
+  targets: []

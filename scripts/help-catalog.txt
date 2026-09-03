@@ -19,6 +19,7 @@ group	istio	single-cluster and multi-cluster mesh	Istio — single-cluster and m
 group	apps	expose, sample apps, routes, graph	Apps — gateway, samples, and inspect
 group	bundles	apply, test, export	Bundles — custom config
 group	creds	aws/gcp refresh, .env, agentcore	Creds — tokens, .env, and AgentCore
+group	standalone	no-cluster agentgateway in Docker	Standalone — agentgateway with no Kubernetes
 
 alias	clusters	cluster
 
@@ -47,6 +48,7 @@ prefix	apply	bundles
 prefix	test	bundles
 prefix	export	bundles
 prefix	bundles	bundles
+prefix	standalone	standalone
 prefix	env	creds
 prefix	agentcore	creds
 prefix	gcp	creds
@@ -64,10 +66,13 @@ lead	apps	expose
 lead	bundles	apply
 lead	bundles	test
 lead	bundles	export
+lead	standalone	standalone
+lead	standalone	standalone:list
 
 see	products	Istio shortcuts:  solomog help istio
 see	cluster	EKS tasks:        solomog help eks
 see	cluster	vSphere tasks:    solomog help vsphere
+see	standalone	Needs no cluster — Docker only. Version pin: AGENTGATEWAY_STANDALONE_VERSION.
 
 ptitle	eks	EKS — create, IRSA, and delete
 ptitle	vsphere	vSphere — homelab k3s on vCenter

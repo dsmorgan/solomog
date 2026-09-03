@@ -81,6 +81,8 @@ printf "  %-32s %s  (enterprise-kgateway OCI — SEFK portal charts)\n" \
   "PORTAL_VERSION" "${PORTAL_VERSION:-?}"
 printf "  %-32s %s\n" "KUBE_PROM_STACK_VERSION" "${KUBE_PROM_STACK_VERSION:-?}"
 printf "  %-32s %s\n" "AGENTGATEWAY_COMMUNITY_VERSION" "${AGENTGATEWAY_COMMUNITY_VERSION:-?}"
+printf "  %-32s %s  (IMAGE tag, no \"v\" prefix — standalone only)\n" \
+  "AGENTGATEWAY_STANDALONE_VERSION" "${AGENTGATEWAY_STANDALONE_VERSION:-?}"
 printf "  %-32s %s\n" "GATEWAY_API_VERSION" "${GATEWAY_API_VERSION:-?}"
 echo ""
 

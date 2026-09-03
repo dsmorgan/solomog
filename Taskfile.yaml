@@ -1087,6 +1087,164 @@ tasks:
       GATEWAY: '{{.GATEWAY | default ""}}'   # empty → test-bundle.sh auto-detects agw/kgw
       HOST: '{{.HOST | default ""}}'
 
+  # ─── Standalone (no cluster) ───────────────────────────────────────────────
+  # A different shape from every other task here: standalone agentgateway is one
+  # self-contained binary with no control plane and no CRDs, so it runs as a plain Docker
+  # container against a local config file. No vind, no Gateway, no /etc/hosts, no mkcert.
+  # The UI is the gateway's OWN built-in UI — NOT the Solo Enterprise UI management chart
+  # that `agentgateway:ui` installs onto a cluster. Version pin is
+  # AGENTGATEWAY_STANDALONE_VERSION (separate from AGENTGATEWAY_VERSION on purpose).
+
+  standalone:
+    desc: "0 clusters · run agentgateway standalone in Docker"
+    summary: |
+      Start standalone agentgateway in a Docker container, serving standalone/<NAME>/config.yaml.
+      No Kubernetes involved. Prints the gateway and UI URLs when it is ready.
+
+      Host ports are probed and incremented until one is free (PORT_TRIES attempts), and a
+      run that loses the race to Docker's own allocation check is retried one port higher —
+      so two instances, or a busy 4000, never wedge the task.
+
+      Variables:
+        NAME         config dir under standalone/                  REQUIRED — see standalone:list
+        BIND         host address to publish on                    default 127.0.0.1
+        UI_PORT      first host port tried for the UI              default 15000
+        GW_PORT      first host port tried for gateway ports       default the config's own port
+        PORT_TRIES   ports to probe before giving up               default 25
+        IMAGE        full image ref override                       default from versions.env
+        FOLLOW       true to tail logs after start                 default false
+
+      BIND defaults to loopback deliberately: Docker's own default (0.0.0.0) would put the
+      UI on your LAN. BIND=0.0.0.0 opts into that; the port probe then tests that address
+      instead, since a listener on 0.0.0.0:4000 also blocks 127.0.0.1:4000.
+
+      Licensing: needs AGENTGATEWAY_LICENSE_KEY in .env. Standalone refuses to start
+      unlicensed (no grace period on a fresh install), and does NOT fall back to
+      SOLO_LICENSE_KEY — the standalone verifier requires a 'product' claim the generic
+      key does not carry.
+
+      Secrets: reference them as $VAR in the config; the gateway expands them from its
+      environment at load time, and solomog detects the references and passes those
+      variables into the container. A missing one is reported by name before start.
+
+      Examples:
+        solomog standalone NAME=minimal
+        solomog standalone NAME=llm FOLLOW=true
+        solomog standalone NAME=minimal UI_PORT=16000 BIND=0.0.0.0
+    cmds:
+      - bash scripts/run.sh "Start standalone agentgateway → {{.NAME}}" bash scripts/standalone.sh run
+    env:
+      NAME: '{{.NAME | default ""}}'
+      BIND: '{{.BIND | default "127.0.0.1"}}'
+      UI_PORT: '{{.UI_PORT | default "15000"}}'
+      GW_PORT: '{{.GW_PORT | default ""}}'
+      PORT_TRIES: '{{.PORT_TRIES | default "25"}}'
+      IMAGE: '{{.IMAGE | default ""}}'
+      FOLLOW: '{{.FOLLOW | default "false"}}'
+
+  standalone:stop:
+    desc: "Stop a standalone instance"
+    summary: |
+      Stop and remove the container for standalone/<NAME>. Leaves the config and its
+      SQLite state on disk, so a later `solomog standalone NAME=<same>` picks up where you
+      left off.
+
+      Variables:
+        NAME    config dir under standalone/   REQUIRED
+
+      Examples:
+        solomog standalone:stop NAME=minimal
+    cmds:
+      - bash scripts/run.sh "Stop standalone agentgateway → {{.NAME}}" bash scripts/standalone.sh stop
+    env:
+      NAME: '{{.NAME | default ""}}'
+
+  standalone:list:
+    desc: "List standalone configs and running instances"
+    summary: |
+      List the configs under standalone/ and every running solomog standalone container
+      with its published ports. Cluster-free; needs only Docker.
+
+      No variables.
+
+      Examples:
+        solomog standalone:list
+    cmds:
+      - bash scripts/standalone.sh list
+    silent: true
+
+  standalone:logs:
+    desc: "Tail a standalone instance's logs"
+    summary: |
+      Show the tail of the container log for standalone/<NAME>.
+
+      Variables:
+        NAME         config dir under standalone/   REQUIRED
+        TAIL_LINES   how many lines to show         default 60
+
+      Named TAIL_LINES, not LINES: bash owns LINES (terminal height), so an inherited
+      value would quietly win over yours.
+
+      Examples:
+        solomog standalone:logs NAME=minimal
+        solomog standalone:logs NAME=llm TAIL_LINES=200
+    cmds:
+      - bash scripts/standalone.sh logs
+    silent: true
+    env:
+      NAME: '{{.NAME | default ""}}'
+      TAIL_LINES: '{{.TAIL_LINES | default "60"}}'
+
+  standalone:validate:
+    desc: "Validate a standalone config (no cluster, no license)"
+    summary: |
+      Check standalone/<NAME>/config.yaml with the gateway's own `--validate-only`, which
+      needs neither a cluster nor a license. Catches type errors, unknown fields, and
+      environment variables the config references but that are not set.
+
+      Worth knowing about that last one: the gateway expands $VAR over the WHOLE config
+      file before parsing, comments included, and an unset variable aborts the entire load
+      with an error that does not say which variable. This task names it. The single
+      exception the gateway itself carves out is the `# yaml-language-server: $schema` hint
+      line, which it strips before expanding.
+
+      Variables:
+        NAME    config dir under standalone/   REQUIRED
+
+      Examples:
+        solomog standalone:validate NAME=llm
+    cmds:
+      - bash scripts/run.sh "Validate standalone config → {{.NAME}}" bash scripts/standalone.sh validate
+    env:
+      NAME: '{{.NAME | default ""}}'
+
+  standalone:import:
+    desc: "Convert a LiteLLM config into a standalone config"
+    summary: |
+      Run the gateway's own importer over a foreign gateway config and write the result to
+      standalone/<NAME>/config.yaml. Prints a per-field findings report: 'exact' translated
+      cleanly, 'approximate' needs review, 'unsupported' was dropped.
+
+      litellm is the only source the importer supports.
+
+      Variables:
+        NAME    destination dir under standalone/ (must not exist)   REQUIRED
+        FILE    the source config to read                            REQUIRED
+        FROM    source format                                        default litellm
+
+      Examples:
+        solomog standalone:import NAME=from-litellm FILE=~/litellm/config.yaml
+    vars:
+      # A task var, not an inline template in the cmds string: escaping nested quotes in a
+      # YAML plain scalar produces a backslash that go-task's template parser rejects.
+      FROM_LABEL: '{{.FROM | default "litellm"}}'
+    cmds:
+      - bash scripts/run.sh "Import {{.FROM_LABEL}} config → standalone/{{.NAME}}" bash scripts/standalone.sh import
+    env:
+      NAME: '{{.NAME | default ""}}'
+      FILE: '{{.FILE | default ""}}'
+      FROM: '{{.FROM | default "litellm"}}'
+
   # ─── Credentials ──────────────────────────────────────────────────────────
 
   gcp:refresh:
