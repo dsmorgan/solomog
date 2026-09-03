@@ -467,6 +467,16 @@ container** against a local config file, and never touches a cluster.
   the vind fallback. `run` refuses a name already tracked as a cluster, so the sets stay
   disjoint. **The file is `standalone-instances`, not `standalone`** — `.solomog/standalone/`
   is the scratch state directory, and one path cannot be both (this collided in development).
+- **In `cluster:list` / `cluster:show` the TYPE cell is dark purple** (256-colour 97, the same
+  slot as `ui.sh`'s `_SM_DIM`, so the tool keeps one palette), and the STATUS stays uncoloured
+  like every other type. Colour marks *what the row is*, not how it is doing — a standalone row
+  is the odd one out because it is not a cluster, and that is a property of its type. Two rules
+  this encodes: no `_*_status` function may return escape codes (the list awk sizes the Status
+  column with `length($6)`, so colour there silently inflates the width), and colour is applied
+  by padding to width FIRST and wrapping after, because `printf "%-*s"` counts escape bytes as
+  width. `cluster:show` on a standalone instance prints config/ports/ui/tracked and stops —
+  `current`/`certs`/`hosts` are kube- and mesh-specific, and four `none`s read as something
+  missing rather than something inapplicable.
 - **`stop` vs `delete` mirrors the cluster verbs.** `stop` removes only the container; the
   registry entry, config, and state stay, so re-running resumes. `delete` makes the instance
   stop existing: container, registry entry, and runtime state — but NOT the config under

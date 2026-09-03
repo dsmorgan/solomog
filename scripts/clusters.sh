@@ -31,8 +31,12 @@ MODE="${1:-list}"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[32m'; B=$'\033[1m'; D=$'\033[2m'; Y=$'\033[33m'; R=$'\033[0m'
+  # Dark purple, the same 256-colour slot as ui.sh's _SM_DIM, so the whole tool shares one
+  # palette. Marks the `standalone` TYPE — the row is not a cluster, and the type column is
+  # where that belongs. Status stays uncoloured for every type (see _standalone_status).
+  P=$'\033[38;5;97m'
 else
-  G=''; B=''; D=''; Y=''; R=''
+  G=''; B=''; D=''; Y=''; R=''; P=''
 fi
 
 # ─── registry helpers ────────────────────────────────────────────────────────
@@ -227,10 +231,11 @@ _standalone_status() {   # args: <instance>
   local out
   command -v docker >/dev/null 2>&1 || { printf '?'; return; }
   out="$(docker ps -a --filter "name=^solomog-standalone-$1$" --format '{{.State}}' 2>/dev/null | head -1)"
+  # Plain text, no colour: every other _*_status returns plain text, and an escape sequence
+  # here would also inflate awk's Status column width, which is sized on length($6).
   case "$out" in
-    running)      printf '%srunning%s' "$G" "$R" ;;
-    "")           printf 'gone' ;;
-    *)            printf '%s' "$out" ;;
+    "") printf 'gone' ;;
+    *)  printf '%s' "$out" ;;
   esac
 }
 
@@ -317,7 +322,7 @@ EOF
 
     # Current row: bold+green with leading *. A "~" row (same cluster, different context) gets
     # plain green — related but weaker. Status stays plain so column widths stay stable.
-    printf '%s' "$rows" | awk -F'\t' -v g="$G$B" -v a="$G" -v r="$R" '
+    printf '%s' "$rows" | awk -F'\t' -v g="$G$B" -v a="$G" -v r="$R" -v p="$P" '
       BEGIN {
         h_name="Name"; h_type="Type"; h_region="Region"
         h_ctx="Context"; h_status="Status"
@@ -333,18 +338,28 @@ EOF
         if (length($5) > w_ctx) w_ctx = length($5)
         if (length($6) > w_status) w_status = length($6)
       }
+      # Pad to width FIRST, then wrap in colour. printf "%-*s" counts the escape bytes as
+      # width, so colouring before padding would shove every later column out of line.
+      function typecell(t, w,    padded) {
+        padded = sprintf("%-*s", w, t)
+        if (p != "" && t == "standalone") return p padded r
+        return padded
+      }
       END {
         printf "  %-*s  %-*s  %-*s  %-*s  %-*s\n", \
           w_name, h_name, w_type, h_type, w_region, h_region, w_ctx, h_ctx, w_status, h_status
         for (i = 1; i <= n; i++) {
           if (mark[i] == "*" || mark[i] == "~") {
+            # A marked row is already coloured end to end, so leave its type alone rather
+            # than reset mid-row. Standalone rows are never marked anyway: their "context"
+            # is a container name, which can never equal the current kube context.
             printf "%s%s %-*s  %-*s  %-*s  %-*s  %-*s%s\n", \
               (mark[i] == "*" ? g : a), mark[i], \
               w_name, name[i], w_type, type[i], w_region, region[i], \
               w_ctx, ctx[i], w_status, status[i], r
           } else {
-            printf "  %-*s  %-*s  %-*s  %-*s  %-*s\n", \
-              w_name, name[i], w_type, type[i], w_region, region[i], \
+            printf "  %-*s  %s  %-*s  %-*s  %-*s\n", \
+              w_name, name[i], typecell(type[i], w_type), w_region, region[i], \
               w_ctx, ctx[i], w_status, status[i]
           }
         }
@@ -367,9 +382,10 @@ EOF
     known=0
     _in_clusters_file "$NAME" && known=1
     [ -n "$(_registry_lookup "$NAME")" ] && known=1
+    solomog_is_standalone "$NAME" && known=1
     if [ "$known" = 0 ]; then
       printf '%s%s%s\n' "$B" "$NAME" "$R"
-      printf '  %s(not in .solomog/clusters or .solomog/contexts)%s\n' "$Y" "$R"
+      printf '  %s(not in .solomog/clusters, .solomog/contexts or .solomog/standalone-instances)%s\n' "$Y" "$R"
       printf '\n  %sTip:%s solomog cluster:list\n' "$D" "$R"
       exit 1
     fi
@@ -390,10 +406,31 @@ EOF
       *)   printf '%s%s%s\n' "$B" "$NAME" "$R" ;;
     esac
 
-    printf '  %-12s %s\n' "type:" "$typ"
+    if [ "$typ" = "standalone" ]; then
+      printf '  %-12s %s%s%s\n' "type:" "$P" "$typ" "$R"
+    else
+      printf '  %-12s %s\n' "type:" "$typ"
+    fi
     printf '  %-12s %s\n' "context:" "$ctx"
     [ -n "$region" ] && printf '  %-12s %s\n' "region:" "$region"
     printf '  %-12s %s\n' "status:" "$status"
+    if [ "$typ" = "standalone" ]; then
+      cname="solomog-standalone-$NAME"
+      cfg="$(docker ps -a --filter "name=^${cname}$" \
+        --format '{{.Label "solomog.standalone.config"}}' 2>/dev/null | head -1)"
+      ui="$(docker ps -a --filter "name=^${cname}$" \
+        --format '{{.Label "solomog.standalone.ui"}}' 2>/dev/null | head -1)"
+      ports="$(docker ps -a --filter "name=^${cname}$" --format '{{.Ports}}' 2>/dev/null | head -1)"
+      [ -n "$cfg" ] && printf '  %-12s %s\n' "config:" "standalone/$cfg/config.yaml"
+      [ -d "$REPO_DIR/.solomog/standalone/$NAME" ] \
+        && printf '  %-12s %s\n' "scratch:" ".solomog/standalone/$NAME/"
+      [ -n "$ports" ] && printf '  %-12s %s\n' "ports:" "$ports"
+      [ -n "$ui" ] && printf '  %-12s %s\n' "ui:" "$ui"
+      printf '  %-12s %s\n' "tracked:" "standalone (.solomog/standalone-instances)"
+      printf '\n  %sNot a cluster — agentgateway in a container. Manage with:%s\n' "$D" "$R"
+      printf '  %ssolomog standalone:logs INSTANCE=%s%s\n' "$D" "$NAME" "$R"
+      printf '  %ssolomog standalone:stop INSTANCE=%s%s\n' "$D" "$NAME" "$R"
+    fi
     if [ "$typ" = "vind" ] && [ "$VCLUSTER_OK" = 1 ] && _vcluster_running "$NAME"; then
       age="$(_vcluster_age "$NAME")"
       [ -n "$age" ] && printf '  %-12s %s\n' "age:" "$age"
@@ -414,6 +451,14 @@ EOF
         [ -n "$nodes" ] && printf '  %-12s %s\n' "nodes:" "$nodes"
       fi
     fi
+    # Everything below is kube-context / mesh detail: whether kubectl points here, the
+    # generated cert dir, the /etc/hosts entries expose writes. None of it can apply to a
+    # container with no cluster, and printing "none" four times reads as something missing
+    # rather than something inapplicable. So a standalone row stops here.
+    if [ "$typ" = "standalone" ]; then
+      exit 0
+    fi
+
     # "~" is the honest answer for an EKS cluster: kubectl IS on this cluster, but through
     # eksctl's context, not the arn:… one solomog registered and every task resolves to.
     case "$mark" in
