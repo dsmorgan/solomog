@@ -1,0 +1,63 @@
+# Two routes, one exchange policy shape, two backend types. That is the whole experiment:
+# everything except the backend kind is held constant, so any difference in what a trace or an
+# access log can see is attributable to the backend type alone.
+#
+#   /exchange-http  -> go-httpbin  (HTTP backend)     rewritten to /headers so the response
+#                                                     echoes what the gateway forwarded
+#   /exchange-mcp   -> mcp-relay   (MCP relay backend)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: exchange-http-route
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /exchange-http
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /headers
+      backendRefs:
+        - name: go-httpbin
+          namespace: echo-app
+          port: 8080
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: exchange-mcp-route
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /exchange-mcp
+      backendRefs:
+        - name: mcp-relay
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+---
+# go-httpbin lives in its own namespace, so the cross-namespace backendRef above needs this.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-agw-to-echo-app
+  namespace: echo-app
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: agentgateway-system
+  to:
+    - group: ""
+      kind: Service

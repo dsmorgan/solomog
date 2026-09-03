@@ -1,0 +1,49 @@
+# Access-log attributes describing both credentials on every request, so one log line answers
+# "what came in" and "what went out". Attached to the Gateway because a frontend policy can
+# only target a Gateway -- the CRD rejects an accessLog on an HTTPRoute -- so routes are told
+# apart by the logged path rather than by policy attachment.
+#
+# `request.headers.authorization` at log time is the OUTBOUND credential: backend policies,
+# including the exchange, run before the proxy snapshots the request for logging. On an HTTP
+# backend that yields the exchanged token. On an MCP relay route it yields nothing, which is
+# the behaviour this bundle exists to demonstrate.
+#
+# exchanged_fingerprint is deliberately a hash, not the token: it is enough to correlate one
+# credential across records, and safe to leave switched on. Claims are decoded rather than
+# logged raw for the same reason.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: exchange-access-log
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: %%GATEWAY%%
+  frontend:
+    accessLog:
+      attributes:
+        add:
+          - name: probe
+            expression: '"xtoken"'
+          - name: probe_path
+            expression: request.path
+          - name: inbound_sub
+            expression: 'default(jwt.sub, "-")'
+          - name: inbound_azp
+            expression: 'default(jwt.azp, "-")'
+          - name: inbound_jti
+            expression: 'default(jwt.jti, "-")'
+          - name: exchanged_present
+            expression: 'default(request.headers.authorization != "", false)'
+          - name: exchanged_sub
+            expression: 'default(unvalidatedJwtPayload(request.headers.authorization.split(" ")[1]).sub, "-")'
+          - name: exchanged_azp
+            expression: 'default(unvalidatedJwtPayload(request.headers.authorization.split(" ")[1]).azp, "-")'
+          - name: exchanged_aud
+            expression: 'default(unvalidatedJwtPayload(request.headers.authorization.split(" ")[1]).aud, "-")'
+          - name: exchanged_jti
+            expression: 'default(unvalidatedJwtPayload(request.headers.authorization.split(" ")[1]).jti, "-")'
+          - name: exchanged_fingerprint
+            expression: 'sha256.encode(default(request.headers.authorization, ""))'

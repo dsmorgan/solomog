@@ -1,0 +1,31 @@
+# One backend for Keycloak, used for two different purposes:
+#   * jwtAuthentication fetches the realm JWKS through it (validating the inbound user token)
+#   * the token exchange POSTs to the realm token endpoint through it
+# The second is the one that matters here: because the exchange is an ordinary backend call,
+# the authorization server's response passes through the proxy's normal response path, which
+# is what makes it visible to a debug trace as a body snapshot.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: keycloak-as
+  namespace: agentgateway-system
+spec:
+  static:
+    host: keycloak.keycloak.svc.cluster.local
+    port: 8080
+---
+# The relay under test. NO backend auth on the target: a passthrough or key auth here would
+# shadow the route-level exchange, and the exchanged token would never reach the MCP server.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mcp-relay
+  namespace: agentgateway-system
+spec:
+  entMcp:
+    targets:
+      - name: fetcher-target
+        static:
+          host: mcp-website-fetcher.mcp-fetcher.svc.cluster.local
+          port: 80
+          protocol: SSE
