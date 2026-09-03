@@ -873,8 +873,9 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   `bash scripts/test-envfile.sh` (in-place `.env` rewriting, [scripts/lib/envfile.sh](scripts/lib/envfile.sh)),
   `bash scripts/test-vsphere-lib.sh` (IP/VIP allocators, [scripts/lib/vsphere.sh](scripts/lib/vsphere.sh);
   keep it hermetic via the `VSPHERE_POOL_FILE` / `VSPHERE_INIT_STATE` overrides),
-  and `bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
-  injects fixture task/key lists — no live `task --list` in the assertion cases).
+  `bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
+  injects fixture task/key lists — no live `task --list` in the assertion cases),
+  and `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute).
 
 ## Status / open questions
 

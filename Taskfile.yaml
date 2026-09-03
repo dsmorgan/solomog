@@ -34,6 +34,35 @@ tasks:
     cmds: [bash scripts/list.sh]
     silent: true
 
+  explain:
+    desc: "Print customer-shaped commands for a run (does not execute)"
+    aliases: [wwit]
+    summary: |
+      Print a bash recipe of helm / kubectl / docker commands a customer would run
+      for the rest of the command line. Does not execute anything, does not talk
+      to a cluster, and never writes secret values.
+
+      Must be the first task (KEY=VALUE may appear anywhere). Alias: wwit.
+
+      The wrapper intercepts this name; the recipe is customer-shaped helm and
+      kubectl, not a replay of solomog internals. Lab-only steps (local cluster
+      create, mkcert, /etc/hosts) stay as comments. Tasks without a recipe emit
+      a stub comment and continue.
+
+      Variables:
+        Same knobs as the tasks you pass — CLUSTER, EDITION, BUNDLE, PRODUCTS,
+        TOKEN_EXCHANGE, GATEWAY, HOST, ISTIO_MODE, and so on.
+
+      Examples:
+        solomog explain agentgateway CLUSTER=aaa
+        solomog wwit agentgateway expose apply BUNDLE=llmroute CLUSTER=aaa
+        solomog explain stack PRODUCTS="istio kgateway" EDITION=community CLUSTER=aaa
+    cmds:
+      - |
+        echo "Use: solomog explain <task> [task...] [KEY=VALUE...]" >&2
+        echo "     Alias: wwit. The wrapper intercepts this; do not run it via task." >&2
+        exit 1
+
   setup:
     desc: Install Homebrew prereqs and the solomog symlink
     cmds: [bash scripts/setup.sh]

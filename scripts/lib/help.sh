@@ -216,6 +216,7 @@ solomog_help_index() {
   printf '  solomog <task> [KEY=value ...]\n'
   printf '  solomog help <group|task>     details\n'
   printf '  solomog help --all            every task, grouped\n'
+  printf '  solomog explain <task...>     customer-shaped commands (no execute)\n'
   printf '\n'
   printf '%sStart here%s\n' "$HELP_B" "$HELP_R"
   printf "  %s%-12s%s  install products onto a cluster\n" "$HELP_G$HELP_B" "stack" "$HELP_R"
