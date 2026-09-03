@@ -448,4 +448,25 @@ envfile_diff() {
 
   echo "==> Shared keys: $(comm -12 "$only_ex" "$only_live" | wc -l | tr -d ' ')"
   rm -f "$only_ex" "$only_live"
+
+  # Whitespace lint. A value carrying leading/trailing whitespace survives dotenv and
+  # helmfile's `| default` (so a "  " value silently defeats a fallback chain) and breaks
+  # anything that passes it verbatim — `docker run -e KEY=<value>` most of all. Names only.
+  echo "==> Values with leading/trailing whitespace (trim these):"
+  local ws_found=0 k v trimmed
+  while IFS= read -r line || [ -n "$line" ]; do
+    _envfile_parse_key "$line" || continue
+    k="$_ef_key"
+    _envfile_split_rhs "$_ef_raw_rhs"
+    v="$_ef_value"
+    [ -n "$v" ] || continue
+    trimmed="${v#"${v%%[![:space:]]*}"}"
+    trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+    if [ "$v" != "$trimmed" ]; then
+      ws_found=1
+      echo "    $k  (${#v} chars, ${#trimmed} after trim)"
+    fi
+  done < "$file"
+  [ "$ws_found" -eq 0 ] && echo "    (none)"
+  return 0
 }
