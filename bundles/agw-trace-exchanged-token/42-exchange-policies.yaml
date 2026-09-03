@@ -1,0 +1,101 @@
+# The customer's policy shape, applied identically to both routes:
+#   traffic.jwtAuthentication      validates the inbound user token against the Keycloak realm
+#   backend.auth.oauthTokenExchange  exchanges it (RFC 8693) at the same realm's token endpoint
+#
+# The exchanged token differs from the inbound one in a way every test can key on: it is issued
+# to `exchange-client`, so `azp` flips from login-client to exchange-client. That single field
+# distinguishes "the exchange ran" from "the original token was forwarded".
+#
+# Schema note: on 2026.7.x this lives at backend.auth.oauthTokenExchange. Earlier releases used
+# backend.tokenExchange.oauth, and a policy written for one is rejected by the other.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: exchange-http-policy
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: exchange-http-route
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/exchange-realm
+          jwks:
+            remote:
+              backendRef:
+                name: keycloak-as
+                namespace: agentgateway-system
+                kind: EnterpriseAgentgatewayBackend
+                group: enterpriseagentgateway.solo.io
+              jwksPath: /realms/exchange-realm/protocol/openid-connect/certs
+              cacheDuration: 5m
+  backend:
+    auth:
+      oauthTokenExchange:
+        backendRef:
+          name: keycloak-as
+          namespace: agentgateway-system
+          kind: EnterpriseAgentgatewayBackend
+          group: enterpriseagentgateway.solo.io
+        path: /realms/exchange-realm/protocol/openid-connect/token
+        grantType: TokenExchange
+        subjectToken:
+          source:
+            header:
+              name: authorization
+              prefix: "Bearer "
+          tokenType: AccessToken
+        clientAuth:
+          method: ClientSecretPost
+          clientId: exchange-client
+          secretRef:
+            name: exchange-client-secret
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: exchange-mcp-policy
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: exchange-mcp-route
+  traffic:
+    jwtAuthentication:
+      mode: Strict
+      providers:
+        - issuer: http://keycloak.keycloak.svc.cluster.local:8080/realms/exchange-realm
+          jwks:
+            remote:
+              backendRef:
+                name: keycloak-as
+                namespace: agentgateway-system
+                kind: EnterpriseAgentgatewayBackend
+                group: enterpriseagentgateway.solo.io
+              jwksPath: /realms/exchange-realm/protocol/openid-connect/certs
+              cacheDuration: 5m
+  backend:
+    auth:
+      oauthTokenExchange:
+        backendRef:
+          name: keycloak-as
+          namespace: agentgateway-system
+          kind: EnterpriseAgentgatewayBackend
+          group: enterpriseagentgateway.solo.io
+        path: /realms/exchange-realm/protocol/openid-connect/token
+        grantType: TokenExchange
+        subjectToken:
+          source:
+            header:
+              name: authorization
+              prefix: "Bearer "
+          tokenType: AccessToken
+        clientAuth:
+          method: ClientSecretPost
+          clientId: exchange-client
+          secretRef:
+            name: exchange-client-secret

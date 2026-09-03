@@ -1,0 +1,86 @@
+# The two upstreams the exchanged token can be sent to.
+#
+# go-httpbin echoes the headers it received, so the HTTP route has ground truth for what the
+# gateway actually forwarded -- that is what makes "the trace body matches the upstream header"
+# a real assertion rather than an assumption.
+#
+# mcp-website-fetcher is a plain in-cluster MCP server (StreamableHTTP), standing in for the
+# customer's remote MCP target. It needs no credentials, so the relay can run with no backend
+# auth -- which is the configuration under which a route-level exchange reaches the MCP server.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: echo-app
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-httpbin
+  namespace: echo-app
+  labels: { app: go-httpbin }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: go-httpbin }
+  template:
+    metadata:
+      labels: { app: go-httpbin }
+    spec:
+      containers:
+        - name: go-httpbin
+          image: docker.io/mccutchen/go-httpbin:v2.15.0   # multi-arch; listens on 8080
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /status/200, port: 8080 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-httpbin
+  namespace: echo-app
+spec:
+  selector: { app: go-httpbin }
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp-fetcher
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-website-fetcher
+  namespace: mcp-fetcher
+  labels: { app: mcp-website-fetcher }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mcp-website-fetcher }
+  template:
+    metadata:
+      labels: { app: mcp-website-fetcher }
+    spec:
+      containers:
+        - name: mcp-website-fetcher
+          image: ghcr.io/peterj/mcp-website-fetcher:main
+          ports:
+            - containerPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-website-fetcher
+  namespace: mcp-fetcher
+  labels: { app: mcp-website-fetcher }
+spec:
+  selector: { app: mcp-website-fetcher }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      appProtocol: kgateway.dev/mcp
