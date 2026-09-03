@@ -158,6 +158,10 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
 - **Istio mode** is `ISTIO_MODE=ambient` (default) or `sidecar`.
 - **Scenarios** are `task` targets that wire products + topology + networking + certs
   together.
+- **Standalone** is the one path with no cluster in it. Standalone agentgateway is a
+  single self-contained binary — no control plane, no CRDs — so `solomog standalone` runs it
+  as a Docker container against `standalone/<name>/config.yaml`, and none of products /
+  editions / Istio mode apply. See [standalone/README.md](standalone/README.md).
 
 ---
 
@@ -480,6 +484,65 @@ hand — log in, mint a token, mutate the system under test). All optional. See
 [bundles/README.md](bundles/README.md) for the full convention, including the required
 per-bundle `README.md` that `bundles:list` and `bundles:show` print.
 
+### Standalone agentgateway (no cluster)
+
+Standalone agentgateway is one self-contained binary — no control plane, no xDS, no CRDs, and
+the proxy needs no Kubernetes API access. So this path runs it as a Docker container against a
+local config file, and never creates or touches a cluster.
+
+```bash
+solomog standalone:list                       # configs available + instances running
+solomog standalone NAME=minimal               # start it; prints the gateway and UI URLs
+solomog standalone:logs NAME=minimal
+solomog standalone:stop NAME=minimal
+```
+
+Configs live in [standalone/](standalone/), one directory per instance, each holding a
+`config.yaml` in agentgateway's `LocalConfig` schema. Three ship with the repo: `minimal`
+(gateway + UI), `llm` (two providers behind one OpenAI-compatible endpoint), and `mcp` (MCP
+federation).
+
+The UI is the gateway's **own**, compiled into the binary — a different thing from the Solo
+Enterprise UI management chart that `agentgateway:ui` installs onto a cluster.
+
+Check a config without starting anything, or a cluster, or even a license:
+
+```bash
+solomog standalone:validate NAME=llm
+```
+
+That is worth doing first. Secrets are `$VAR` references expanded from the environment at load
+time, and an unset one aborts the whole config load with an error that does not name it —
+`validate` names it. `standalone` runs the same check as a pre-flight.
+
+Host ports are probed and incremented until one is free, so several instances coexist and a
+busy 4000 never wedges the task:
+
+```bash
+solomog standalone NAME=minimal               # 127.0.0.1:4000, UI on 15000
+solomog standalone NAME=mcp                   # 4000 taken → 4001, UI on 15001
+solomog standalone NAME=llm PORT_TRIES=50     # widen the search
+solomog standalone NAME=minimal BIND=0.0.0.0  # publish beyond loopback (opt-in)
+```
+
+`BIND` is loopback by default on purpose — Docker's own default would put the UI on your LAN.
+
+Migrating from LiteLLM? The gateway's importer translates a `config.yaml` and reports what it
+could and could not carry over:
+
+```bash
+solomog standalone:import NAME=from-litellm FILE=~/litellm/config.yaml
+solomog standalone:validate NAME=from-litellm
+```
+
+Version pin is `AGENTGATEWAY_STANDALONE_VERSION` in [versions.env](versions.env), deliberately
+separate from `AGENTGATEWAY_VERSION`: standalone landed in 2026.8.0 with no equivalent on the
+older SemVer line, so pinning agentgateway back to mirror a customer environment must not drag
+standalone to a release where it does not exist.
+
+See [standalone/README.md](standalone/README.md) for the authoring convention and the full
+list of things that will bite you.
+
 ### Short-lived credentials
 
 Bundle backends that talk to GCP or AWS consume tokens from `.env`. Refresh writes
@@ -546,6 +609,19 @@ entitlements. The shared management release prefers `KAGENT_LICENSE_KEY` when
 present, matching Solo's documented upgrade-in-place path; the individual Istio
 and agentgateway charts continue to use their own keys.
 
+Two exceptions to the fallback rule:
+
+- **`solomog standalone` requires `AGENTGATEWAY_LICENSE_KEY` and does not fall back.** The
+  standalone binary's license verifier needs a `product` claim, which the generic
+  `SOLO_LICENSE_KEY` does not carry — so the fallback would turn a missing key into a
+  confusing `malformed claims` crash instead of a clear message. Standalone also has no grace
+  period: unlicensed, it exits rather than starting degraded.
+- **Never leave trailing whitespace in a key's value.** A value of `"   "` is not empty as far
+  as dotenv and helmfile's `| default` are concerned, so it silently defeats the whole
+  fallback chain, and padding breaks anything that passes the value verbatim (`docker run -e`
+  most of all). `solomog env:diff` reports any key whose value carries leading or trailing
+  whitespace, by name only.
+
 ---
 
 ## Repository layout
@@ -574,6 +650,7 @@ solomog
 │   ├── gcp-refresh.sh / aws-refresh.sh / agentcore-env.sh
 │   ├── install-agentgateway-ui.sh / install-portal.sh / install-monitoring.sh
 │   ├── apply-bundle.sh / test-bundle.sh / export-bundle.sh / bundles.sh
+│   ├── standalone.sh            # run/stop/list/logs/validate/import — Docker, no cluster
 │   ├── eks-create.sh / eks-delete.sh / eks-irsa.sh
 │   ├── vsphere-*.sh            # homelab lifecycle: init/create/delete/stop/start/snapshot/reset
 │   ├── vsphere-snapshot.py     # pyvmomi (vCenter 7.0.x has no REST snapshot API)
@@ -591,6 +668,8 @@ solomog
 ├── terraform/                  # OpenTofu roots: vsphere-init (template) + vsphere-k3s (workspace/cluster)
 ├── bundles/                    # custom-config bundles (bundles/private/ is gitignored)
 │                               #   see bundles/README.md for the authoring convention
+├── standalone/                 # LocalConfig files for `solomog standalone` (no cluster)
+│                               #   see standalone/README.md; data.db* gitignored
 ├── dashboards/                 # vendored Grafana dashboards (agentgateway-overview.json)
 ├── .solomog/                   # gitignored runtime state: contexts registry, clusters,
 │                               #   exports/, test-runs/, env-backups/, audit/, vsphere/

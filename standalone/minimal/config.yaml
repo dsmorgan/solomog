@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# Starting point: one gateway with all three capabilities attached to it, none configured.
+# Everything — UI, LLM, MCP, routes — is served on the single gateway port.
+#
+#   solomog standalone NAME=minimal
+#
+# Why `llm` and `mcp` are declared empty rather than left out: the UI's onboarding wizard
+# offers to "enable" them, and its save writes a top-level `llm.port` (default 4000) instead
+# of attaching to the gateway you already have — which collides with this gateway's own port
+# and fails with "port 4000 is configured by both gateways.default and llm". Declaring them
+# here, attached, means the wizard has nothing left to toggle. The same collision happens on
+# the config the gateway bootstraps for itself, so this is not solomog's doing.
+#
+# `config.storage.mode: file` means edits you make in the UI are written back into THIS file.
+# Note a UI save re-emits the file and DISCARDS these comments — copy this directory to a
+# scratch name before clicking around.
+config:
+  storage:
+    mode: file
+
+gateways:
+  default:
+    port: 4000
+
+# Omitting `gateways` under each of these attaches them to the gateway named `default`.
+# Setting a `port` instead would make each its own listener on its own port.
+ui: {}
+
+llm:
+  models: []
+
+mcp:
+  targets: []

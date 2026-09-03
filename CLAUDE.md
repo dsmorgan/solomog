@@ -432,6 +432,100 @@ machinery behind it (what to change in `apply-bundle.sh` / `test-bundle.sh`), no
       a test that passed yesterday, with nothing in the bundle changed. Repo is mid-migration:
       `grep -rl -- "--with mcp" bundles/` still finds unpinned callers. Pin any new one.
 
+### Standalone agentgateway (no cluster at all)
+A different **shape** from everything else in solomog, not just another product. Standalone
+agentgateway is one self-contained binary: no control plane, no xDS, no CRDs, and the proxy
+needs no Kubernetes API access. So `solomog standalone` runs it as a plain **Docker
+container** against a local config file, and never touches a cluster.
+[standalone/README.md](standalone/README.md) is the authoring convention; the machinery is
+[scripts/standalone.sh](scripts/standalone.sh).
+
+- **Why Docker, not vind.** A cluster would add a vcluster, an haproxy LB, `/etc/hosts` (sudo)
+  and mkcert for a gateway that needs none of it, and it would blur into `agentgateway:ui`.
+  The Helm chart does exist and is published (`enterprise-agentgateway-standalone`, tags
+  v2026.8.0+, under the `helm_repo_agentgateway` URL already in `enterprise.yaml`) — a
+  Deployment + ConfigMap + Service + SA, no CRDs and no RBAC. Adding it later is a normal
+  product module; it is deliberately NOT the first path.
+- **Config format is `LocalConfig`, not CRDs.** `standalone/<name>/config.yaml`. This is why
+  standalone is a sibling tree to `bundles/` rather than a bundle flavor: bundles are
+  kubectl manifests, and neither schema converts to the other.
+- **The UI is the gateway's OWN, compiled into the binary.** Do not confuse it with the Solo
+  Enterprise UI *management chart* that `agentgateway:ui` installs onto a cluster.
+  Three placements, all real: omit the `ui` key → admin interface only; `ui: {}` → also
+  attaches to the gateway named `default` (the schema auto-attaches when `ui.gateways` is
+  omitted); `ui.gateways: <name>` → a named gateway.
+- **`ADMIN_ADDR=0.0.0.0:15000` is mandatory and solomog sets it.** The default `adminAddr`
+  binds the *container's* loopback, so `-p 15000:15000` would publish a port nothing listens
+  on, and the image is distroless (no shell) so there is no in-container workaround. The env
+  var takes precedence over `config.adminAddr`, which is how solomog forces it without
+  editing your config file.
+- **Ports: probe, increment, and retry the real check.** Container ports come from
+  `gateways.*.port` in the config (listeners share the gateway's port — they split on
+  hostname — so that is the complete set). Each host port is probed from its start value
+  upward for `PORT_TRIES` (default 25) attempts, then the run is retried up to 5 times one
+  port higher if Docker's own allocation check loses the race. Probing alone is a TOCTOU
+  race; Docker's check is the one that counts. Restarting the same NAME removes its own
+  container first, so it reclaims its previous ports rather than drifting upward.
+- **`BIND` defaults to `127.0.0.1`, deliberately.** Docker's own default is `0.0.0.0`, which
+  would put the UI on the LAN. `BIND=0.0.0.0` opts in; the probe then tests that address,
+  since a listener on `0.0.0.0:4000` also blocks `127.0.0.1:4000`.
+- **Secrets are `$VAR`, expanded from the environment** — `shellexpand::full` over the whole
+  file before parsing ([crates/agentgateway/src/config.rs](https://github.com/solo-io/agentgateway-enterprise/blob/main/crates/agentgateway/src/config.rs)).
+  So `.env` → `docker -e` → `$VAR` in the config, with no templating layer. standalone.sh
+  scans for the references and passes exactly those through.
+  **An unset one aborts the whole config load** and the gateway's error does not name it, so
+  standalone.sh pre-flights and names it. The scan mirrors the gateway's own preprocessing
+  exactly — it strips the literal `# yaml-language-server: $schema` substring first, which is
+  the ONLY `$`-bearing comment the gateway makes safe. Any other `$IDENT` anywhere, comments
+  and regexes included, must exist; trailing `$` and `$$` are fine.
+- **`--validate-only` is a free, cluster-free, license-free gate.** `standalone:validate`
+  runs it, and `standalone` runs it as a pre-flight so a bad config fails readably instead of
+  as a crash-looping container. It earns its keep: the LiteLLM importer can emit configs the
+  gateway rejects (an `azure` provider with `baseUrl` but no `azureResourceName`).
+- **`import` has one source, `litellm`.** standalone.sh normalizes the importer's relative
+  `sqlite://data.db` to `sqlite:///config/data.db` — the container's working directory is `/`,
+  so the relative form would put SQLite state inside the container and lose it on `docker rm`.
+- **The config dir is mounted READ-WRITE on purpose.** With `config.storage.mode: file` the UI
+  writes edits back into `config.yaml`, so they land in `git diff` — that is how you build a
+  config by clicking. `standalone/*/data.db*` is gitignored. A config that declares no
+  `config.database` creates no SQLite file at all. **A UI save DISCARDS comments** — the writer
+  re-emits the file from the parsed structure and only re-adds the `$schema` hint, so a
+  documented example loses its prose. Copy to a scratch name before clicking around.
+  Config changes **hot-reload** (the gateway watches the file; `state_manager loaded config
+  from File(...)`), in both directions — verified by POSTing `/api/config` and by editing the
+  file back.
+- **UI backend API, for scripted checks:** the internal `ui` route serves `/ui` plus
+  `/api/runtime`, `/api/config` (GET the live config, POST to replace it — no PUT/PATCH),
+  `/api/cel`, `/api/logs`, `/api/costs`. `/config_dump` on the admin port shows the resolved
+  binds/listeners/routes, which is how to confirm a config actually loaded.
+- **Version pin is `AGENTGATEWAY_STANDALONE_VERSION`, separate from `AGENTGATEWAY_VERSION`.**
+  Standalone landed in 2026.8.0 and has no equivalent on the SemVer line, so pinning
+  `AGENTGATEWAY_VERSION=v2.3.3` to mirror a customer env must not drag standalone to a release
+  where it does not exist. **No `v` prefix** — the image line is unprefixed, the chart line is
+  prefixed (chart `v2026.8.2` = image `2026.8.2`).
+- **License: required, no grace period, and NO `SOLO_LICENSE_KEY` fallback.** The standalone
+  verifier accepts only Solo's 2-segment header-stripped form and needs a `product` claim;
+  `SOLO_LICENSE_KEY` and `KGATEWAY_LICENSE_KEY` are ancient product-less keys that fail with
+  `malformed claims`. So standalone.sh requires `AGENTGATEWAY_LICENSE_KEY` and says why —
+  inheriting the usual `| default SOLO_LICENSE_KEY` chain would turn a missing key into a
+  confusing crash. Mint one if needed:
+  `cd ../licensing/tools && go run cmd/genlicense/main.go -product agentgateway -enterprise -days 365`.
+- **`ui`/`llm`/`mcp` are ATTACH-or-PORT, and their default ports collide with the usual
+  gateway port.** Each either attaches to a gateway (explicit `gateways:`, or omitted →
+  auto-attach to one named `default`, per `apply_implicit_default_gateway`) or becomes its own
+  listener on `<section>.port` — `DEFAULT_LLM_PORT` is **4000**, `DEFAULT_MCP_PORT` **3000**.
+  `llm.gateways` and `llm.port`/`llm.tls` are mutually exclusive. **The UI onboarding wizard
+  writes a port rather than attaching**, so "Enable LLM" fails to save on any config whose
+  gateway is on 4000 — including the gateway's OWN bootstrapped config (verified by POSTing
+  `/api/config` against a self-bootstrapped instance: 500, `port 4000 is configured by both
+  gateways.default and llm`). A product defect, not ours. All `standalone/` examples therefore
+  declare all three capabilities attached. standalone.sh's port discovery mirrors the
+  auto-attach rules so a top-level `llm.port`/`mcp.port` IS published — but only at start; a
+  port the UI adds mid-run needs a re-run to publish.
+- **No `stdio` MCP targets.** Distroless image: no shell, no node, no `npx`. `--validate-only`
+  accepts one (schema check only); it fails at request time. Use an HTTP target on
+  `host.docker.internal`.
+
 ### Credentials & `.env` plumbing
 Not bundle-specific, though bundles are the main consumer: cloud backends read short-lived
 tokens out of `.env`, and these tasks keep them fresh.
@@ -700,6 +794,24 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   gate exposure behavior on `solomog_is_external`.
 - **bash 3.2 chokes on an apostrophe inside a `${VAR:?message}` word** (parses it
   as an opening quote → "unexpected EOF"). Keep `:?` messages apostrophe-free.
+- **A trailing `[ cond ] && cmd` is a function's return value.** Under `set -e`, that idiom as
+  the LAST statement in a function leaks a non-zero status when the condition is false and
+  kills the caller — while the same line mid-function is exempt (bash does not apply `set -e`
+  to a non-final command in an `&&` list). It reads as a harmless one-liner and fails only in
+  the branch you did not test. Use an explicit `if`, and end such functions with `return 0`.
+  Bit `list_configs_indented` in standalone.sh.
+- **go-task's embedded shell is mvdan/sh, not bash — and it panics on POSIX character
+  classes in a `case` pattern.** `case $x in *[![:space:]]*)` crashes the whole `task`
+  process with a Go regexp panic, not a shell error. Inline `cmds:` blocks are the exposed
+  surface; solomog scripts are safe because they run under `bash scripts/…`. Keep real shell
+  work in a script and inline `cmds:` trivial.
+- **Don't escape nested quotes inside an unquoted `cmds:` string.** `{{.X | default \"y\"}}`
+  in a YAML plain scalar keeps the backslash, and go-task's template parser rejects it
+  (`unexpected "\\" in operand`). Put the expression in a task `vars:` entry and reference
+  the var from `cmds:`.
+- **`LINES` and `COLUMNS` are bash's own variables** (terminal geometry), the same trap as
+  `GROUPS`. Never use one as a script knob — an inherited value silently outranks the
+  caller's intent. `standalone:logs` uses `TAIL_LINES`.
 
 ## Validating changes without a cluster
 

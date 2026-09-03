@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# MCP federation with no cluster. The gateway serves /mcp and /sse and relays to the
+# targets below.
+#
+#   solomog standalone NAME=mcp
+#   npx @modelcontextprotocol/inspector    # connect to http://127.0.0.1:4000/mcp
+#
+# Reaching your Mac from the container: use host.docker.internal. The container's own
+# localhost is not yours.
+#
+# Do NOT use a `stdio` target here. The image is distroless — no shell, no node, no npx —
+# so the gateway has nothing to exec. `--validate-only` accepts a stdio target because it
+# only checks the schema; the failure shows up at request time. Run the MCP server on your
+# Mac (or in its own container) and point at it over HTTP instead.
+config:
+  storage:
+    mode: file
+
+gateways:
+  default:
+    port: 4000
+
+ui: {}
+
+mcp:
+  gateways: default
+  targets:
+    # Start the server on your Mac first, for example:
+    #   npx -y @modelcontextprotocol/server-everything streamableHttp
+    - name: everything
+      mcp:
+        host: host.docker.internal
+        port: 3001
+        path: /mcp
+
+# All three capabilities are declared and attached to the one gateway. Leaving one out
+# invites the UI's onboarding wizard to "enable" it, and its save writes a top-level
+# `<section>.port` (llm defaults to 4000, mcp to 3000) rather than attaching — which
+# collides with a gateway already on that port. Attach, never port.
+
+llm:
+  gateways: default
+  models: []

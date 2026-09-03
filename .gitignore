@@ -14,3 +14,10 @@ terraform/**/.terraform/
 terraform/**/terraform.tfstate*
 terraform/**/terraform.tfstate.d/
 __pycache__/
+
+# Standalone agentgateway runtime state (`solomog standalone`). The config dir is mounted
+# read-write so UI edits land in config.yaml — that IS tracked, deliberately, so the edits
+# show up in git diff. The SQLite files beside it are pure runtime state.
+standalone/*/data.db
+standalone/*/data.db-shm
+standalone/*/data.db-wal
