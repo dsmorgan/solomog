@@ -252,7 +252,8 @@ EOF
 explain_task_standalone() {
   local t="$1"
   local img="us-docker.pkg.dev/solo-public/enterprise-agentgateway/agentgateway-enterprise:${AGENTGATEWAY_STANDALONE_VERSION:-2026.8.2}"
-  local name="${NAME:-minimal}"
+  # CONFIG is the task-level name for the config dir; NAME is its alias.
+  local name="${CONFIG:-${NAME:-minimal}}"
   explain_section "$t"
   echo "# Standalone agentgateway — one Docker container, no Kubernetes, no CRDs."
   echo "# ADMIN_ADDR must be 0.0.0.0:15000 so published ports reach the process."

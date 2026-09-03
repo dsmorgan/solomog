@@ -157,6 +157,9 @@ assert_contains "portal chart" "$_LAST_OUT" "portal-crds"
 _run "$SOLOMOG" explain standalone NAME=minimal
 assert_contains "docker run" "$_LAST_OUT" "docker run"
 assert_contains "standalone image pin" "$_LAST_OUT" "$SA_VER"
+# CONFIG is the task-level alias for NAME; the recipe must name the same config dir.
+_run "$SOLOMOG" explain standalone CONFIG=llm
+assert_contains "standalone CONFIG alias" "$_LAST_OUT" "/path/to/llm:/config"
 _run "$SOLOMOG" explain apps:utils ROUTE=true CLUSTER=aaa
 assert_contains "httpbin image" "$_LAST_OUT" "mccutchen/go-httpbin"
 assert_contains "httproute" "$_LAST_OUT" "kind: HTTPRoute"

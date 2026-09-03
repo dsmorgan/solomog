@@ -493,20 +493,28 @@ the proxy needs no Kubernetes API access. So this path runs it as a Docker conta
 local config file, and never creates or touches a cluster.
 
 ```bash
-solomog standalone:list                        # instances: name, state, config, UI URL
-solomog standalone NAME=minimal                # start it; prints the gateway and UI URLs
-solomog standalone:logs INSTANCE=minimal
-solomog standalone:stop INSTANCE=minimal       # container goes; config and state stay
-solomog standalone:delete INSTANCE=minimal     # the instance stops existing
+solomog standalone:list                          # configs, and instances with their URLs
+solomog standalone:validate CONFIG=minimal       # check a config — no cluster, no license
+solomog standalone CONFIG=minimal                # start it; prints the gateway and UI URLs
+solomog standalone:logs CLUSTER=minimal
+solomog standalone:stop CLUSTER=minimal          # container goes; config and state stay
+solomog standalone:delete CLUSTER=minimal        # the instance stops existing
 ```
 
-`NAME` picks the config; `INSTANCE` names the running thing and defaults to `NAME`. Set it to
-run the same config twice — the second gets its own config copy under `.solomog/standalone/`,
-so the two never fight over one file, and its UI edits stay out of the repo:
+Two knobs, the same split as a cluster and the products on it: `CONFIG` says what to run and
+`CLUSTER` names the instance it runs as. `CLUSTER` defaults to `CONFIG`, so one instance needs
+only `CONFIG`. Set both to run the same config twice — the second gets its own config copy
+under `.solomog/standalone/`, so the two never fight over one file, and its UI edits stay out
+of the repo:
 
 ```bash
-solomog standalone NAME=minimal INSTANCE=scratch    # lands on the next free ports
+solomog standalone CONFIG=minimal CLUSTER=scratch    # lands on the next free ports
 ```
+
+There is no `PRODUCTS` or `EDITION` here — the config file *is* the flavor. `solomog help
+standalone` lists the rest of the start-time knobs (`BIND`, `UI_PORT`, `GW_PORT`,
+`PORT_TRIES`, `IMAGE`, `FOLLOW`). `NAME` and `INSTANCE` are still accepted for `CONFIG` and
+`CLUSTER`.
 
 Instances are registered, so they are ordinary solomog targets rather than a separate world:
 
@@ -526,7 +534,7 @@ Enterprise UI management chart that `agentgateway:ui` installs onto a cluster.
 Check a config without starting anything, or a cluster, or even a license:
 
 ```bash
-solomog standalone:validate NAME=llm
+solomog standalone:validate CONFIG=llm
 ```
 
 That is worth doing first. Secrets are `$VAR` references expanded from the environment at load
@@ -537,10 +545,10 @@ Host ports are probed and incremented until one is free, so several instances co
 busy 4000 never wedges the task:
 
 ```bash
-solomog standalone NAME=minimal               # 127.0.0.1:4000, UI on 15000
-solomog standalone NAME=mcp                   # 4000 taken → 4001, UI on 15001
-solomog standalone NAME=llm PORT_TRIES=50     # widen the search
-solomog standalone NAME=minimal BIND=0.0.0.0  # publish beyond loopback (opt-in)
+solomog standalone CONFIG=minimal               # 127.0.0.1:4000, UI on 15000
+solomog standalone CONFIG=mcp                   # 4000 taken → 4001, UI on 15001
+solomog standalone CONFIG=llm PORT_TRIES=50     # widen the search
+solomog standalone CONFIG=minimal BIND=0.0.0.0  # publish beyond loopback (opt-in)
 ```
 
 `BIND` is loopback by default on purpose — Docker's own default would put the UI on your LAN.
@@ -549,8 +557,8 @@ Migrating from LiteLLM? The gateway's importer translates a `config.yaml` and re
 could and could not carry over:
 
 ```bash
-solomog standalone:import NAME=from-litellm FILE=~/litellm/config.yaml
-solomog standalone:validate NAME=from-litellm
+solomog standalone:import CONFIG=from-litellm FILE=~/litellm/config.yaml
+solomog standalone:validate CONFIG=from-litellm
 ```
 
 Version pin is `AGENTGATEWAY_STANDALONE_VERSION` in [versions.env](versions.env), deliberately

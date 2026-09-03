@@ -1,30 +1,38 @@
 # Standalone agentgateway configs
 
-Each directory here is one standalone agentgateway instance: a single `config.yaml` in the
-`LocalConfig` schema, run by `solomog standalone NAME=<dir>`.
+Each directory here is one standalone agentgateway config: a single `config.yaml` in the
+`LocalConfig` schema, run by `solomog standalone CONFIG=<dir>`.
 
 Standalone agentgateway is one self-contained binary. There is no control plane, no xDS, no
 CRDs, and the proxy needs no Kubernetes API access — so solomog runs it as a plain Docker
 container. Nothing here touches a cluster.
 
 ```
-solomog standalone:list                        # instances (name, state, config, URL) + spare configs
-solomog standalone NAME=minimal                # start it, print the URLs
-solomog standalone:validate NAME=llm           # check a config; no cluster, no license
-solomog standalone:logs INSTANCE=minimal
-solomog standalone:stop INSTANCE=minimal       # container goes; config and state stay
-solomog standalone:delete INSTANCE=minimal     # the instance stops existing
+solomog standalone:list                       # instances (name, state, config, URL) + spare configs
+solomog standalone:validate CONFIG=llm        # check a config; no cluster, no license
+solomog standalone CONFIG=minimal             # start it, print the URLs
+solomog standalone:logs CLUSTER=minimal
+solomog standalone:stop CLUSTER=minimal       # container goes; config and state stay
+solomog standalone:delete CLUSTER=minimal     # the instance stops existing
 ```
+
+`solomog help standalone` documents every start-time variable.
 
 ## Config vs instance
 
-`NAME` picks the config directory. `INSTANCE` names the running thing and defaults to `NAME`,
-so you can ignore it until you want two at once:
+`CONFIG` picks the config directory here. `CLUSTER` names the running instance and defaults
+to `CONFIG`, so you can ignore it until you want two at once:
 
 ```
-solomog standalone NAME=minimal                    # instance "minimal"
-solomog standalone NAME=minimal INSTANCE=scratch   # a second one, same config
+solomog standalone CONFIG=minimal                    # instance "minimal"
+solomog standalone CONFIG=minimal CLUSTER=scratch    # a second one, same config
 ```
+
+That is the same split as the cluster tasks — `CLUSTER` is the name you invent and later
+address, and `CONFIG` describes what goes in it, the way `PRODUCTS` and `EDITION` do for a
+real cluster. The difference is that a standalone instance has no other flavor knobs: the
+config file is the whole description. `NAME` and `INSTANCE` are accepted as aliases for
+`CONFIG` and `CLUSTER`.
 
 The second instance gets its own copy of the config at `.solomog/standalone/scratch/`, so the
 two never fight over one `config.yaml` or `data.db`, and anything you change in the scratch
@@ -52,8 +60,12 @@ Instances are registered, so they show up beside real clusters and obey the same
 
 ```
 solomog cluster:list                    # standalone rows alongside vind / eks / vsphere
-solomog teardown CLUSTER=<instance>     # one delete for any target, whatever its type
+solomog cluster:show CLUSTER=<name>     # config, ports, UI URL
+solomog teardown CLUSTER=<name>         # one delete for any target, whatever its type
 ```
+
+They are still not clusters, though: `CONTEXT=` means nothing here, and no product, istio,
+expose or bundle task can target one.
 
 `solomog standalone:delete` is the type-specific form, matching `vind:delete` / `eks:delete` /
 `vsphere:delete`. `teardown` is the type-agnostic one and handles mixed lists.
@@ -66,8 +78,9 @@ solomog teardown CLUSTER=<instance>     # one delete for any target, whatever it
 | `llm` | Two LLM providers behind one OpenAI-compatible endpoint, keys from `.env`. |
 | `mcp` | MCP federation — the gateway serves `/mcp` and `/sse` and relays to a target. |
 
-Add your own by creating `standalone/<name>/config.yaml`. `solomog standalone:import` writes
-one for you from a LiteLLM config.
+Add your own by creating `standalone/<name>/config.yaml`, then check it with
+`solomog standalone:validate CONFIG=<name>` before starting an instance from it.
+`solomog standalone:import` writes one for you from a LiteLLM config.
 
 ## Bundles vs standalone
 
@@ -132,7 +145,7 @@ capabilities attached, so the wizard has nothing left to toggle.
 If you do end up with a top-level `llm.port` or `mcp.port`, `solomog standalone` discovers and
 publishes it — but only at start. A port the UI adds while the container is running is not
 published yet, so the endpoint is unreachable from your Mac until you re-run
-`solomog standalone NAME=<name>` (a restart keeps your config and state).
+`solomog standalone CONFIG=<name>` (a restart keeps your config and state).
 
 **No `stdio` MCP targets.** The image is distroless — no shell, no node, no `npx` — so the
 gateway has nothing to exec. `--validate-only` accepts a stdio target because it only checks

@@ -7,7 +7,7 @@ set -euo pipefail
 #
 # Usage: explain.sh [task...] [KEY=VALUE...]
 # Env (also accepted as KEY=VALUE args):
-#   CLUSTER EDITION PRODUCTS ISTIO_MODE GATEWAY HOST NAME NAMESPACE CLASS
+#   CLUSTER EDITION PRODUCTS ISTIO_MODE GATEWAY HOST NAME NAMESPACE CLASS CONFIG
 #   BUNDLE BUNDLES TOKEN_EXCHANGE ROUTE ROUTE_PATH and the rest of the task knobs.
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
