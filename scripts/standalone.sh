@@ -10,16 +10,27 @@ set -euo pipefail
 # Note the UI here is the gateway's OWN built-in UI — a different thing from the Solo
 # Enterprise UI management chart that `solomog agentgateway:ui` installs onto a cluster.
 #
+# CONFIG vs INSTANCE. NAME picks the config directory under standalone/. INSTANCE names the
+# running thing, and defaults to NAME. Give INSTANCE a different value to run the same config
+# again alongside the first — the config is copied to .solomog/standalone/<INSTANCE>/ and
+# mounted from there, so two instances never fight over one config.yaml or data.db, and a
+# scratch instance's UI edits never touch your repo.
+#
+# Instances are registered in .solomog/standalone-instances (via lib/target.sh), which lets
+# `solomog cluster:list` show them and `solomog teardown` destroy them like any other target.
+#
 # Usage: standalone.sh <action>
-#   run       start (or restart) the instance named by NAME
-#   stop      stop and remove the instance's container
-#   list      show solomog standalone containers and their URLs
+#   run       start (or restart) the instance named by INSTANCE, from config NAME
+#   stop      stop and remove the container; config and state stay
+#   delete    stop, then drop the runtime state and the registry entry
+#   list      show every instance with its config, status, and URLs
 #   logs      tail the instance's logs
 #   validate  --validate-only the config; no container, no cluster, no license needed
 #   import    convert a foreign gateway config (LiteLLM) into a standalone config
 #
 # Env:
 #   NAME          config directory under standalone/            REQUIRED (no default)
+#   INSTANCE      name for the running instance                 default the value of NAME
 #   BIND          host address to publish ports on              default 127.0.0.1
 #   UI_PORT       first host port tried for the admin/UI        default 15000
 #   GW_PORT       first host port tried for gateway ports       default the config's own port
@@ -29,6 +40,7 @@ set -euo pipefail
 #   TAIL_LINES    log lines to show (logs only)                 default 60
 #   FROM          import source format (import only)            default litellm
 #   FILE          source file to import (import only)
+#   FORCE         true skips delete's confirmation prompt
 #
 # Licensing: standalone requires ENTERPRISE_AGENTGATEWAY_LICENSE_KEY and refuses to start
 # without it — there is no grace period on a fresh install. We source it from
@@ -38,10 +50,13 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$REPO_DIR/scripts/lib/ui.sh"
+# shellcheck source=lib/target.sh
+source "$REPO_DIR/scripts/lib/target.sh"
 
 ACTION="${1:-run}"
 
 NAME="${NAME:-}"
+INSTANCE="${INSTANCE:-}"
 BIND="${BIND:-127.0.0.1}"
 UI_PORT="${UI_PORT:-15000}"
 GW_PORT="${GW_PORT:-}"
@@ -51,6 +66,9 @@ FROM="${FROM:-litellm}"
 FILE="${FILE:-}"
 
 STANDALONE_DIR="$REPO_DIR/standalone"
+# Scratch runtime dirs for instances whose INSTANCE differs from NAME. Under .solomog/, which
+# is gitignored, so a throwaway instance leaves no trace in the repo.
+RUNTIME_DIR="$REPO_DIR/.solomog/standalone"
 IMAGE_REPO="us-docker.pkg.dev/solo-public/enterprise-agentgateway/agentgateway-enterprise"
 # No "v" prefix: this is the image line. See versions.env.
 IMAGE="${IMAGE:-${IMAGE_REPO}:${AGENTGATEWAY_STANDALONE_VERSION:-2026.8.2}}"
@@ -76,9 +94,31 @@ $(list_configs_indented)
   e.g. solomog standalone NAME=minimal"
 }
 
+# Actions that address a running instance take INSTANCE, falling back to NAME. Either is
+# enough on its own, so `stop INSTANCE=scratch` needs no NAME and `stop NAME=minimal` still
+# works for the common case where they are the same.
+require_instance() {
+  [ -n "$INSTANCE" ] && return 0
+  [ -n "$NAME" ] && { INSTANCE="$NAME"; return 0; }
+  die "INSTANCE (or NAME) is required. Running instances:
+$(list_instances_indented)
+  e.g. solomog standalone:stop INSTANCE=minimal"
+}
+
 config_dir() { printf '%s/%s' "$STANDALONE_DIR" "$1"; }
 config_file() { printf '%s/%s/config.yaml' "$STANDALONE_DIR" "$1"; }
 container_name() { printf 'solomog-standalone-%s' "$1"; }
+runtime_dir() { printf '%s/%s' "$RUNTIME_DIR" "$1"; }
+
+# The directory actually mounted at /config. When INSTANCE is just NAME, that is the repo
+# config dir, so UI edits land in git. When they differ, it is a scratch copy under
+# .solomog/, so the second instance neither fights the first over config.yaml/data.db nor
+# writes into the repo.
+mount_dir() {   # args: <instance> <name>
+  if [ "$1" = "$2" ]; then config_dir "$2"; else runtime_dir "$1"; fi
+}
+
+is_scratch() { [ "$INSTANCE" != "$NAME" ]; }
 
 list_configs_indented() {
   local d found=0
@@ -100,6 +140,44 @@ require_config() {
   f="$(config_file "$NAME")"
   [ -f "$f" ] || die "no config at standalone/$NAME/config.yaml. Available configs:
 $(list_configs_indented)"
+}
+
+# Registered standalone instances, for the error hints.
+list_instances_indented() {
+  local n found=0
+  while IFS= read -r n; do
+    [ -n "$n" ] || continue
+    found=1
+    echo "    $n"
+  done <<EOF
+$(solomog_standalone_names)
+EOF
+  if [ "$found" -eq 0 ]; then
+    echo "    (none running — start one with: solomog standalone NAME=minimal)"
+  fi
+  return 0
+}
+
+# Refuse a name that already belongs to a real cluster. Without this, `solomog teardown`
+# would see one name with two meanings and could dispatch the wrong destroy.
+refuse_cluster_name_collision() {   # args: <instance>
+  local typ
+  solomog_is_standalone "$1" && return 0
+  typ="$(solomog_cluster_type "$1")"
+  case "$typ" in
+    eks|vsphere|external)
+      die "'$1' is already a tracked $typ cluster (see: solomog cluster:list).
+Pick a different INSTANCE so teardown stays unambiguous."
+      ;;
+  esac
+  # A vind cluster is only "tracked" if it appears in the vind registry; the vind type is
+  # also the fallback for any unknown name, so check the file rather than the type.
+  if [ -f "$REPO_DIR/.solomog/clusters" ] \
+    && awk -v c="$1" 'NF && $1==c{f=1} END{exit !f}' "$REPO_DIR/.solomog/clusters"; then
+    die "'$1' is already a tracked vind cluster (see: solomog cluster:list).
+Pick a different INSTANCE so teardown stays unambiguous."
+  fi
+  return 0
 }
 
 # Resolve the license key. Explicit, single-source, no fallback (see header).
@@ -277,16 +355,32 @@ do_run() {
   require_docker
   require_name
   require_config
+  INSTANCE="${INSTANCE:-$NAME}"
+  refuse_cluster_name_collision "$INSTANCE"
   resolve_license
 
   local dir file cname
-  dir="$(config_dir "$NAME")"
-  file="$(config_file "$NAME")"
-  cname="$(container_name "$NAME")"
+  cname="$(container_name "$INSTANCE")"
+  dir="$(mount_dir "$INSTANCE" "$NAME")"
 
   # Pre-flight the $VAR references and the config itself, so a bad config fails here with a
-  # readable message instead of as a crash-looping container.
+  # readable message instead of as a crash-looping container. Always against the source
+  # config, before any copy.
   do_validate >/dev/null
+
+  # A scratch instance gets its own copy of the config, seeded once. Re-running an existing
+  # scratch instance keeps whatever it has (including UI edits) rather than clobbering it;
+  # delete it to start over.
+  if is_scratch; then
+    mkdir -p "$dir"
+    if [ ! -f "$dir/config.yaml" ]; then
+      cp "$(config_file "$NAME")" "$dir/config.yaml"
+      echo "  seeded scratch config from standalone/$NAME/config.yaml"
+    else
+      echo "  reusing existing scratch config (delete the instance to re-seed)"
+    fi
+  fi
+  file="$dir/config.yaml"
 
   local refs env_args=""
   refs="$(config_env_refs "$file")"
@@ -335,7 +429,9 @@ EOF
     set +e
     # shellcheck disable=SC2086
     out=$(docker run -d --name "$cname" \
-      --label solomog.standalone="$NAME" \
+      --label solomog.standalone="$INSTANCE" \
+      --label solomog.standalone.config="$NAME" \
+      --label solomog.standalone.ui="http://${BIND}:${ui_host_port}/ui/" \
       -e ENTERPRISE_AGENTGATEWAY_LICENSE_KEY \
       -e "ADMIN_ADDR=0.0.0.0:${CONTAINER_ADMIN_PORT}" \
       $env_args \
@@ -368,7 +464,7 @@ EOF
     if [ "$state" != "running" ]; then
       echo ""
       docker logs "$cname" 2>&1 | grep -E '^Error|error' | tail -5 >&2 || true
-      die "container exited — full logs: solomog standalone:logs NAME=$NAME"
+      die "container exited — full logs: solomog standalone:logs INSTANCE=$INSTANCE"
     fi
     if docker logs "$cname" 2>&1 | grep -q 'marking server ready'; then
       break
@@ -377,10 +473,18 @@ EOF
     waited=$((waited+1))
   done
 
+  # Register only once the instance is actually up, so a failed start leaves no ghost row
+  # in cluster:list.
+  solomog_register_standalone "$INSTANCE"
+
   echo ""
-  echo "  standalone instance : $NAME  ($cname)"
+  echo "  instance            : $INSTANCE  (container $cname)"
   echo "  image               : $IMAGE"
-  echo "  config              : standalone/$NAME/config.yaml (mounted read-write)"
+  if is_scratch; then
+    echo "  config              : .solomog/standalone/$INSTANCE/config.yaml (scratch copy of $NAME, read-write)"
+  else
+    echo "  config              : standalone/$NAME/config.yaml (mounted read-write)"
+  fi
   if [ -n "$refs" ]; then
     # shellcheck disable=SC2086
     echo "  env passed through  : $(echo $refs | tr '\n' ' ')"
@@ -399,8 +503,9 @@ EOF
 $gw_map
 EOF
   echo ""
-  echo "  logs  solomog standalone:logs NAME=$NAME"
-  echo "  stop  solomog standalone:stop NAME=$NAME"
+  echo "  logs    solomog standalone:logs INSTANCE=$INSTANCE"
+  echo "  stop    solomog standalone:stop INSTANCE=$INSTANCE"
+  echo "  delete  solomog standalone:delete INSTANCE=$INSTANCE   (or: solomog teardown CLUSTER=$INSTANCE)"
 
   if [ "$FOLLOW" = "true" ]; then
     echo ""
@@ -408,48 +513,141 @@ EOF
   fi
 }
 
+# stop = the container goes away, everything else stays. Deliberately NOT a delete: the
+# instance keeps its registry entry and its config/state, so re-running resumes it.
 do_stop() {
   require_docker
-  require_name
+  require_instance
   local cname
-  cname="$(container_name "$NAME")"
+  cname="$(container_name "$INSTANCE")"
   if ! docker ps -aq --filter "name=^${cname}$" | grep -q .; then
-    echo "  no container named $cname — nothing to stop"
+    echo "  no container for instance '$INSTANCE' — nothing to stop"
     return 0
   fi
   docker rm -f "$cname" >/dev/null
-  echo "  removed $cname"
+  echo "  stopped $INSTANCE (config and state kept — re-run to resume)"
+  echo "  to remove it entirely: solomog standalone:delete INSTANCE=$INSTANCE"
+}
+
+# delete = the instance stops existing. Removes the container, the registry entry, and any
+# runtime state. The CONFIG under standalone/ is source, not state — the same way tearing
+# down a cluster does not delete your helmfiles — so it is left alone, and the command to
+# remove it is printed instead of run.
+do_delete() {
+  require_docker
+  require_instance
+  local cname rdir cfgdir known=0
+  cname="$(container_name "$INSTANCE")"
+  rdir="$(runtime_dir "$INSTANCE")"
+  cfgdir="$(config_dir "$INSTANCE")"
+
+  solomog_is_standalone "$INSTANCE" && known=1
+  if [ "$known" -eq 0 ] \
+    && ! docker ps -aq --filter "name=^${cname}$" | grep -q . \
+    && [ ! -d "$rdir" ]; then
+    echo "  no standalone instance '$INSTANCE' — nothing to delete"
+    return 0
+  fi
+
+  if [ "${FORCE:-false}" != "true" ]; then
+    echo ""
+    echo "  This will delete standalone instance '$INSTANCE':"
+    echo "    - container $cname"
+    echo "    - registry entry in .solomog/standalone-instances"
+    [ -d "$rdir" ] && echo "    - runtime state .solomog/standalone/$INSTANCE/ (including any UI edits)"
+    echo ""
+    read -rp "  Continue? [y/N] " confirm
+    echo ""
+    if [[ ! "$confirm" =~ ^[Yy] ]]; then
+      echo "  Delete cancelled."
+      return 1
+    fi
+  fi
+
+  docker rm -f "$cname" >/dev/null 2>&1 || true
+  [ -d "$rdir" ] && rm -rf "$rdir"
+  # Drop the scratch parent once the last instance leaves, so .solomog/ stays tidy.
+  rmdir "$RUNTIME_DIR" 2>/dev/null || true
+  solomog_unregister_standalone "$INSTANCE"
+  echo "  deleted instance $INSTANCE"
+  # Only mention the config dir when one exists under that name and it is not scratch.
+  if [ -d "$cfgdir" ]; then
+    echo "  kept the config at standalone/$INSTANCE/ — it is source, not state."
+    echo "  remove it too with: rm -rf standalone/$INSTANCE"
+  fi
+  return 0
 }
 
 do_logs() {
   require_docker
-  require_name
+  require_instance
   local cname
-  cname="$(container_name "$NAME")"
+  cname="$(container_name "$INSTANCE")"
   docker ps -aq --filter "name=^${cname}$" | grep -q . \
-    || die "no container named $cname — start it with: solomog standalone NAME=$NAME"
+    || die "no container for instance '$INSTANCE' — start it with: solomog standalone NAME=$INSTANCE"
   # TAIL_LINES, not LINES: bash sets LINES itself (terminal height) and an inherited value
   # would silently override the caller's intent. Same class of trap as GROUPS.
   docker logs "$cname" 2>&1 | tail -n "${TAIL_LINES:-60}"
 }
 
+# One row per instance, keyed on the registry so a stopped instance still appears, with the
+# config it came from and the URL to open. Configs with no instance are listed separately —
+# they are templates, not things that are running.
 do_list() {
   require_docker
-  echo "  configs under standalone/:"
-  list_configs_indented
-  echo ""
-  echo "  running instances:"
-  local rows
-  rows="$(docker ps -a --filter 'label=solomog.standalone' \
-    --format '{{.Label "solomog.standalone"}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}')"
-  if [ -z "$rows" ]; then
-    echo "    (none)"
-    return 0
+  local names rows n cname state cfg ui ports line found=0
+
+  names="$(solomog_standalone_names)"
+  echo "  instances:"
+  if [ -z "$names" ]; then
+    echo "    (none — start one with: solomog standalone NAME=minimal)"
+  else
+    rows=""
+    while IFS= read -r n; do
+      [ -n "$n" ] || continue
+      cname="$(container_name "$n")"
+      line="$(docker ps -a --filter "name=^${cname}$" \
+        --format '{{.State}}\t{{.Label "solomog.standalone.config"}}\t{{.Label "solomog.standalone.ui"}}\t{{.Ports}}' 2>/dev/null | head -1)"
+      if [ -z "$line" ]; then
+        state="gone"; cfg="?"; ui=""; ports=""
+      else
+        state="$(printf '%s' "$line" | cut -f1)"
+        cfg="$(printf '%s' "$line" | cut -f2)"
+        ui="$(printf '%s' "$line" | cut -f3)"
+        ports="$(printf '%s' "$line" | cut -f4)"
+      fi
+      [ -n "$cfg" ] || cfg="?"
+      if [ -d "$(runtime_dir "$n")" ]; then cfg="$cfg (scratch)"; fi
+      rows="${rows}${n}"$'\t'"${state}"$'\t'"${cfg}"$'\t'"${ui}"$'\n'
+      [ -n "$ports" ] && rows="${rows}"$'\t'$'\t'$'\t'"  ports: ${ports}"$'\n'
+    done <<EOF
+$names
+EOF
+    printf '%s' "$rows" | awk -F'\t' '
+      BEGIN { printf "    %-14s  %-9s  %-22s  %s\n", "INSTANCE", "STATE", "CONFIG", "UI" }
+      $1 != "" { printf "    %-14s  %-9s  %-22s  %s\n", $1, $2, $3, $4; next }
+      { printf "    %-14s  %-9s  %-22s  %s\n", "", "", "", $4 }'
   fi
-  printf '%s\n' "$rows" | while IFS=$'\t' read -r n c s p; do
-    echo "    $n  [$s]"
-    echo "        $p"
+
+  echo ""
+  echo "  configs under standalone/ with no instance running:"
+  local d base
+  for d in "$STANDALONE_DIR"/*/; do
+    [ -f "${d}config.yaml" ] || continue
+    base="$(basename "$d")"
+    solomog_is_standalone "$base" && continue
+    found=1
+    echo "    $base"
   done
+  if [ "$found" -eq 0 ]; then
+    echo "    (none)"
+  fi
+
+  echo ""
+  echo "  start   solomog standalone NAME=<config> [INSTANCE=<name>]"
+  echo "  stop    solomog standalone:stop INSTANCE=<name>"
+  echo "  delete  solomog standalone:delete INSTANCE=<name>   (or: solomog teardown CLUSTER=<name>)"
+  return 0
 }
 
 do_import() {
@@ -495,9 +693,10 @@ PY
 case "$ACTION" in
   run)      do_run ;;
   stop)     do_stop ;;
+  delete)   do_delete ;;
   list)     do_list ;;
   logs)     do_logs ;;
   validate) do_validate ;;
   import)   do_import ;;
-  *)        die "unknown action '$ACTION' (run|stop|list|logs|validate|import)" ;;
+  *)        die "unknown action '$ACTION' (run|stop|delete|list|logs|validate|import)" ;;
 esac

@@ -21,3 +21,8 @@ __pycache__/
 standalone/*/data.db
 standalone/*/data.db-shm
 standalone/*/data.db-wal
+# The UI downloads a ~180KB LLM price catalog here when you enable cost tracking, and adds a
+# config.modelCatalog reference to it. Generated, churns, and regenerable from the UI — so it
+# stays out of git. A config whose modelCatalog file is absent is NOT fatal: the gateway warns
+# ("will load when the files become valid"), watches the path, and serves normally meanwhile.
+standalone/*/base-costs.json

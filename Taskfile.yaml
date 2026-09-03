@@ -1107,6 +1107,7 @@ tasks:
 
       Variables:
         NAME         config dir under standalone/                  REQUIRED — see standalone:list
+        INSTANCE     name for the running instance                 default the value of NAME
         BIND         host address to publish on                    default 127.0.0.1
         UI_PORT      first host port tried for the UI              default 15000
         GW_PORT      first host port tried for gateway ports       default the config's own port
@@ -1127,14 +1128,24 @@ tasks:
       environment at load time, and solomog detects the references and passes those
       variables into the container. A missing one is reported by name before start.
 
+      NAME picks the config; INSTANCE names the running thing. Set INSTANCE to run the same
+      config again alongside the first — solomog copies the config to
+      .solomog/standalone/<INSTANCE>/ so the two never fight over one config.yaml or data.db,
+      and the scratch instance's UI edits stay out of your repo.
+
+      Instances are registered, so they also show up in `solomog cluster:list` and can be
+      destroyed with `solomog teardown CLUSTER=<instance>` like any other target.
+
       Examples:
         solomog standalone NAME=minimal
+        solomog standalone NAME=minimal INSTANCE=scratch     # a second one, alongside
         solomog standalone NAME=llm FOLLOW=true
         solomog standalone NAME=minimal UI_PORT=16000 BIND=0.0.0.0
     cmds:
-      - bash scripts/run.sh "Start standalone agentgateway → {{.NAME}}" bash scripts/standalone.sh run
+      - bash scripts/run.sh "Start standalone agentgateway → {{.INSTANCE | default .NAME}}" bash scripts/standalone.sh run
     env:
       NAME: '{{.NAME | default ""}}'
+      INSTANCE: '{{.INSTANCE | default ""}}'
       BIND: '{{.BIND | default "127.0.0.1"}}'
       UI_PORT: '{{.UI_PORT | default "15000"}}'
       GW_PORT: '{{.GW_PORT | default ""}}'
@@ -1143,21 +1154,52 @@ tasks:
       FOLLOW: '{{.FOLLOW | default "false"}}'
 
   standalone:stop:
-    desc: "Stop a standalone instance"
+    desc: "Stop a standalone instance (keeps config + state)"
     summary: |
-      Stop and remove the container for standalone/<NAME>. Leaves the config and its
-      SQLite state on disk, so a later `solomog standalone NAME=<same>` picks up where you
-      left off.
+      Remove the instance's container and nothing else. The config, its state, and the
+      registry entry all stay, so `solomog standalone NAME=<config>` resumes where you left
+      off. To make the instance stop existing, use standalone:delete.
 
       Variables:
-        NAME    config dir under standalone/   REQUIRED
+        INSTANCE   instance to stop                  REQUIRED (NAME accepted as an alias)
 
       Examples:
-        solomog standalone:stop NAME=minimal
+        solomog standalone:stop INSTANCE=minimal
+        solomog standalone:stop NAME=minimal        # same thing when you never set INSTANCE
     cmds:
-      - bash scripts/run.sh "Stop standalone agentgateway → {{.NAME}}" bash scripts/standalone.sh stop
+      - bash scripts/run.sh "Stop standalone agentgateway → {{.INSTANCE | default .NAME}}" bash scripts/standalone.sh stop
     env:
       NAME: '{{.NAME | default ""}}'
+      INSTANCE: '{{.INSTANCE | default ""}}'
+
+  standalone:delete:
+    desc: "Delete a standalone instance"
+    summary: |
+      Make the instance stop existing: remove its container, its registry entry, and any
+      runtime state under .solomog/standalone/<INSTANCE>/ (which for a scratch instance
+      includes its config copy and UI edits). Prompts unless FORCE=true.
+
+      The config under standalone/<name>/ is left alone. It is source, not state — the same
+      reason tearing down a cluster does not delete your helmfiles. The command to remove it
+      is printed if you want it gone too.
+
+      `solomog teardown CLUSTER=<instance>` does the same thing, so one command deletes any
+      solomog target regardless of type. This task is the type-specific form, matching
+      vind:delete / eks:delete / vsphere:delete.
+
+      Variables:
+        INSTANCE   instance to delete                REQUIRED (NAME accepted as an alias)
+        FORCE      true skips the confirmation       default false
+
+      Examples:
+        solomog standalone:delete INSTANCE=scratch
+        solomog standalone:delete INSTANCE=scratch FORCE=true
+    cmds:
+      - bash scripts/run.sh "Delete standalone agentgateway → {{.INSTANCE | default .NAME}}" bash scripts/standalone.sh delete
+    env:
+      NAME: '{{.NAME | default ""}}'
+      INSTANCE: '{{.INSTANCE | default ""}}'
+      FORCE: '{{.FORCE | default "false"}}'
 
   standalone:list:
     desc: "List standalone configs and running instances"
@@ -1176,23 +1218,24 @@ tasks:
   standalone:logs:
     desc: "Tail a standalone instance's logs"
     summary: |
-      Show the tail of the container log for standalone/<NAME>.
+      Show the tail of an instance's container log.
 
       Variables:
-        NAME         config dir under standalone/   REQUIRED
+        INSTANCE     instance whose logs to show    REQUIRED (NAME accepted as an alias)
         TAIL_LINES   how many lines to show         default 60
 
       Named TAIL_LINES, not LINES: bash owns LINES (terminal height), so an inherited
       value would quietly win over yours.
 
       Examples:
-        solomog standalone:logs NAME=minimal
-        solomog standalone:logs NAME=llm TAIL_LINES=200
+        solomog standalone:logs INSTANCE=minimal
+        solomog standalone:logs INSTANCE=llm TAIL_LINES=200
     cmds:
       - bash scripts/standalone.sh logs
     silent: true
     env:
       NAME: '{{.NAME | default ""}}'
+      INSTANCE: '{{.INSTANCE | default ""}}'
       TAIL_LINES: '{{.TAIL_LINES | default "60"}}'
 
   standalone:validate:
