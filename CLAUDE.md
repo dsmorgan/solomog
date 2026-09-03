@@ -455,6 +455,21 @@ container** against a local config file, and never touches a cluster.
   `data.db`. A scratch instance is re-seeded only when its copy is absent, so re-running
   resumes rather than clobbering. Actions that address a running instance (`stop`, `delete`,
   `logs`) take `INSTANCE` and accept `NAME` as an alias.
+- **The user-facing names are `CONFIG` and `CLUSTER`**, aliased onto `NAME`/`INSTANCE` in each
+  task's `env:` block; all four stay accepted. `CLUSTER` is the identity you invent and later
+  address, `CONFIG` describes what goes in it — the same split as `CLUSTER` plus
+  `PRODUCTS`/`EDITION` for a real cluster. It also closes a seam: `CLUSTER` was already how
+  `cluster:list`, `cluster:show` and `teardown` reached an instance, so only the `standalone:*`
+  tasks spoke a different language. The scripts keep `NAME`/`INSTANCE` internally — the
+  accurate words for what they select — so aliasing costs one template chain, not a code path.
+  - **`CONFIG` needs a `vars:` declaration to pass the wrapper's preflight.**
+    `_solomog_validate_load_keys` harvests names from `env:`/`vars:` KEYS, and `CONFIG` appears
+    only on the right-hand side of the alias chains, so `CONFIG=llm` would be rejected as
+    unknown. One `CONFIG:` key on the `standalone` task registers it globally (the preflight is
+    not per-task). `CLUSTER` needs nothing — already a key on the cluster tasks.
+  - **A chained run cannot cross the wires.** `solomog agentgateway CLUSTER=aaa standalone
+    CONFIG=llm` hands one global `CLUSTER` to both, but `refuse_cluster_name_collision` rejects
+    a `CLUSTER` that names a tracked cluster, so the instance is never named after it.
 - **Instances are REGISTERED, in `.solomog/standalone-instances`** (helpers in
   [scripts/lib/target.sh](scripts/lib/target.sh): `solomog_is_standalone`,
   `solomog_register_standalone`, `solomog_unregister_standalone`, `solomog_standalone_names`).
@@ -686,6 +701,15 @@ trailer with an awk filter (drops everything from a `^vars:`/`^env:` line until 
 `^task:`); summaries therefore must not begin a line with a bare `vars:`/`env:` (use
 `Variables:`). If you change the help path, preserve that filter.
 
+**Keep a `summary:` to about one screen** — roughly 30 lines, so `solomog help <task>` fits a
+terminal without scrolling. Not a hard limit, but a wall of text is worse than a short answer
+plus a pointer. The median summary is ~15 lines. What belongs: one or two sentences on what
+the task does, the `Variables:` table, and `Examples:`. What does not: the reasoning behind a
+default, gotchas, and product behavior — those go to `standalone/README.md`,
+`bundles/README.md`, or this file, and the summary links there in one line. Write it in
+[Google developer documentation style](https://developers.google.com/style): answer first,
+second person, present tense, active voice.
+
 **Framing + timing live at two levels.** The `solomog` wrapper owns the run: it splits
 the command line into task names vs `KEY=VALUE` globals, **preflights the whole line**
 (unknown tasks and unknown `KEY=` names fail before any task runs — `monitor` never
@@ -852,6 +876,14 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 - **`LINES` and `COLUMNS` are bash's own variables** (terminal geometry), the same trap as
   `GROUPS`. Never use one as a script knob — an inherited value silently outranks the
   caller's intent. `standalone:logs` uses `TAIL_LINES`.
+- **A help GROUP that shares a task's name used to hide that task's own summary.**
+  `solomog_help_dispatch` checks group before task, so `solomog help standalone` rendered only
+  the group listing — with no topic name left to reach the task's `Variables:` block by. Same
+  for `setup`. It reads as a task with no documented parameters. Dispatch now appends the
+  same-named task's summary below the listing (`_solomog_help_task_body`, split out of
+  `solomog_help_task_summary` so the append carries no second "Related:" footer), and the
+  group's `see` footers must not repeat what that summary already says. Naming a new group
+  after a task is safe; check `solomog help <name>` shows both halves.
 
 ## Validating changes without a cluster
 

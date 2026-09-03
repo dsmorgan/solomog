@@ -199,44 +199,35 @@ tasks:
   stack:
     desc: 'Compose any products onto a cluster'
     summary: |
-      Create a cluster and install any combination of products onto it, in dependency
-      order (istio → gloo-mesh → kgateway → gloo-gateway → agentgateway → kagent), regardless of
-      the order you list them. Generates Istio certs first when a mesh product is requested.
+      Create a cluster and install any products onto it in dependency order (istio → gloo-mesh
+      → kgateway → gloo-gateway → agentgateway → kagent), whatever order you list. Istio certs
+      are generated first when a mesh product is requested.
 
       Variables:
         PRODUCTS     space-separated products to install (REQUIRED)   istio | gloo-mesh | kgateway | gloo-gateway | agentgateway | kagent
         CLUSTER      cluster name (vind, or registered external)  REQUIRED — set CLUSTER (or CONTEXT)
         EDITION      enterprise | community                           default enterprise
         ISTIO_MODE   ambient | sidecar (only affects istio)           default ambient
-        TOKEN_EXCHANGE   true to enable the agentgateway STS (only if PRODUCTS includes
-                         agentgateway); also restarts the agw proxy. CLI-only, default false.
+        TOKEN_EXCHANGE   true to enable the agentgateway STS and restart the agw proxy (only
+                   if PRODUCTS includes agentgateway). CLI-only, default false.
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
         KGATEWAY_ELS_CRD true to also install the EnterpriseListenerSet CRD (only if PRODUCTS
                          includes kgateway; chart defaults it off). CLI-only, default false.
         KGATEWAY_SKIP_SHARED_CRDS  true when agentgateway already owns the shared ext-auth /
-                         rate-limit / WAF CRDs on this cluster. CLI-only, default false.
-                         NOTE: PRODUCTS="kgateway agentgateway" in ONE run installs kgateway
-                         first, so it is agentgateway that then collides — that direction has
-                         no opt-out wired yet. Install agentgateway first, then kgateway with
-                         this flag.
-        KAGENT_PROVIDER   openAI | anthropic | ollama (only if PRODUCTS includes kagent)
-                                                                    default openAI
+                         rate-limit / WAF CRDs. CLI-only, default false. Only helps the
+                         agentgateway-first order — one run installs kgateway first.
+        KAGENT_PROVIDER   openAI | anthropic | ollama (kagent only)  default openAI
         KAGENT_MODEL      optional model override                   default chart value
         KAGENT_OLLAMA_HOST  Ollama endpoint                         default host.docker.internal:11434
-        KAGENT_AUTOAUTH   true → force Enterprise bundled IdP for this run, ignoring a
-                          persistent KAGENT_OIDC_ISSUER               default false (CLI-only)
-        KAGENT_OIDC_*     Enterprise controller OIDC; blank (the default) uses the bundled
-                          auto-IdP and needs no IdP setup. SOLO_UI_OIDC_* alone does NOT
-                          put kagent behind that IdP — set KAGENT_OIDC_ISSUER to opt in.
-                          See .env.example. Enterprise kagent is experimental; its documented
-                          secured topology currently requires Istio 1.26-1.29.
+        KAGENT_AUTOAUTH   force the bundled IdP, ignoring KAGENT_OIDC_ISSUER   CLI-only, default false
+        KAGENT_OIDC_*     Enterprise controller OIDC; blank uses the bundled auto-IdP.
+                          SOLO_UI_OIDC_* alone does NOT opt kagent in. See .env.example.
 
       Examples:
         solomog stack PRODUCTS="agentgateway" CLUSTER=aaa
         solomog stack PRODUCTS="istio kgateway" CLUSTER=aaa ISTIO_MODE=sidecar
         solomog stack PRODUCTS="kgateway" EDITION=community CLUSTER=aaa
-        solomog stack PRODUCTS="agentgateway" CLUSTER=aaa TOKEN_EXCHANGE=true
-        solomog stack PRODUCTS="kagent" EDITION=community CLUSTER=aaa KAGENT_PROVIDER=ollama
+        solomog stack PRODUCTS="kagent" CLUSTER=aaa KAGENT_PROVIDER=ollama
         solomog stack PRODUCTS="agentgateway kagent" CLUSTER=aaa
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
@@ -540,7 +531,7 @@ tasks:
       Variables:
         CLUSTERS   space-separated cluster names in the mesh (alias CLUSTER)   required
 
-      Example:
+      Examples:
         solomog net:repair CLUSTERS="ia1 ia2"
     vars:
       CLUSTERS: '{{.CLUSTERS | default .CLUSTER | default ""}}'
@@ -953,27 +944,19 @@ tasks:
   graph:
     desc: "Open an agentgateway config graph in the browser"
     summary: |
-      Snapshot a cluster's agentgateway configuration and render it as an interactive,
-      self-contained HTML graph in your browser: a top-down hierarchy rooted at the Gateway
-      (data plane) → HTTPRoutes → Backends → Policies, with the control plane shown via the
-      GatewayClass chain (Gateway → gatewayClassName → GatewayClass → controllerName →
-      enterprise-agentgateway → manages → Gateway) and its proxy pod. Nodes are colour-coded by
-      kind, and by plane (data / control / class) per the legend. Unused routes, backends, and
-      policies are hidden by default and available from the unused-components toggle; a second
-      toggle shows/hides auxiliary control-plane services. Click any node for its details and a
-      copy-paste kubectl command. Repeated references are aggregated into a counted, thicker edge
-      and listed in the backend detail panel. Same relationship model as `solomog routes`.
+      Snapshot a cluster's agentgateway config as an interactive HTML graph in your browser:
+      Gateway → HTTPRoutes → Backends → Policies, plus the GatewayClass control-plane chain
+      and the proxy pod. Nodes are coloured by kind and plane; unused components and
+      auxiliary services sit behind toggles. Click a node for details and a copy-paste
+      kubectl command. Same relationship model as `solomog routes`.
 
-      By default also port-forwards each gateway pod's admin port (:15000) on an ephemeral local
-      port and fetches /config_dump — surfaces the live proxy version in the subtitle, marks
-      which routes/backends/policies the proxy actually loaded, and embeds the dump (Dump button
-      → summary + download). Soft-fails if the admin port is unreachable (falls back to the
-      dataplane image tag for version). DUMP=false skips the fetch.
+      Also port-forwards each gateway pod's admin port and fetches /config_dump — live proxy
+      version in the subtitle, a loaded/not marker per component, and the dump embedded (Dump
+      button). Soft-fails if the admin port is unreachable. DUMP=false skips it.
 
-      The HTML is self-contained (graph lib + data inlined) — it works offline and can be
-      handed off. By DEFAULT it just opens the file (the task then exits cleanly, nothing to
-      stop). SERVE=true serves it on a local port instead (nicer clipboard support); stop
-      that with Enter for a clean exit.
+      The HTML is self-contained, so it works offline and can be handed off. It opens the
+      file and exits; SERVE=true serves it on a local port instead (better clipboard
+      support), stopped with Enter.
 
       Variables:
         CLUSTER       cluster to graph (vind, or registered external)   REQUIRED — set CLUSTER (or CONTEXT)
@@ -1127,54 +1110,50 @@ tasks:
   standalone:
     desc: "0 clusters · run agentgateway standalone in Docker"
     summary: |
-      Start standalone agentgateway in a Docker container, serving standalone/<NAME>/config.yaml.
-      No Kubernetes involved. Prints the gateway and UI URLs when it is ready.
-
-      Host ports are probed and incremented until one is free (PORT_TRIES attempts), and a
-      run that loses the race to Docker's own allocation check is retried one port higher —
-      so two instances, or a busy 4000, never wedge the task.
+      Start standalone agentgateway in a Docker container — no Kubernetes, no CRDs.
+      Prints the gateway and UI URLs when ready. CONFIG is what to run, CLUSTER is what
+      to call it.
 
       Variables:
-        NAME         config dir under standalone/                  REQUIRED — see standalone:list
-        INSTANCE     name for the running instance                 default the value of NAME
-        BIND         host address to publish on                    default 127.0.0.1
-        UI_PORT      first host port tried for the UI              default 15000
-        GW_PORT      first host port tried for gateway ports       default the config's own port
-        PORT_TRIES   ports to probe before giving up               default 25
-        IMAGE        full image ref override                       default from versions.env
-        FOLLOW       true to tail logs after start                 default false
+        CONFIG       config dir under standalone/           REQUIRED  see standalone:list
+        CLUSTER      name for this instance                 default the CONFIG name
+        BIND         host address to publish on             default 127.0.0.1 (loopback)
+        UI_PORT      first host port tried for the UI       default 15000
+        GW_PORT      first host port tried for the gateway  default the config's own port
+        PORT_TRIES   ports to probe before giving up        default 25
+        IMAGE        full image ref override                default from versions.env
+        FOLLOW       true to tail the logs after start      default false
+        NAME / INSTANCE   aliases for CONFIG / CLUSTER
 
-      BIND defaults to loopback deliberately: Docker's own default (0.0.0.0) would put the
-      UI on your LAN. BIND=0.0.0.0 opts into that; the port probe then tests that address
-      instead, since a listener on 0.0.0.0:4000 also blocks 127.0.0.1:4000.
-
-      Licensing: needs AGENTGATEWAY_LICENSE_KEY in .env. Standalone refuses to start
-      unlicensed (no grace period on a fresh install), and does NOT fall back to
-      SOLO_LICENSE_KEY — the standalone verifier requires a 'product' claim the generic
-      key does not carry.
-
-      Secrets: reference them as $VAR in the config; the gateway expands them from its
-      environment at load time, and solomog detects the references and passes those
-      variables into the container. A missing one is reported by name before start.
-
-      NAME picks the config; INSTANCE names the running thing. Set INSTANCE to run the same
-      config again alongside the first — solomog copies the config to
-      .solomog/standalone/<INSTANCE>/ so the two never fight over one config.yaml or data.db,
-      and the scratch instance's UI edits stay out of your repo.
-
-      Instances are registered, so they also show up in `solomog cluster:list` and can be
-      destroyed with `solomog teardown CLUSTER=<instance>` like any other target.
+      The config file is the flavor — no PRODUCTS, no EDITION. Needs
+      AGENTGATEWAY_LICENSE_KEY (no SOLO_LICENSE_KEY fallback). Instances show in
+      cluster:list and delete via teardown. Schema, secrets, ports: standalone/README.md.
 
       Examples:
-        solomog standalone NAME=minimal
-        solomog standalone NAME=minimal INSTANCE=scratch     # a second one, alongside
-        solomog standalone NAME=llm FOLLOW=true
-        solomog standalone NAME=minimal UI_PORT=16000 BIND=0.0.0.0
+        solomog standalone:list                        # which configs exist
+        solomog standalone:validate CONFIG=llm         # check one first
+        solomog standalone CONFIG=llm                  # start it, print the URLs
+        solomog standalone CONFIG=llm CLUSTER=llm2     # second instance, same config
+    vars:
+      # Declared only so the wrapper's preflight accepts CONFIG=. It harvests variable names
+      # from `vars:`/`env:` KEYS, and CONFIG appears solely on the right-hand side of the
+      # alias chains here and in the other standalone tasks — so without this, a real
+      # CONFIG= is rejected as an unknown variable. One declaration registers the name for
+      # every task (the preflight is global), which is why the sibling tasks omit it.
+      # CLUSTER needs no such line: it is already an env:/vars: key on the cluster tasks.
+      CONFIG: '{{.CONFIG | default ""}}'
     cmds:
-      - bash scripts/run.sh "Start standalone agentgateway → {{.INSTANCE | default .NAME}}" bash scripts/standalone.sh run
+      - bash scripts/run.sh "Start standalone agentgateway → {{.INSTANCE | default .CLUSTER | default .NAME | default .CONFIG}}" bash scripts/standalone.sh run
     env:
-      NAME: '{{.NAME | default ""}}'
-      INSTANCE: '{{.INSTANCE | default ""}}'
+      # CONFIG aliases NAME and CLUSTER aliases INSTANCE, so an instance is addressed the way
+      # a cluster is (lib/target.sh). The original names stay first in the chain for anyone
+      # already using them. A chained run like `solomog agentgateway CLUSTER=aaa standalone
+      # CONFIG=llm` cannot silently name the instance "aaa": standalone.sh refuses a CLUSTER
+      # that is already a tracked cluster.
+      NAME: '{{.NAME | default .CONFIG | default ""}}'
+      # splitList/first like every other single-target task: CLUSTER may hold a space-separated
+      # list, and the wrapper's slip warning promises single-target tasks use only the first.
+      INSTANCE: '{{.INSTANCE | default .CLUSTER | default "" | splitList " " | first}}'
       BIND: '{{.BIND | default "127.0.0.1"}}'
       UI_PORT: '{{.UI_PORT | default "15000"}}'
       GW_PORT: '{{.GW_PORT | default ""}}'
@@ -1185,56 +1164,58 @@ tasks:
   standalone:stop:
     desc: "Stop a standalone instance (keeps config + state)"
     summary: |
-      Remove the instance's container and nothing else. The config, its state, and the
-      registry entry all stay, so `solomog standalone NAME=<config>` resumes where you left
-      off. To make the instance stop existing, use standalone:delete.
+      Remove the instance's container and nothing else — config, state, and registry entry
+      stay, so re-running `solomog standalone` resumes. To make it stop existing, use
+      standalone:delete.
 
       Variables:
-        INSTANCE   instance to stop                  REQUIRED (NAME accepted as an alias)
+        CLUSTER   instance to stop   REQUIRED  see standalone:list
+        INSTANCE / CONFIG / NAME   aliases for CLUSTER
 
       Examples:
-        solomog standalone:stop INSTANCE=minimal
-        solomog standalone:stop NAME=minimal        # same thing when you never set INSTANCE
+        solomog standalone:stop CLUSTER=minimal
     cmds:
-      - bash scripts/run.sh "Stop standalone agentgateway → {{.INSTANCE | default .NAME}}" bash scripts/standalone.sh stop
+      - bash scripts/run.sh "Stop standalone agentgateway → {{.INSTANCE | default .CLUSTER | default .NAME | default .CONFIG}}" bash scripts/standalone.sh stop
     env:
-      NAME: '{{.NAME | default ""}}'
-      INSTANCE: '{{.INSTANCE | default ""}}'
+      NAME: '{{.NAME | default .CONFIG | default ""}}'
+      # splitList/first like every other single-target task: CLUSTER may hold a space-separated
+      # list, and the wrapper's slip warning promises single-target tasks use only the first.
+      INSTANCE: '{{.INSTANCE | default .CLUSTER | default "" | splitList " " | first}}'
 
   standalone:delete:
     desc: "Delete a standalone instance"
     summary: |
-      Make the instance stop existing: remove its container, its registry entry, and any
-      runtime state under .solomog/standalone/<INSTANCE>/ (which for a scratch instance
-      includes its config copy and UI edits). Prompts unless FORCE=true.
+      Delete the instance: its container, registry entry, and runtime state under
+      .solomog/standalone/<cluster>/. Prompts unless FORCE=true.
 
-      The config under standalone/<name>/ is left alone. It is source, not state — the same
-      reason tearing down a cluster does not delete your helmfiles. The command to remove it
-      is printed if you want it gone too.
+      The config under standalone/<name>/ stays — source, not state, the same reason
+      tearing down a cluster does not delete your helmfiles. The `rm -rf` is printed too.
 
-      `solomog teardown CLUSTER=<instance>` does the same thing, so one command deletes any
-      solomog target regardless of type. This task is the type-specific form, matching
-      vind:delete / eks:delete / vsphere:delete.
+      Type-specific form, matching vind:delete / eks:delete / vsphere:delete;
+      `solomog teardown CLUSTER=<name>` does the same for any target type.
 
       Variables:
-        INSTANCE   instance to delete                REQUIRED (NAME accepted as an alias)
-        FORCE      true skips the confirmation       default false
+        CLUSTER   instance to delete            REQUIRED  see standalone:list
+        FORCE     true skips the confirmation   default false
+        INSTANCE / CONFIG / NAME   aliases for CLUSTER
 
       Examples:
-        solomog standalone:delete INSTANCE=scratch
-        solomog standalone:delete INSTANCE=scratch FORCE=true
+        solomog standalone:delete CLUSTER=scratch FORCE=true
     cmds:
-      - bash scripts/run.sh "Delete standalone agentgateway → {{.INSTANCE | default .NAME}}" bash scripts/standalone.sh delete
+      - bash scripts/run.sh "Delete standalone agentgateway → {{.INSTANCE | default .CLUSTER | default .NAME | default .CONFIG}}" bash scripts/standalone.sh delete
     env:
-      NAME: '{{.NAME | default ""}}'
-      INSTANCE: '{{.INSTANCE | default ""}}'
+      NAME: '{{.NAME | default .CONFIG | default ""}}'
+      # splitList/first like every other single-target task: CLUSTER may hold a space-separated
+      # list, and the wrapper's slip warning promises single-target tasks use only the first.
+      INSTANCE: '{{.INSTANCE | default .CLUSTER | default "" | splitList " " | first}}'
       FORCE: '{{.FORCE | default "false"}}'
 
   standalone:list:
     desc: "List standalone configs and running instances"
     summary: |
-      List the configs under standalone/ and every running solomog standalone container
-      with its published ports. Cluster-free; needs only Docker.
+      List the configs under standalone/ and every running instance with its published
+      ports. Cluster-free; needs only Docker. Start here — the config names it prints are
+      what you pass as CONFIG. Instances also appear in `solomog cluster:list`.
 
       No variables.
 
@@ -1250,70 +1231,77 @@ tasks:
       Show the tail of an instance's container log.
 
       Variables:
-        INSTANCE     instance whose logs to show    REQUIRED (NAME accepted as an alias)
-        TAIL_LINES   how many lines to show         default 60
+        CLUSTER      instance whose logs to show   REQUIRED  see standalone:list
+        TAIL_LINES   how many lines to show        default 60
+        INSTANCE / CONFIG / NAME   aliases for CLUSTER
 
-      Named TAIL_LINES, not LINES: bash owns LINES (terminal height), so an inherited
-      value would quietly win over yours.
+      TAIL_LINES, not LINES: bash owns LINES (terminal height), so an inherited value
+      would quietly win over yours.
 
       Examples:
-        solomog standalone:logs INSTANCE=minimal
-        solomog standalone:logs INSTANCE=llm TAIL_LINES=200
+        solomog standalone:logs CLUSTER=minimal
+        solomog standalone:logs CLUSTER=llm TAIL_LINES=200
     cmds:
       - bash scripts/standalone.sh logs
     silent: true
     env:
-      NAME: '{{.NAME | default ""}}'
-      INSTANCE: '{{.INSTANCE | default ""}}'
+      NAME: '{{.NAME | default .CONFIG | default ""}}'
+      # splitList/first like every other single-target task: CLUSTER may hold a space-separated
+      # list, and the wrapper's slip warning promises single-target tasks use only the first.
+      INSTANCE: '{{.INSTANCE | default .CLUSTER | default "" | splitList " " | first}}'
       TAIL_LINES: '{{.TAIL_LINES | default "60"}}'
 
   standalone:validate:
     desc: "Validate a standalone config (no cluster, no license)"
     summary: |
-      Check standalone/<NAME>/config.yaml with the gateway's own `--validate-only`, which
-      needs neither a cluster nor a license. Catches type errors, unknown fields, and
-      environment variables the config references but that are not set.
+      Check standalone/<config>/config.yaml with the gateway's own `--validate-only` — no
+      cluster, no license. Catches type errors, unknown fields, and unset environment
+      variables the config references. Run it on a config you just wrote or imported.
 
-      Worth knowing about that last one: the gateway expands $VAR over the WHOLE config
-      file before parsing, comments included, and an unset variable aborts the entire load
-      with an error that does not say which variable. This task names it. The single
-      exception the gateway itself carves out is the `# yaml-language-server: $schema` hint
-      line, which it strips before expanding.
+      That last check earns its keep: the gateway expands $VAR over the whole file before
+      parsing, comments included, and an unset one aborts the load without naming it.
 
       Variables:
-        NAME    config dir under standalone/   REQUIRED
+        CONFIG   config dir under standalone/   REQUIRED  see standalone:list
+        NAME     alias for CONFIG
+
+      CONFIG, not CLUSTER — it validates a file, so no instance need exist.
 
       Examples:
-        solomog standalone:validate NAME=llm
+        solomog standalone:validate CONFIG=llm
     cmds:
-      - bash scripts/run.sh "Validate standalone config → {{.NAME}}" bash scripts/standalone.sh validate
+      - bash scripts/run.sh "Validate standalone config → {{.NAME | default .CONFIG}}" bash scripts/standalone.sh validate
     env:
-      NAME: '{{.NAME | default ""}}'
+      NAME: '{{.NAME | default .CONFIG | default ""}}'
 
   standalone:import:
     desc: "Convert a LiteLLM config into a standalone config"
     summary: |
-      Run the gateway's own importer over a foreign gateway config and write the result to
-      standalone/<NAME>/config.yaml. Prints a per-field findings report: 'exact' translated
-      cleanly, 'approximate' needs review, 'unsupported' was dropped.
+      Run the gateway's own importer over a foreign config and write the result to
+      standalone/<config>/config.yaml — a new config without writing it by hand. Prints a
+      per-field report: 'exact' translated cleanly, 'approximate' needs review,
+      'unsupported' was dropped. litellm is the only source supported.
 
-      litellm is the only source the importer supports.
+      It can emit a config the gateway rejects, so follow with
+      `solomog standalone:validate CONFIG=<name>`.
 
       Variables:
-        NAME    destination dir under standalone/ (must not exist)   REQUIRED
-        FILE    the source config to read                            REQUIRED
-        FROM    source format                                        default litellm
+        CONFIG   destination dir under standalone/ (must not exist)   REQUIRED
+        FILE     the source config to read                            REQUIRED
+        FROM     source format                                        default litellm
+        NAME     alias for CONFIG
 
       Examples:
-        solomog standalone:import NAME=from-litellm FILE=~/litellm/config.yaml
+        solomog standalone:import CONFIG=from-litellm FILE=~/litellm/config.yaml
     vars:
       # A task var, not an inline template in the cmds string: escaping nested quotes in a
       # YAML plain scalar produces a backslash that go-task's template parser rejects.
       FROM_LABEL: '{{.FROM | default "litellm"}}'
+      DEST: '{{.NAME | default .CONFIG | default ""}}'
     cmds:
-      - bash scripts/run.sh "Import {{.FROM_LABEL}} config → standalone/{{.NAME}}" bash scripts/standalone.sh import
+      - bash scripts/run.sh "Import {{.FROM_LABEL}} config → standalone/{{.DEST}}" bash scripts/standalone.sh import
     env:
-      NAME: '{{.NAME | default ""}}'
+      NAME: '{{.NAME | default .CONFIG | default ""}}'
       FILE: '{{.FILE | default ""}}'
       FROM: '{{.FROM | default "litellm"}}'
 
@@ -1327,8 +1315,11 @@ tasks:
       ONLY updates .env — re-run your bundle to push it into the cluster secret. The token
       is short-lived (~1h); re-run this when a GCP-backed backend 401s.
 
-      No variables. Uses the active gcloud account. Chain with apply to push it:
-        solomog gcp:refresh apply BUNDLE=llmroute-vertex CLUSTER=aaa
+      No variables. Uses the active gcloud account.
+
+      Examples:
+        solomog gcp:refresh
+        solomog gcp:refresh apply BUNDLE=llmroute-vertex CLUSTER=aaa   # chain to push it
     cmds:
       - bash scripts/run.sh "Refresh GCP access token" bash scripts/gcp-refresh.sh
 
@@ -1345,8 +1336,9 @@ tasks:
         AWS_PROFILE       SSO profile to export                       the one `aws configure sso` created
         AWS_SSO_SESSION   SSO session name for the login fallback     default SOlo
 
-      Chain with apply to push them:
-        solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=aaa
+      Examples:
+        solomog aws:refresh
+        solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=aaa   # chain to push them
     cmds:
       - bash scripts/run.sh "Refresh AWS credentials" bash scripts/aws-refresh.sh
 
@@ -1518,7 +1510,8 @@ tasks:
       exists). Provisions REAL infra (~15-20 min, costs $). `--with-oidc` sets up the IAM OIDC
       provider that eks:irsa needs.
 
-      Needs AWS creds: `solomog aws:refresh` (writes .env; the task reloads it, robust to stale shell creds) or export them in the shell. Plus eksctl.
+      Needs eksctl, and AWS creds: `solomog aws:refresh` writes them to .env and the task
+      reloads it (robust to stale shell creds), or export them in the shell.
 
       Variables:
         CLUSTER        EKS cluster NAME (required — no default; this makes a real cluster)
@@ -1529,10 +1522,9 @@ tasks:
         EKS_NODE_TYPE  instance type                   default m5.large
         OWNER          owner=<val> tag (from .env)     default "solomog" — set to your email
 
-      Example:
-        export AWS_PROFILE=AdministratorAccess-170015905430
-        eval "$(aws configure export-credentials --format env)"
-        solomog eks:create CLUSTER=dmorgan-agw
+      Examples:
+        solomog aws:refresh eks:create CLUSTER=dmorgan-agw
+        solomog eks:create CLUSTER=dmorgan-agw EKS_REGION=us-east-2 EKS_NODES=3
     cmds:
       - bash scripts/run.sh "Create EKS cluster {{.CLUSTER}}" bash scripts/eks-create.sh
     env:
@@ -1557,7 +1549,8 @@ tasks:
       CloudFormation stacks directly (disabling termination protection). MUTATES AWS. EKS only.
       Non-eks names are refused (use that type's delete, or `solomog teardown`).
 
-      Needs AWS creds: `solomog aws:refresh` (writes .env; the task reloads it, robust to stale shell creds) or export them in the shell. Plus eksctl.
+      Needs eksctl, and AWS creds: `solomog aws:refresh` writes them to .env and the task
+      reloads it (robust to stale shell creds), or export them in the shell.
 
       Variables:
         CLUSTER / CLUSTERS  registered EKS cluster name(s), space-separated (required —
@@ -1567,11 +1560,9 @@ tasks:
         AWS_REGION  region (fallback)               default: derived from the context ARN
         GATEWAY     gateway name (default agw)       informational; all Gateways + LB svcs are removed
 
-      Example:
-        export AWS_PROFILE=AdministratorAccess-170015905430
-        eval "$(aws configure export-credentials --format env)"
-        solomog eks:delete CLUSTER=dmorgan-agw
-        solomog eks:delete CLUSTERS="e1 e2"
+      Examples:
+        solomog aws:refresh eks:delete CLUSTER=dmorgan-agw
+        solomog eks:delete CLUSTERS="e1 e2" FORCE=true
     cmds:
       - bash scripts/run.sh "Delete EKS cluster {{.CLUSTER}}" bash scripts/eks-delete.sh
     env:
@@ -1591,7 +1582,8 @@ tasks:
       restarts the proxy. Idempotent. EKS only (CLUSTER registered by eks:create, or CONTEXT set).
       Mutates AWS IAM + the proxy.
 
-      Needs AWS creds: `solomog aws:refresh` (writes .env; the task reloads it, robust to stale shell creds) or export them in the shell. Plus eksctl.
+      Needs eksctl, and AWS creds: `solomog aws:refresh` writes them to .env and the task
+      reloads it (robust to stale shell creds), or export them in the shell.
 
       Variables:
         CLUSTER     registered EKS cluster name (required)             e.g. dmorgan-agw
@@ -1601,10 +1593,9 @@ tasks:
         AWS_REGION  region (fallback)                                  default: derived from the context ARN
         AGENTCORE_RUNTIME_ARN[_2]  runtimes to scope the policy to (from .env; else runtime/* wildcard)
 
-      Example:
-        export AWS_PROFILE=AdministratorAccess-170015905430
-        eval "$(aws configure export-credentials --format env)"
-        solomog eks:irsa CLUSTER=dmorgan-agw
+      Examples:
+        solomog aws:refresh eks:irsa CLUSTER=dmorgan-agw
+        solomog eks:irsa CLUSTER=dmorgan-agw GATEWAY=agw
     cmds:
       - bash scripts/run.sh "IRSA for agentgateway proxy" bash scripts/eks-irsa.sh
     env:
@@ -1664,6 +1655,10 @@ tasks:
         GATEWAY_NS   gateway namespace                                  auto-detected
 
       Run `solomog expose` so routes program. See `solomog help expose`.
+
+      Examples:
+        solomog apps:utils CLUSTER=aaa
+        solomog expose apps:utils ROUTE=true CLUSTER=aaa
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
@@ -1694,6 +1689,10 @@ tasks:
         APP_NS       workload namespace                                default mock-openai
 
       Run `solomog expose` so routes program. See `solomog help expose`.
+
+      Examples:
+        solomog apps:mock-openai CLUSTER=aaa
+        solomog agentgateway expose apps:mock-openai ROUTE=true CLUSTER=aaa
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
@@ -1720,6 +1719,10 @@ tasks:
         GATEWAY      gateway to route through                          default agw
 
       Run `solomog expose` so routes program. See `solomog help expose`.
+
+      Examples:
+        solomog apps:mcp-stripe CLUSTER=aaa
+        solomog agentgateway expose apps:mcp-stripe ROUTE=true CLUSTER=aaa
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:

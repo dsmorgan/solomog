@@ -428,8 +428,8 @@ EOF
       [ -n "$ui" ] && printf '  %-12s %s\n' "ui:" "$ui"
       printf '  %-12s %s\n' "tracked:" "standalone (.solomog/standalone-instances)"
       printf '\n  %sNot a cluster — agentgateway in a container. Manage with:%s\n' "$D" "$R"
-      printf '  %ssolomog standalone:logs INSTANCE=%s%s\n' "$D" "$NAME" "$R"
-      printf '  %ssolomog standalone:stop INSTANCE=%s%s\n' "$D" "$NAME" "$R"
+      printf '  %ssolomog standalone:logs CLUSTER=%s%s\n' "$D" "$NAME" "$R"
+      printf '  %ssolomog standalone:stop CLUSTER=%s%s\n' "$D" "$NAME" "$R"
     fi
     if [ "$typ" = "vind" ] && [ "$VCLUSTER_OK" = 1 ] && _vcluster_running "$NAME"; then
       age="$(_vcluster_age "$NAME")"

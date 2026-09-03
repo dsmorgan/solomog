@@ -30,7 +30,7 @@ tasks:
         VSPHERE_OVA_LOCAL_PATH   optional local-OVA fallback when vCenter can't reach
                                  UBUNTU_OVA_URL
 
-      Example:
+      Examples:
         solomog vsphere:init
     cmds:
       - bash scripts/run.sh "vSphere one-time init (content library + template)" bash scripts/vsphere-init.sh
@@ -55,7 +55,7 @@ tasks:
                    vsphere:reset (opt-in)                        default false
         VSPHERE_*  connection/placement/network from .env (preflight lists any missing)
 
-      Example:
+      Examples:
         solomog vsphere:create CLUSTER=hl1
         solomog agentgateway expose apps:utils ROUTE=true CLUSTER=hl1
     cmds:
@@ -77,7 +77,7 @@ tasks:
       Variables:
         CLUSTER / CLUSTERS   cluster name(s), space-separated (required)
 
-      Example:
+      Examples:
         solomog vsphere:stop CLUSTERS="hl1 hl2"
     cmds:
       - bash scripts/run.sh "Stop vSphere cluster {{.CLUSTER}}" bash scripts/vsphere-stop.sh
@@ -94,7 +94,7 @@ tasks:
       Variables:
         CLUSTER / CLUSTERS   cluster name(s), space-separated (required)
 
-      Example:
+      Examples:
         solomog vsphere:start CLUSTERS="hl1 hl2"
     cmds:
       - bash scripts/run.sh "Start vSphere cluster {{.CLUSTER}}" bash scripts/vsphere-start.sh
@@ -114,7 +114,7 @@ tasks:
         CLUSTER / CLUSTERS   cluster name(s), space-separated (required)
         ACTION    take (default) | status — status just lists baseline presence/age
 
-      Example:
+      Examples:
         solomog vsphere:snapshot CLUSTER=hl1
         solomog vsphere:snapshot CLUSTER=hl1 ACTION=status
     cmds:
@@ -137,7 +137,7 @@ tasks:
                              current cluster state; one prompt for the whole batch)
         FORCE     true → skip the confirmation prompt              default false
 
-      Example:
+      Examples:
         solomog vsphere:reset CLUSTER=hl1
         solomog vsphere:reset agentgateway expose CLUSTER=hl1 ROUTE=true   # reset then rebuild
     cmds:
@@ -161,7 +161,7 @@ tasks:
                              no default; destructive; one prompt for the whole batch)
         FORCE      true → skip the confirmation prompt (scripted teardown)   default false
 
-      Example:
+      Examples:
         solomog vsphere:delete CLUSTER=hl1
         solomog vsphere:delete CLUSTERS="hl1 hl2 hl3"
     cmds:

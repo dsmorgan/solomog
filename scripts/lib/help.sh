@@ -231,8 +231,11 @@ solomog_help_index() {
   done
 }
 
+# solomog_help_group <group> [defer_footer]
+# defer_footer=1 holds back the closing "Task details:" hint, for when the caller appends a
+# same-named task's summary underneath and wants the hint to close the whole page.
 solomog_help_group() {
-  local g="$1" title members i=0 line
+  local g="$1" defer="${2:-}" title members i=0 line
   _solomog_help_load || return 1
   _solomog_help_colors
   title="$(_solomog_help_lookup "$g" _HELP_GROUP_NAMES _HELP_GROUP_TITLES)" || title="$g"
@@ -250,7 +253,8 @@ solomog_help_group() {
     [ "${_HELP_SEE_G[$i]}" = "$g" ] && printf '%s\n' "${_HELP_SEE_L[$i]}"
     i=$((i + 1))
   done
-  printf 'Task details:     solomog help <task>\n'
+  [ -n "$defer" ] || printf 'Task details:     solomog help <task>\n'
+  return 0
 }
 
 solomog_help_prefix() {
@@ -315,11 +319,20 @@ _solomog_help_filter_summary() {
     !skip          { print }'
 }
 
-solomog_help_task_summary() {
+# One task's own summary, trailer stripped and nothing else — no "Related:" footer. Split
+# out of solomog_help_task_summary so a group page can append its same-named task's detail.
+_solomog_help_task_body() {
   local out rc
   out="$(task --summary "$@" 2>&1)"
   rc=$?
   printf '%s\n' "$out" | _solomog_help_filter_summary
+  return "$rc"
+}
+
+solomog_help_task_summary() {
+  local rc
+  _solomog_help_task_body "$@"
+  rc=$?
   [ "$rc" -eq 0 ] || return "$rc"
   _solomog_help_related "$1"
 }
@@ -397,7 +410,18 @@ solomog_help_dispatch() {
   esac
   _solomog_help_load || return 1
   if solomog_help_is_group "$topic"; then
-    solomog_help_group "$(solomog_help_resolve_group "$topic")"
+    # A group can share its name with a task (standalone, setup). The group page alone would
+    # then SHADOW that task's own summary — its Variables block included — with no topic name
+    # left to reach it by, so append the task detail instead of making the reader guess, and
+    # let the group's closing hint move below it.
+    if _solomog_help_is_task "$topic"; then
+      solomog_help_group "$(solomog_help_resolve_group "$topic")" defer
+      printf '\n'
+      _solomog_help_task_body "$topic"
+      printf '\nOther tasks:      solomog help <task>\n'
+    else
+      solomog_help_group "$(solomog_help_resolve_group "$topic")"
+    fi
     return 0
   fi
   if _solomog_help_is_task "$topic"; then
