@@ -25,6 +25,8 @@ alias	clusters	cluster
 
 prefix	setup	setup
 prefix	versions	setup
+prefix	explain	setup
+prefix	wwit	setup
 prefix	cluster	cluster
 prefix	eks	cluster
 prefix	vsphere	cluster

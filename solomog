@@ -64,6 +64,46 @@ if [ "$1" = "help" ] || [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
   exit $?
 fi
 
+# `solomog explain|wwit <tasks>…` → customer-shaped bash recipe. Meta command: no mog
+# framing, not audited, does not execute. Must be the first *task* (KEY=VALUE may
+# precede it). Mid-chain is an error — it would otherwise run everything before it.
+_first_task=""
+_task_n=0
+for _a in "$@"; do
+  case "$_a" in
+    *=*) ;;
+    *)
+      _task_n=$((_task_n + 1))
+      [ -z "$_first_task" ] && _first_task="$_a"
+      case "$_a" in
+        explain|wwit)
+          if [ "$_task_n" -ne 1 ]; then
+            echo "solomog: $_a must be the first task (it prints a recipe and does not execute the rest of the line)" >&2
+            echo "  Use:  solomog $_a <task> [task...] [KEY=VALUE...]" >&2
+            exit 1
+          fi
+          ;;
+      esac
+      ;;
+  esac
+done
+unset _a _task_n
+if [ "$_first_task" = "explain" ] || [ "$_first_task" = "wwit" ]; then
+  _rest=()
+  for _a in "$@"; do
+    case "$_a" in
+      explain|wwit) ;;
+      *) _rest+=("$_a") ;;
+    esac
+  done
+  unset _a _first_task
+  if [ ${#_rest[@]} -gt 0 ]; then
+    exec bash "$SCRIPT_DIR/scripts/explain.sh" "${_rest[@]}"
+  fi
+  exec bash "$SCRIPT_DIR/scripts/explain.sh"
+fi
+unset _first_task
+
 # `solomog agentcore:env ...` → shell-eval-able exports. Meta command: no mog framing, not
 # audited, because the framing/summary printf's go to STDOUT and would land inside the user's
 # `eval "$(solomog agentcore:env NAME=x)"`. Passed straight through to go-task (-s: no
