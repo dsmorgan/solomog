@@ -160,31 +160,6 @@ else
   pass "vind default context → not vsphere"
 fi
 
-echo "==> _solomog_hosts_strip (lib/hosts.sh — the pure half of the /etc/hosts rewrite)"
-# shellcheck source=lib/hosts.sh
-source "$REPO_DIR/scripts/lib/hosts.sh"
-HOSTS_FIXTURE="$(printf '%s\n' \
-  '# managed by hand' \
-  '127.0.0.1 localhost' \
-  '# 10.0.0.9 agw.s1.test old-note' \
-  '9.9.9.9 agwXs1Ytest' \
-  '1.2.3.4 keepme agw.s1.test other' \
-  '5.6.7.8 agw.s1.test' \
-  '2.2.2.2 keepme2 agw.s1.test # trailing comment' \
-  '7.7.7.7 AGW.S1.TEST' \
-  '3.3.3.3 agw-s1.test')"
-GOT="$(printf '%s\n' "$HOSTS_FIXTURE" | _solomog_hosts_strip "agw.s1.test")"
-assert_eq "strip: exact/case-insensitive removed, aliases+comments+near-misses kept" "$GOT" "$(printf '%s\n' \
-  '# managed by hand' \
-  '127.0.0.1 localhost' \
-  '# 10.0.0.9 agw.s1.test old-note' \
-  '9.9.9.9 agwXs1Ytest' \
-  '1.2.3.4 keepme other' \
-  '2.2.2.2 keepme2 # trailing comment' \
-  '3.3.3.3 agw-s1.test')"
-assert_eq "strip: absent host leaves content untouched" \
-  "$(printf '%s\n' "$HOSTS_FIXTURE" | _solomog_hosts_strip "not-there.test")" "$HOSTS_FIXTURE"
-
 echo ""
 if [ "$FAIL" -eq 0 ]; then
   echo "All vsphere lib tests passed."

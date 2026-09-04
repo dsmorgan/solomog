@@ -28,6 +28,8 @@ MODE="${1:-list}"
 # deliberately local (_ctx_for ignores CONTEXT so a one-off override can't rewrite
 # every row of the table).
 . "$REPO_DIR/scripts/lib/target.sh"
+# shellcheck source=lib/hosts.sh
+. "$REPO_DIR/scripts/lib/hosts.sh"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[32m'; B=$'\033[1m'; D=$'\033[2m'; Y=$'\033[33m'; R=$'\033[0m'
@@ -274,8 +276,8 @@ _in_clusters_file() {
 _hosts_for() {   # args: <cluster> → matching /etc/hosts lines
   local c="$1"
   [ -f /etc/hosts ] || return 0
-  # Hostname form is *.<cluster>.test (expose / route-host).
-  grep -E "[[:space:]][^[:space:]]*\\.${c}\\.test([[:space:]]|\$)" /etc/hosts 2>/dev/null || true
+  # Stamped lines for this cluster (any hostname) plus unmarked *.<cluster>.test.
+  _solomog_hosts_lines_for "$c" < /etc/hosts || true
 }
 
 # ─── modes ───────────────────────────────────────────────────────────────────

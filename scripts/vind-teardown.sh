@@ -10,7 +10,8 @@ set -euo pipefail
 #
 # Always prunes stale .solomog/clusters entries (tracked but already gone from
 # `vcluster list`) when the list is available, so cluster:list doesn't keep
-# showing "gone" forever.
+# showing "gone" forever. Also removes /etc/hosts lines stamped for each name
+# (`# solomog cluster=<name>`); unmarked leftovers are printed, not deleted.
 #
 # Env:
 #   CLUSTER / CLUSTERS  space-separated names (required — destructive)
@@ -19,6 +20,8 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
+# shellcheck source=lib/hosts.sh
+source "$REPO_DIR/scripts/lib/hosts.sh"
 
 STATE_FILE="$REPO_DIR/.solomog/clusters"
 
@@ -115,6 +118,9 @@ for cluster in "${NAMES[@]}"; do
     echo "    Warning: could not delete '$cluster' (may already be gone)"
     untrack_cluster "$cluster"
   fi
+  # Always — same as untrack. Stamped lines only; unmarked leftovers are printed.
+  solomog_hosts_unset_cluster "$cluster" || \
+    echo "    WARNING: /etc/hosts cleanup failed for '${cluster}'." >&2
 done
 
 echo ""

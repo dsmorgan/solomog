@@ -179,6 +179,8 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   classifies each name (`solomog_cluster_type` in [scripts/lib/target.sh](scripts/lib/target.sh):
   vind / vsphere / eks) and dispatches. Mixed lists are fine. `vind:delete` /
   `vsphere:delete` / `eks:delete` refuse the wrong type. All prompt unless `FORCE=true`.
+  vind and vsphere also drop stamped `/etc/hosts` lines for each name (`hosts:clean`
+  is the same function without destroying the cluster).
 - **License resolution** is centralized in
   [helmfiles/environments/default.yaml.gotmpl](helmfiles/environments/default.yaml.gotmpl):
   `<product>_license_key` = product-specific env var `| default SOLO_LICENSE_KEY`.
@@ -345,6 +347,13 @@ is the fix. Install paths must always name the product prefix, never bare `/`.
   `$SOLOMOG_HOSTS_TEE` the write uses, so the two cannot drift. A hook-local `tee -a`/`sed -i`
   variant would fall outside the rule and start prompting again (this is why the portal-httpbin
   hook was migrated). New privileged needs: extend that one fragment, don't sprinkle `sudo`.
+  Each written line is stamped `# solomog cluster=<CLUSTER>` (`CLUSTER` is required).
+  `vind:delete` / `vsphere:delete` / `hosts:clean` call `solomog_hosts_unset_cluster`,
+  which drops **only** exact-stamp lines — unmarked leftovers, including other `*.test`
+  names, stay and are printed. Same ownership idea as the OPNsense DNS=real descr
+  prefix. A sidecar ledger under `.solomog/` is the wrong source of truth (`/etc/hosts`
+  is machine-wide). Re-run expose (or any `solomog_hosts_set`) to restamp a legacy
+  unmarked line so the next teardown can remove it.
 - **`/etc/hosts` has no wildcard support**, so each sub-host needs its own explicit line. Ordering is
   handled both ways: `route-host.sh` adds the line immediately if the gateway already exists, and
   `expose.sh` **backfills** entries for any sub-host HTTPRoute already attached to its gateway (jq over
@@ -905,6 +914,8 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   `bash scripts/test-envfile.sh` (in-place `.env` rewriting, [scripts/lib/envfile.sh](scripts/lib/envfile.sh)),
   `bash scripts/test-vsphere-lib.sh` (IP/VIP allocators, [scripts/lib/vsphere.sh](scripts/lib/vsphere.sh);
   keep it hermetic via the `VSPHERE_POOL_FILE` / `VSPHERE_INIT_STATE` overrides),
+  `bash scripts/test-hosts.sh` (`/etc/hosts` stamp + strip, [scripts/lib/hosts.sh](scripts/lib/hosts.sh);
+  fixtures only — no sudo, no write),
   `bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
   injects fixture task/key lists — no live `task --list` in the assertion cases),
   and `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute).

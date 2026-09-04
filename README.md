@@ -607,6 +607,8 @@ solomog vind:delete CLUSTER=aaa          # vind-only (also: vsphere:delete, eks:
 
 `CLUSTER` / `CLUSTERS` is required — there is no destroy-all. `teardown` (alias `delete`)
 detects each name's type and dispatches; the `*:delete` tasks refuse the wrong type.
+vind and vsphere also drop `/etc/hosts` lines stamped `# solomog cluster=<name>`
+(`solomog hosts:clean CLUSTER=…` does the same without destroying the cluster).
 
 ---
 
@@ -663,7 +665,7 @@ solomog
 │   ├── setup.sh / setup-sudo.sh  # install prereqs + link solomog; passwordless /etc/hosts
 │   ├── run.sh / list.sh        # per-step framing; the grouped `solomog` help index
 │   ├── lib/help.sh             # index / group / --all pages (catalog in help-catalog.txt)
-│   ├── vind-create.sh / vind-teardown.sh / teardown.sh
+│   ├── vind-create.sh / vind-teardown.sh / teardown.sh / hosts-clean.sh
 │   ├── networking.sh / mesh-eastwest.sh / net-repair.sh
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order
@@ -680,10 +682,10 @@ solomog
 │   ├── eks-create.sh / eks-delete.sh / eks-irsa.sh
 │   ├── vsphere-*.sh            # homelab lifecycle: init/create/delete/stop/start/snapshot/reset
 │   ├── vsphere-snapshot.py     # pyvmomi (vCenter 7.0.x has no REST snapshot API)
-│   ├── test-envfile.sh / test-vsphere-lib.sh   # hermetic unit tests (no cluster, no vCenter)
+│   ├── test-envfile.sh / test-vsphere-lib.sh / test-hosts.sh   # hermetic unit tests
 │   ├── versions-update.sh
 │   ├── lib/target.sh           # CLUSTER → kube context (vind / registry / CONTEXT)
-│   ├── lib/hosts.sh            # the one privileged /etc/hosts write
+│   ├── lib/hosts.sh            # the one privileged /etc/hosts write + stamped teardown
 │   ├── lib/gateway.sh / lib/envfile.sh / lib/ui.sh
 │   ├── lib/vsphere.sh / lib/opnsense.sh   # IP+VIP allocators; DNS=real record upserts
 │   ├── lib/graph/              # vendored cytoscape.min.js for the self-contained graph

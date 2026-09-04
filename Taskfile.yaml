@@ -144,8 +144,9 @@ tasks:
       Detail view for one cluster: type, context, region (EKS), status (running/gone
       for vind; EKS via AWS when creds work, else "—"), certs dir, /etc/hosts entries,
       whether it is the current kubectl context (yes / no / "same cluster, via context
-      <name>" when kubectl reaches it under a different context name). Cluster-free
-      (discovery only — does not talk to the Kubernetes API server).
+      <name>" when kubectl reaches it under a different context name). /etc/hosts
+      lines include solomog-stamped entries and unmarked *.<cluster>.test leftovers.
+      Cluster-free (discovery only — does not talk to the Kubernetes API server).
 
       Aliases: clusters:show
 
@@ -161,6 +162,25 @@ tasks:
     cmds:
       - bash scripts/clusters.sh show {{.CLUSTER}}
     silent: true
+
+  hosts:clean:
+    desc: "Remove stamped /etc/hosts lines for CLUSTER"
+    summary: |
+      Remove /etc/hosts lines solomog stamped for the named cluster(s)
+      (`# solomog cluster=<name>`). Does not default to all clusters. Unmarked
+      leftovers — including other *.test names — stay; they are printed, not
+      deleted. vind:delete and vsphere:delete already call this after destroy.
+
+      Variables:
+        CLUSTER / CLUSTERS   cluster name(s), space-separated (required — no default)
+
+      Examples:
+        solomog hosts:clean CLUSTER=aaa
+        solomog hosts:clean CLUSTERS="aaa hl1"
+    cmds:
+      - bash scripts/run.sh "Clean /etc/hosts for {{.CLUSTER}}" bash scripts/hosts-clean.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
 
   routes:
     desc: "Show agentgateway routes, backends, and policies"
@@ -1745,6 +1765,7 @@ tasks:
       with name+type, then dispatches to vind:delete / vsphere:delete / eks:delete.
       Mixed lists are fine. A registered generic external cluster is refused (solomog
       did not create it). FORCE=true skips the prompt (children run unattended).
+      vind and vsphere also drop stamped /etc/hosts lines for each name.
 
       Type-specific: solomog vind:delete / vsphere:delete / eks:delete.
 
@@ -1771,7 +1792,8 @@ tasks:
       .solomog/clusters (you take responsibility for the name), but registered
       eks/vsphere/external names are refused (use that type's delete, or
       `solomog teardown`). Prunes stale .solomog/clusters entries when `vcluster list`
-      is available. FORCE=true skips the prompt.
+      is available. Removes stamped /etc/hosts lines for each name. FORCE=true
+      skips the prompt.
 
       Variables:
         CLUSTER / CLUSTERS   vind cluster name(s), space-separated (required — no default;
