@@ -32,6 +32,7 @@ prefix	eks	cluster
 prefix	vsphere	cluster
 prefix	vind	cluster
 prefix	teardown	cluster
+prefix	hosts	cluster
 prefix	stack	products
 prefix	kgateway	products
 prefix	agentgateway	products

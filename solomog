@@ -137,7 +137,7 @@ done
 _solomog_task_takes_cluster_list() {
   case "$1" in
     istio:ambient:multi-*|istio:sidecar:multi-*) return 0 ;;
-    net:repair|teardown|delete|vind:delete|eks:delete) return 0 ;;
+    net:repair|teardown|delete|vind:delete|eks:delete|hosts:clean) return 0 ;;
     vsphere:stop|vsphere:start|vsphere:snapshot|vsphere:reset|vsphere:delete) return 0 ;;
     *) return 1 ;;
   esac

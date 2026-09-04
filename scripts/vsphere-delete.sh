@@ -5,8 +5,9 @@ set -euo pipefail
 # vsphere-create.sh: prompt once, then per cluster `tofu destroy` its workspace
 # (ONLY state-tracked resources — never VMs enumerated by name from vCenter),
 # delete the workspace, free the node-IP + LB-slice allocations, delete its
-# DNS=real records, remove the vsphere_<name> kube context, and deregister from
-# .solomog/contexts. Safe to re-run; each step no-ops when its work is already gone.
+# DNS=real records and stamped /etc/hosts lines, remove the vsphere_<name> kube
+# context, and deregister from .solomog/contexts. Safe to re-run; each step
+# no-ops when its work is already gone.
 # Spec: docs/specs/vsphere-provisioner.md.
 #
 # Env:
@@ -26,6 +27,8 @@ source "$REPO_DIR/scripts/lib/vsphere.sh"
 source "$REPO_DIR/scripts/lib/target.sh"
 # shellcheck source=lib/opnsense.sh
 source "$REPO_DIR/scripts/lib/opnsense.sh"
+# shellcheck source=lib/hosts.sh
+source "$REPO_DIR/scripts/lib/hosts.sh"
 
 # DNS=real records are fully automated in both directions: expose upserts them, and
 # teardown removes the cluster's (matched by the descr expose stamps — hand-made
@@ -34,6 +37,13 @@ delete_dns_records() {   # args: <cluster>
   solomog_opnsense_ready || return 0
   solomog_opnsense_dns_delete_cluster "$1" \
     || echo "    WARNING: OPNsense DNS cleanup failed — check Services → Dnsmasq DNS → Hosts for '*-$1' records." >&2
+}
+
+# DNS=local wrote /etc/hosts; DNS=real is a no-op here (no stamps). Stamped lines
+# only — unmarked leftovers are printed, not deleted. Best-effort.
+delete_hosts_entries() {   # args: <cluster>
+  solomog_hosts_unset_cluster "$1" \
+    || echo "    WARNING: /etc/hosts cleanup failed for '$1'." >&2
 }
 
 delete_one() {   # args: <cluster>
@@ -56,6 +66,7 @@ delete_one() {   # args: <cluster>
     # Still clean up any leftover registration/allocations/records from a partial create.
     vsphere_release_ips "$cluster"
     delete_dns_records "$cluster"
+    delete_hosts_entries "$cluster"
     solomog_deregister_context "$cluster"
     return 0
   fi
@@ -78,6 +89,7 @@ delete_one() {   # args: <cluster>
   vsphere_release_ips "$cluster"
   echo "    node IPs + LB slice released"
   delete_dns_records "$cluster"
+  delete_hosts_entries "$cluster"
 
   # Remove the merged kube entries (created by vsphere-create with one shared name).
   kubectl config delete-context "$ctx" >/dev/null 2>&1 || true
