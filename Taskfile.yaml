@@ -1784,6 +1784,30 @@ tasks:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
       FORCE: '{{.FORCE | default ""}}'
 
+  vind:create:
+    desc: "Create a blank vcluster (no Solo products)"
+    summary: |
+      Create a docker-driver vcluster with default config and connect its kube
+      context. No Solo products, no Gateway API CRDs, no certs, no /etc/hosts.
+      Optional — stack and the product shortcuts still create the cluster
+      themselves. Use this only when a blank cluster is the goal.
+
+      Idempotent: an existing vind of the same name is skipped and reconnected.
+      Registered EKS / vSphere / standalone names are refused (pick a different
+      CLUSTER). CLUSTER / CLUSTERS is required — there is no default name.
+
+      Variables:
+        CLUSTER / CLUSTERS   vind cluster name(s), space-separated (required — no default)
+
+      Examples:
+        solomog vind:create CLUSTER=scratch
+        solomog vind:create CLUSTERS="a b"
+        solomog agentgateway CLUSTER=aaa    # still creates the cluster, then installs
+    cmds:
+      - bash scripts/run.sh "Create blank vind cluster {{.CLUSTER}}" bash scripts/vind-create-cli.sh
+    env:
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+
   vind:delete:
     desc: "Destroy named vcluster (vind) clusters"
     summary: |
