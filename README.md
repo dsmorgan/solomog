@@ -600,13 +600,16 @@ bundle or runtime name is hardcoded.
 ```bash
 solomog versions:show
 solomog versions:update                  # check GitHub (read-only — does not write versions.env)
+solomog vind:create CLUSTER=scratch      # blank vcluster; no Solo products (optional)
 solomog teardown CLUSTER=aaa             # type-agnostic; prompts; vind / vsphere / EKS
 solomog teardown CLUSTERS="aaa hl1 e1"   # mixed types in one run
 solomog vind:delete CLUSTER=aaa          # vind-only (also: vsphere:delete, eks:delete)
 ```
 
-`CLUSTER` / `CLUSTERS` is required — there is no destroy-all. `teardown` (alias `delete`)
-detects each name's type and dispatches; the `*:delete` tasks refuse the wrong type.
+`vind:create` is only for a blank cluster. Product tasks (`stack`, `agentgateway`, …)
+still create the vcluster themselves. `CLUSTER` / `CLUSTERS` is required — there is
+no destroy-all. `teardown` (alias `delete`) detects each name's type and dispatches;
+the `*:delete` tasks refuse the wrong type.
 vind and vsphere also drop `/etc/hosts` lines stamped `# solomog cluster=<name>`
 (`solomog hosts:clean CLUSTER=…` does the same without destroying the cluster).
 
@@ -665,7 +668,7 @@ solomog
 │   ├── setup.sh / setup-sudo.sh  # install prereqs + link solomog; passwordless /etc/hosts
 │   ├── run.sh / list.sh        # per-step framing; the grouped `solomog` help index
 │   ├── lib/help.sh             # index / group / --all pages (catalog in help-catalog.txt)
-│   ├── vind-create.sh / vind-teardown.sh / teardown.sh / hosts-clean.sh
+│   ├── vind-create.sh / vind-create-cli.sh / vind-teardown.sh / teardown.sh / hosts-clean.sh
 │   ├── networking.sh / mesh-eastwest.sh / net-repair.sh
 │   ├── gen-certs.sh            # shared root CA + per-cluster intermediates
 │   ├── stack.sh                # compose products onto one cluster, in order

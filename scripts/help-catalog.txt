@@ -61,6 +61,7 @@ lead	setup	setup
 lead	setup	setup:sudo
 lead	cluster	cluster:list
 lead	cluster	cluster:show
+lead	cluster	vind:create
 lead	cluster	teardown
 lead	products	stack
 lead	istio	istio:ambient:single

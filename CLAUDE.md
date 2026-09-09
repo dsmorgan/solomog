@@ -99,7 +99,9 @@ These combine freely and are the core mental model:
    hooks (e.g. gloo-gateway's Gateway API CRD bootstrap) target the right cluster.
 
 Single-product tasks (`istio:*:single`, `kgateway`, `agentgateway`, `kagent`, etc.) are thin
-shortcuts that call `stack.sh` with a fixed product list.
+shortcuts that call `stack.sh` with a fixed product list. A blank vcluster (no products)
+is the optional `solomog vind:create` task — `stack` still requires `PRODUCTS` and still
+creates the cluster itself.
 
 **Enterprise kagent compatibility guard:** kagent 0.5.x documents Kubernetes
 1.32–1.36, Gateway API 1.5.0, agentgateway 2026.7.0, and Istio 1.26–1.29.
@@ -174,6 +176,13 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   New cluster-scoped tasks should follow the same first-vs-full pattern so the
   singular/plural slip stays harmless; when adding a multi-cluster task, also add
   it to `_solomog_task_takes_cluster_list` in the wrapper so the warning stays accurate.
+- **Vanilla vind is `solomog vind:create CLUSTER=<name>`.** Docker-driver vcluster, no
+  Solo products, no Gateway API CRDs. Optional — `stack` and the product shortcuts still
+  create the cluster themselves and still require `PRODUCTS`. The collision guard (refuse
+  a name already registered as EKS / vsphere / standalone) lives in
+  [scripts/vind-create-cli.sh](scripts/vind-create-cli.sh) only; do not put it in
+  [scripts/vind-create.sh](scripts/vind-create.sh) (`stack` / `mesh` call that script
+  directly).
 - **`teardown` is type-agnostic destroy; `*:delete` is type-specific.** `solomog teardown`
   (alias `delete`) requires `CLUSTER=` / `CLUSTERS=` — it never defaults to all clusters —
   classifies each name (`solomog_cluster_type` in [scripts/lib/target.sh](scripts/lib/target.sh):
