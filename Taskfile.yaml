@@ -1811,13 +1811,13 @@ tasks:
   vind:delete:
     desc: "Destroy named vcluster (vind) clusters"
     summary: |
-      Destroy vcluster instances by name. Requires CLUSTER=<name> or CLUSTERS="a b" —
-      it does not default to all clusters. Explicit names are not filtered against
-      .solomog/clusters (you take responsibility for the name), but registered
-      eks/vsphere/external names are refused (use that type's delete, or
-      `solomog teardown`). Prunes stale .solomog/clusters entries when `vcluster list`
-      is available. Removes stamped /etc/hosts lines for each name. FORCE=true
-      skips the prompt.
+      Destroy vcluster instances by name — the complement to vind:create. Requires
+      CLUSTER=<name> or CLUSTERS="a b" — it does not default to all clusters.
+      Explicit names are not filtered against .solomog/clusters (you take
+      responsibility for the name), but registered eks/vsphere/external names are
+      refused (use that type's delete, or `solomog teardown`). Prunes stale
+      .solomog/clusters entries when `vcluster list` is available. Removes stamped
+      /etc/hosts lines for each name. FORCE=true skips the prompt.
 
       Variables:
         CLUSTER / CLUSTERS   vind cluster name(s), space-separated (required — no default;

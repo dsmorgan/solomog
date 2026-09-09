@@ -293,7 +293,8 @@ case "$MODE" in
     names="$(_all_names)"
     if [ -z "$names" ]; then
       printf '%sNo clusters tracked.%s\n' "$B" "$R"
-      printf '  Create one:  %ssolomog agentgateway CLUSTER=<name>%s\n' "$D" "$R"
+      printf '  Create one:  %ssolomog vind:create CLUSTER=<name>%s\n' "$D" "$R"
+      printf '           or  %ssolomog agentgateway CLUSTER=<name>%s\n' "$D" "$R"
       printf '           or  %ssolomog eks:create CLUSTER=<name>%s\n' "$D" "$R"
       exit 0
     fi
