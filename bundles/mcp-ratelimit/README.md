@@ -32,6 +32,12 @@ Takes about 65s: the limits are per-minute, so a test that finds a spent window 
 - **Token exchange is unrelated.** It is backend auth, a different policy stage. Limiting per user
   needs `jwtAuthentication`, not exchange.
 - **A policy may set `rateLimit` or `entRateLimit`, never both** — hence three routes, not one.
+- **Arms A and B do not require `EnterpriseAgentgatewayPolicy`.** The community
+  `AgentgatewayPolicy` (`agentgateway.dev/v1alpha1`) has an identical `traffic.rateLimit` schema
+  and enforces the same on an enterprise gateway. Only `entRateLimit` is enterprise-only. Upstream
+  Gateway API has no rate limit CRD at all.
+- **Arm B's catch-all is per tool, not a shared pool** — counters key on the descriptor values, so
+  each unnamed tool gets its own bucket at that limit.
 - **On this LTS a denial is a plain HTTP 429 with an empty body.** Newer builds return HTTP 200
   with the denial inside the JSON-RPC body instead. The tests accept either.
 - **Arm A's bucket is per gateway process**, so N replicas give N x the limit. Arm B and C count

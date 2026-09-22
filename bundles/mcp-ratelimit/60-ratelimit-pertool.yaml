@@ -1,18 +1,8 @@
 # ARM B — per-tool budgets.
 #
-# Two entries form ONE chained descriptor, [mcp_method=..., tool_name=...], which the rate limit
-# service looks up against the nested tree in 50-rls-standalone.yaml. Both expressions read the
-# JSON-RPC body of the request, which is what makes this MCP-aware rather than merely HTTP-aware.
-#
-# The `other` / `none` branches matter as much as the `tools/call` branch: a method that is not a
-# tool call produces a descriptor that has NO rule in the tree, and an unmatched descriptor is
-# not counted. That is the mechanism behind "initialize and tools/list are free" — it is a
-# property of this CEL, not a built-in exemption. Change the expressions and that exemption goes
-# with them.
-#
-# `json(request.body)` requires the gateway to buffer the request body before the limit is
-# checked. That is fine for JSON-RPC, which is small, but it is the part most likely to differ by
-# release, so test 40 asserts the descriptor actually matched rather than trusting the config.
+# Limits MCP traffic per tool by reading the tool name out of the JSON-RPC body at the route,
+# before the request reaches the MCP server. This policy builds the descriptor; the rate limit
+# service in 50-rls-standalone.yaml matches it against a nested tree and counts it in Redis.
 apiVersion: enterpriseagentgateway.solo.io/v1alpha1
 kind: EnterpriseAgentgatewayPolicy
 metadata:
@@ -22,26 +12,24 @@ spec:
   targetRefs:
     - group: gateway.networking.k8s.io
       kind: HTTPRoute
-      name: mcp-pertool
+      name: mcp-pertool                 # the route fronting the MCP backend
   traffic:
     rateLimit:
-      global:
-        domain: mcp-tools
+      global:                           # global = Redis-backed; holds across gateway replicas
+        domain: mcp-tools               # KEY: must match `domain` in the service config
         backendRef:
-          name: mcp-ratelimit
+          name: mcp-ratelimit           # the rate limit service (gRPC, h2c)
           namespace: agentgateway-system
           port: 8081
-        # FailOpen: if the rate limit service is unreachable the traffic still flows. Flip to
-        # FailClosed when the limit is a hard control rather than a courtesy.
-        failureMode: FailOpen
+        failureMode: FailOpen           # limiter unreachable -> traffic flows unlimited
         descriptors:
-          - entries:
-              - name: mcp_method
+          - entries:                    # KEY: both entries = ONE chained descriptor
+              - name: mcp_method        # tool calls vs everything else
                 expression: |
                   json(request.body).with(body,
                     body.method == "tools/call" ? "tools/call" : "other"
                   )
-              - name: tool_name
+              - name: tool_name         # KEY: reads the tool name out of the JSON-RPC body
                 expression: |
                   json(request.body).with(body,
                     body.method == "tools/call" ? string(body.params.name) : "none"
