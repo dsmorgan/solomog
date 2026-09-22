@@ -40,15 +40,8 @@ spec:
   ports:
     - port: 6379
 ---
-# The descriptor tree. It is NESTED: mcp_method first, tool_name under it. The policy sends both
-# entries as one chained descriptor, so the lookup walks this tree in the same order.
-#
-# Only `tools/call` appears here. That is deliberate — the CEL in the policy maps every other
-# JSON-RPC method to mcp_method=other, which matches NOTHING in this tree and is therefore not
-# counted. That is how `initialize` and `tools/list` pass through free.
-#
-# The last tool_name entry has no `value`, which makes it the catch-all for any tool not named
-# above it.
+# The descriptor tree arm B resolves against. Counters are keyed on the descriptor VALUES, so
+# the catch-all gives each tool its own bucket rather than one shared pool.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -57,18 +50,18 @@ metadata:
   labels: {bundle: mcp-ratelimit}
 data:
   config.yaml: |
-    domain: mcp-tools
+    domain: mcp-tools                   # KEY: matches the policy
     descriptors:
       - key: mcp_method
-        value: tools/call
-        descriptors:
-          - key: tool_name
-            value: get-sum
+        value: tools/call               # KEY: only tool calls have a rule here.
+        descriptors:                    #      initialize/tools-list map to "other", match
+          - key: tool_name              #      nothing, and are therefore never counted.
+            value: get-sum              # named tool: its own 3/min
             rate_limit:
               unit: minute
               requests_per_unit: 3
-          - key: tool_name
-            rate_limit:
+          - key: tool_name              # KEY: no `value` = catch-all. Each tool still gets
+            rate_limit:                 #      its OWN 10/min bucket, not a shared pool.
               unit: minute
               requests_per_unit: 10
 ---

@@ -112,6 +112,48 @@ restarting, being upgraded, or briefly unscheduled is a full outage of every rou
 with no configuration available to soften it. Choose arm C for a distributed ceiling knowing that;
 where availability matters more than the ceiling, arm B with `FailOpen` is the safer shape.
 
+## 10. Which CRD? There is no generic Gateway API rate limit kind
+
+Upstream Gateway API ships **no rate limit CRD at any maturity level** — the only policy kind is
+`BackendTLSPolicy`. So a "generic" rate limit CR does not exist upstream.
+
+An enterprise install does, however, also ship the community CRD
+`agentgatewaypolicies.agentgateway.dev`, and its `traffic.rateLimit` schema is **identical** to the
+enterprise one: same `local` / `global` / `conditional`, same `{name, expression}` descriptor
+entries. A community `AgentgatewayPolicy` carrying a local limit was applied to an
+enterprise-class gateway and **enforced exactly like the enterprise policy** (5/min: handshake plus
+four calls, then 429), reconciled by `controllerName: solo.io/enterprise-agentgateway`.
+
+**So arms A and B do not require `EnterpriseAgentgatewayPolicy`.** Either kind works.
+
+The one hard boundary is `entRateLimit` (arm C), which exists only on the enterprise CRD. Using it
+on the community kind is rejected by the apiserver, loudly:
+
+    strict decoding error: unknown field "spec.traffic.entRateLimit"
+
+Because that failure is loud, the community CRD is not a candidate explanation for a rate limit
+that silently does nothing.
+
+**A better candidate for a silent no-op: an orphan `RateLimitConfig`.** It looks like the generic,
+product-neutral rate limiting object, and alone it does nothing — but it reports
+`{"observedGeneration":1,"state":"ACCEPTED"}`, with no indication it is attached to zero routes. It
+takes effect only when a policy names it under `entRateLimit.global.rateLimitConfigRefs`.
+
+## 11. The catch-all rule is per-tool, not a shared pool
+
+Counters are keyed on the descriptor **values**, not on which config rule matched. A
+`key: tool_name` entry with no `value` therefore does not create one shared bucket for "everything
+else" — each distinct tool name gets its own counter at that limit. The rate limiter's own log
+shows the key, one per tool and per minute window:
+
+    cache key: mcp-tools_mcp_method_tools/call_tool_name_get-env_1790114280  current: 3  limit: 10
+
+Verified: `echo` was driven to exactly 10 and then 429, while `get-env` — matching the *same*
+catch-all rule — answered 200 on a fresh counter.
+
+To get a genuinely shared pool for unnamed tools, the CEL must collapse them to a constant
+(emit a fixed string instead of `string(body.params.name)`).
+
 ## Operational notes
 
 - The rate limit service reads its ConfigMap at **start**. After editing the descriptor tree,
