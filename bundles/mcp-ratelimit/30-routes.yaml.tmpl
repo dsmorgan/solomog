@@ -1,0 +1,64 @@
+# Three routes, one backend. Each arm gets its OWN HTTPRoute because a rate limit policy
+# attaches to a route, and the CRD allows at most one of [rateLimit, entRateLimit] per policy.
+# Putting all three arms on one path would make them fight over the same target; splitting the
+# paths lets all three run side by side on one gateway and keeps each test independent.
+#
+#   /mcp-local     arm A   local token bucket, every MCP request counts
+#   /mcp-pertool   arm B   global per-tool budgets via CEL descriptors
+#   /mcp-ent       arm C   enterprise entRateLimit + RateLimitConfig (the trap)
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-local
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp-local
+      backendRefs:
+        - name: mcp-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-pertool
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp-pertool
+      backendRefs:
+        - name: mcp-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-ent
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp-ent
+      backendRefs:
+        - name: mcp-backend
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend

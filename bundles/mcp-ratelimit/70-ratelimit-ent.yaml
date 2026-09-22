@@ -1,0 +1,53 @@
+# ARM C — the enterprise path, and the reason a per-tool config written this way never works.
+#
+# entRateLimit points at RateLimitConfig objects and uses the rate limit service the product
+# already installs (rate-limiter-<gatewayclass>), so unlike arm B there is nothing to deploy.
+# It is the right tool for a DISTRIBUTED CEILING: the count lives in Redis, so it holds across
+# gateway replicas, which arm A's in-process bucket does not.
+#
+# What it cannot do is see the MCP tool. A RateLimitConfig expresses its match as Envoy-style
+# ACTIONS -- genericKey, requestHeaders, remoteAddress, metadata. None of them read a JSON-RPC
+# body, so there is no action that yields "the tool this call names". Per-tool budgets are
+# therefore not expressible here at any nesting depth; that is arm B's job.
+#
+# The second half of the trap is for anyone who tries to avoid deploying arm B's service by
+# pointing `rateLimit.global` at THIS rate limit service and reusing these descriptors: the
+# enterprise translator prepends generic_key = "<namespace>.<name>" to every descriptor it
+# builds, so a hand-written tree that does not account for that prefix silently matches nothing
+# and the route looks unlimited. See docs/findings.md.
+apiVersion: ratelimit.solo.io/v1alpha1
+kind: RateLimitConfig
+metadata:
+  name: mcp-ent-ceiling
+  namespace: agentgateway-system
+spec:
+  raw:
+    descriptors:
+      - key: generic_key
+        value: mcp-ent
+        rateLimit:
+          requestsPerUnit: 5
+          unit: MINUTE
+    rateLimits:
+      - actions:
+          - genericKey:
+              descriptorValue: mcp-ent
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mcp-ent-ratelimit
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: mcp-ent
+  traffic:
+    # The CRD allows at most one of [rateLimit, entRateLimit] in a policy, so this arm cannot be
+    # combined with arm A or B on one object -- hence the separate route.
+    entRateLimit:
+      global:
+        rateLimitConfigRefs:
+          - name: mcp-ent-ceiling
+            namespace: agentgateway-system

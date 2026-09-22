@@ -1,0 +1,15 @@
+# One MCP relay backend, shared by all three arms. Every route below points here, so any
+# difference the tests observe comes from the RATE LIMIT POLICY and not from the backend.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: mcp-backend
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+      - name: mcp-target
+        static:
+          host: mcp-server.mcp-rl.svc.cluster.local
+          port: 80
+          protocol: StreamableHTTP
