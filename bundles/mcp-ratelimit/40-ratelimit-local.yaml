@@ -1,0 +1,27 @@
+# ARM A — the simple ceiling.
+#
+# A per-route token bucket enforced in the gateway process itself: no Redis, no rate limit
+# service, nothing to deploy. Every request on the route counts, so an MCP client spends budget
+# on `initialize` and `tools/list` as well as on `tools/call`. That is the main thing to
+# understand before choosing this arm: a single MCP session is typically 3-5 HTTP requests, so
+# a limit of 5/minute allows roughly ONE session per minute, not five tool calls.
+#
+# `requests` and `tokens` are mutually exclusive (tokens is for LLM routes). On this LTS there is
+# no per-key local limit — `key` arrives on a later line — so the bucket is per route, shared by
+# every caller. Use arm B when limits must differ by caller or by tool.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: mcp-local-ratelimit
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: mcp-local
+  traffic:
+    rateLimit:
+      local:
+        - requests: 5
+          unit: Minutes
+          burst: 0

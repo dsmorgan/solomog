@@ -1,0 +1,134 @@
+# ARM B infrastructure — a STANDALONE envoyproxy/ratelimit + Redis.
+#
+# Why not the rate-limiter the product already installs? Because reaching that one means going
+# through a RateLimitConfig (arm C), and the enterprise translator PREPENDS a
+# generic_key = "<namespace>.<name>" entry to every descriptor it builds. A hand-written MCP
+# descriptor tree therefore never matches unless it is nested under that key. Supplying
+# `domain` + `backendRef` + `descriptors` directly, as arm B does, is what keeps the descriptors
+# exactly as written, and that needs a rate limit service whose config this bundle owns.
+#
+# Everything here lives in agentgateway-system, alongside the policy that references it, so no
+# cross-namespace backendRef and no ReferenceGrant are involved.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-redis
+  namespace: agentgateway-system
+  labels: {app: mcp-redis, bundle: mcp-ratelimit}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mcp-redis}
+  template:
+    metadata:
+      labels: {app: mcp-redis, bundle: mcp-ratelimit}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-redis
+  namespace: agentgateway-system
+  labels: {bundle: mcp-ratelimit}
+spec:
+  selector: {app: mcp-redis}
+  ports:
+    - port: 6379
+---
+# The descriptor tree. It is NESTED: mcp_method first, tool_name under it. The policy sends both
+# entries as one chained descriptor, so the lookup walks this tree in the same order.
+#
+# Only `tools/call` appears here. That is deliberate — the CEL in the policy maps every other
+# JSON-RPC method to mcp_method=other, which matches NOTHING in this tree and is therefore not
+# counted. That is how `initialize` and `tools/list` pass through free.
+#
+# The last tool_name entry has no `value`, which makes it the catch-all for any tool not named
+# above it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-ratelimit-config
+  namespace: agentgateway-system
+  labels: {bundle: mcp-ratelimit}
+data:
+  config.yaml: |
+    domain: mcp-tools
+    descriptors:
+      - key: mcp_method
+        value: tools/call
+        descriptors:
+          - key: tool_name
+            value: get-sum
+            rate_limit:
+              unit: minute
+              requests_per_unit: 3
+          - key: tool_name
+            rate_limit:
+              unit: minute
+              requests_per_unit: 10
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-ratelimit
+  namespace: agentgateway-system
+  labels: {app: mcp-ratelimit, bundle: mcp-ratelimit}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: mcp-ratelimit}
+  template:
+    metadata:
+      labels: {app: mcp-ratelimit, bundle: mcp-ratelimit}
+      annotations:
+        # Roll the pod when the descriptor tree changes; the service reads its config at start.
+        checksum/config: "v1"
+    spec:
+      containers:
+        - name: ratelimit
+          image: envoyproxy/ratelimit:master
+          ports:
+            - containerPort: 8081
+              name: grpc
+          env:
+            - name: REDIS_SOCKET_TYPE
+              value: tcp
+            - name: REDIS_URL
+              value: mcp-redis:6379
+            - name: RUNTIME_ROOT
+              value: /data
+            - name: RUNTIME_SUBDIRECTORY
+              value: ratelimit
+            - name: RUNTIME_IGNOREDOTFILES
+              value: "true"
+            - name: LOG_LEVEL
+              value: debug
+            - name: USE_STATSD
+              value: "false"
+          volumeMounts:
+            - name: config
+              mountPath: /data/ratelimit/config
+      volumes:
+        - name: config
+          configMap:
+            name: mcp-ratelimit-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-ratelimit
+  namespace: agentgateway-system
+  labels: {bundle: mcp-ratelimit}
+spec:
+  selector: {app: mcp-ratelimit}
+  ports:
+    - name: grpc
+      port: 8081
+      targetPort: 8081
+      # h2c: the rate limit API is gRPC, so the gateway must speak HTTP/2 cleartext to it.
+      appProtocol: kubernetes.io/h2c

@@ -1,0 +1,63 @@
+# The system under test needs an MCP server with MORE THAN ONE tool, because the whole point of
+# the per-tool arm is that two tools on the same route get different budgets. The reference
+# "everything" server exposes ~13 tools over Streamable HTTP; this bundle keys on `get-sum`
+# (treated as the expensive one) and `echo` (the cheap one). The version is PINNED because tool
+# names change between releases -- older builds called the arithmetic tool `add`, this one calls
+# it `get-sum` -- the npm package is CalVer so `latest` moves without warning, and the per-tool
+# descriptor in 50-rls-standalone.yaml matches on that exact string.
+#
+# node:20-alpine is multi-arch (works on arm64) and runs npx at start, so the pod needs egress
+# to npm. Streamable HTTP is per-request stateless, so replica count does not affect the tests.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+  namespace: mcp-rl
+spec:
+  selector:
+    matchLabels:
+      app: mcp-server
+  template:
+    metadata:
+      labels:
+        app: mcp-server
+    spec:
+      containers:
+        - name: mcp-server
+          image: node:20-alpine
+          command:
+            - sh
+            - -c
+            - |
+              export NODE_OPTIONS="--max-old-space-size=10240 --max-semi-space-size=64"
+              npx -y @modelcontextprotocol/server-everything@2026.8.31 streamableHttp
+          ports:
+            - name: mcp-http
+              containerPort: 3001
+          env:
+            - name: PORT
+              value: "3001"
+          # The container runs `npx` at start, so it is UP long before the MCP server LISTENS.
+          # Without this probe the pod reports Ready during the npm download and the first
+          # requests through the gateway fail with "Connection refused" (HTTP 500), which then
+          # cascades into "session header is required" (HTTP 400) on every later call in the
+          # session. Gate readiness on the port actually accepting connections.
+          readinessProbe:
+            tcpSocket:
+              port: 3001
+            initialDelaySeconds: 5
+            periodSeconds: 3
+            failureThreshold: 40
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: mcp-rl
+spec:
+  selector:
+    app: mcp-server
+  ports:
+    - port: 80
+      targetPort: 3001
+      appProtocol: agentgateway.dev/mcp
