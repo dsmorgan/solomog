@@ -1,0 +1,87 @@
+# vcluster config for a vind cluster that can host Agent Substrate.
+#
+#   solomog vind:create CLUSTER=kas \
+#     VCLUSTER_VALUES=bundles/kagent-substrate/helpers/vcluster-substrate.yaml
+#
+# Create-time only. vcluster does not re-render an existing control plane from a config
+# file, so changing anything here means destroying and recreating the cluster.
+#
+# Everything else about the cluster stays ordinary vind: same vcluster-docker_<name>
+# context, same .solomog/clusters entry, same collision guard, same teardown.
+controlPlane:
+  distro:
+    k8s:
+      apiServer:
+        extraArgs:
+          # Substrate mounts projected PodCertificate volumes (servicedns.podcert.ate.dev,
+          # podidentity.podcert.ate.dev). Without these gates the projected sources are
+          # SILENTLY DROPPED - the only hint is a 'volume has no sources provided' warning -
+          # and postgres then dies with "could not load server certificate file", taking the
+          # install down with a context-deadline-exceeded that looks nothing like the cause.
+          - "--feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true"
+          - "--runtime-config=certificates.k8s.io/v1beta1=true"
+
+          # Kubernetes derives the OIDC discovery document's jwks_uri from the apiserver's
+          # ADVERTISE address when --service-account-jwks-uri is unset. On kind that is the
+          # node IP and pods can reach it; a vcluster standalone control plane advertises
+          # 127.0.0.1:6443, which inside any pod means that pod's own loopback. The issuer
+          # still reads perfectly correct, so nothing suspects it until substrate validates
+          # its first bearer token and ate-controller reports:
+          #   while ensuring atespace "ate-golden": rpc error: code = Unauthenticated
+          #   desc = invalid bearer token: while discovering keys from issuer: ...
+          #   Get "https://127.0.0.1:6443/openid/v1/jwks": connect: connection refused
+          # Point discovery at the in-cluster Service: it is in the apiserver's cert SANs,
+          # and the substrate chart already grants ate-api-server the discovery RBAC.
+          - "--service-account-jwks-uri=https://kubernetes.default.svc.cluster.local/openid/v1/jwks"
+      controllerManager:
+        extraArgs:
+          - "--feature-gates=ClusterTrustBundle=true,ClusterTrustBundleProjection=true,PodCertificateRequest=true"
+  standalone:
+    joinNode:
+      postJoinCommands:
+        # WORKAROUND for an unfixed substrate defect, not a vind quirk to be tidied away.
+        #
+        # vcluster runs flannel in VXLAN mode, so pods get MTU 1450. substrate's
+        # cmd/ateom-microvm/net.go reads the actor veth MTU and propagates it into the guest;
+        # cmd/ateom-gvisor/ has NO MTU handling at all, so a gVisor actor believes it has 1500.
+        # DNS and TCP connect (small packets) succeed, then the TLS handshake blackholes:
+        #   OpenAI chat completion request failed: net/http: TLS handshake timeout
+        # Proven 2026-09-18: the clamp below turns that failure into a completed turn.
+        #
+        # This will bite ANY overlay CNI — Calico IPIP, Cilium VXLAN, flannel — not just vind.
+        # kind escapes it only because kindnet is plain-routed at 1500. The real fix belongs
+        # upstream in ateom-gvisor; see docs/findings.md before deleting this.
+        #
+        # Installed as a systemd unit rather than a bare iptables call so it survives a Docker
+        # Desktop restart. A bare rule would vanish with the node and the demo would break the
+        # same mysterious way, which is the exact failure this bundle already paid for once.
+        - |
+          set -e
+          cat >/etc/systemd/system/substrate-mss-clamp.service <<'UNIT'
+          [Unit]
+          Description=Clamp TCP MSS to path MTU (gVisor actor egress workaround)
+          After=network-online.target
+          Wants=network-online.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/bin/sh -c "iptables -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu"
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+          systemctl daemon-reload
+          systemctl enable --now substrate-mss-clamp.service
+privateNodes:
+  kubelet:
+    config:
+      featureGates:
+        ClusterTrustBundle: true
+        ClusterTrustBundleProjection: true
+        PodCertificateRequest: true
+      # The substrate install pulls ~570MB of images onto one node. kubelet serializes pulls
+      # by default, so whatever lands at the back of the queue misses its readiness deadline
+      # and the install fails for a reason that has nothing to do with substrate.
+      serializeImagePulls: false
+      maxParallelImagePulls: 4

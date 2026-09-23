@@ -1798,15 +1798,24 @@ tasks:
 
       Variables:
         CLUSTER / CLUSTERS   vind cluster name(s), space-separated (required — no default)
+        VCLUSTER_VALUES      path to a vcluster config file for `vcluster create -f`
+                             (default none). Create-time only — an existing cluster
+                             warns rather than silently ignoring it.
+
+      VCLUSTER_VALUES is the escape hatch for control-plane config solomog has no
+      knob for, such as apiserver feature gates a bundle needs. Keep the file with
+      whatever needs it; bundles/kagent-substrate/helpers/ has a worked example.
 
       Examples:
         solomog vind:create CLUSTER=scratch
         solomog vind:create CLUSTERS="a b"
+        solomog vind:create CLUSTER=kas VCLUSTER_VALUES=bundles/kagent-substrate/helpers/vcluster-substrate.yaml
         solomog agentgateway CLUSTER=aaa    # still creates the cluster, then installs
     cmds:
       - bash scripts/run.sh "Create blank vind cluster {{.CLUSTER}}" bash scripts/vind-create-cli.sh
     env:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default ""}}'
+      VCLUSTER_VALUES: '{{.VCLUSTER_VALUES | default ""}}'
 
   vind:delete:
     desc: "Destroy named vcluster (vind) clusters"

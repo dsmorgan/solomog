@@ -1,0 +1,107 @@
+# A small fleet of SandboxAgents, one actor each.
+#
+# Four rather than one because the whole point of substrate is density: with a two-worker
+# pool and four agents, substrate-scope shows chips moving storage -> queue -> worker ->
+# storage, and the restore queue is reachable under load. One agent on two workers never
+# queues and the board never moves.
+#
+# Each is a plain declarative kagent agent — nothing here is substrate-specific except
+# spec.substrate. That is the point worth making in a demo: the same agent definition runs
+# as an always-on pod or as a snapshot-backed actor, and only this block decides which.
+#
+# NOTE: spec.platform was REMOVED in kagent 0.10.0's v1alpha2 SandboxAgent. It was required
+# by CEL validation in 0.9.x; setting it now fails with
+#   strict decoding error: unknown field "spec.platform"
+# spec.substrate alone places the agent on substrate.
+---
+apiVersion: kagent.dev/v1alpha2
+kind: SandboxAgent
+metadata:
+  name: triage
+  namespace: kagent
+  labels:
+    solomog.io/bundle: kagent-substrate
+spec:
+  type: Declarative
+  description: Sorts an incoming report into a severity and a next action
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You triage incoming reports. For each one, answer with exactly three lines:
+      SEVERITY (one of low, medium, high), OWNER (a team name you infer), and
+      NEXT (a single concrete action). No preamble, no closing remarks.
+      If asked where you run, say you are a snapshot-backed actor in a gVisor
+      sandbox on Agent Substrate.
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+---
+apiVersion: kagent.dev/v1alpha2
+kind: SandboxAgent
+metadata:
+  name: summarizer
+  namespace: kagent
+  labels:
+    solomog.io/bundle: kagent-substrate
+spec:
+  type: Declarative
+  description: Compresses a long passage to its load-bearing sentences
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You compress text. Return at most three sentences that preserve every
+      decision, number and name in the input, and drop everything else.
+      Never add information that was not in the input.
+      If asked where you run, say you are a snapshot-backed actor in a gVisor
+      sandbox on Agent Substrate.
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+---
+apiVersion: kagent.dev/v1alpha2
+kind: SandboxAgent
+metadata:
+  name: explainer
+  namespace: kagent
+  labels:
+    solomog.io/bundle: kagent-substrate
+spec:
+  type: Declarative
+  description: Explains a Kubernetes or networking concept at a chosen depth
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You explain infrastructure concepts. Lead with the one-sentence answer,
+      then at most two short paragraphs of mechanism. Prefer the concrete noun
+      over the abstract one. Never use a numbered list.
+      If asked where you run, say you are a snapshot-backed actor in a gVisor
+      sandbox on Agent Substrate.
+  substrate:
+    workerPoolRef:
+      name: kagent-default
+---
+apiVersion: kagent.dev/v1alpha2
+kind: SandboxAgent
+metadata:
+  name: namer
+  namespace: kagent
+  labels:
+    solomog.io/bundle: kagent-substrate
+spec:
+  type: Declarative
+  description: Proposes names for a thing, with the reason each one works
+  declarative:
+    runtime: go
+    modelConfig: default-model-config
+    systemMessage: |
+      You propose names. Give exactly five candidates, each on its own line as
+      "name — the reason it works". Favour names that describe what the thing
+      does over names that sound clever.
+      If asked where you run, say you are a snapshot-backed actor in a gVisor
+      sandbox on Agent Substrate.
+  substrate:
+    workerPoolRef:
+      name: kagent-default

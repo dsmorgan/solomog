@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║  SOLO.IO CUSTOMER DECK TEMPLATE  ·  v1                                      ║
+  ║  Customer-agnostic. Clone this file, fill the DECK CONFIG below, swap the   ║
+  ║  example slides for your content. 1280x720 (16:9). Open in a browser;       ║
+  ║  export to PDF with scripts/export-pdf.sh (Chrome headless).                ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+
+  ── DECK CONFIG (the only knobs you usually touch) ──────────────────────────
+  1. --customer-accent  : the CUSTOMER's brand hex. It means "today / the pain /
+     their world". Everything magenta in the example flows from this one value
+     (glows and soft fills are derived via color-mix). Set it once, below in :root.
+  2. <body data-block>  : the active section's Solo accent. "blue" = connectivity
+     (kgateway / mesh / ingress), "ai" = purple (agentgateway / kagent).
+  3. The .rail blocks   : your deck's sections (rename SECTION ONE/TWO/THREE).
+  4. The .wm customer mark: replace the "CUSTOMER" text span with the customer's
+     logo (drop in a base64 data-URI or <img>, matched to ~15px tall).
+  5. <title> and the .note metadata line.
+
+  ── THE COLOR STORY (a convention, not code) ────────────────────────────────
+     customer-accent  = today / pain / their world      (dashed paths, problem cards)
+     --blue   #20B7F3 = connectivity solution           (kgateway, mesh, ingress)
+     --purple #8023C3 = agentic / AI solution           (agentgateway, kagent)
+     --green  #1FEEB3 = mesh primitives / mTLS / ambient
+     Every "today -> future" beat should read accent -> blue/purple.
+
+  ── THE ARC (see reference/archetypes.md for full skeletons) ────────────────
+     Block deck:  Establish -> Problems (one per slide, one memorable number)
+                  -> Solution (target architecture, then a component per gap,
+                  then crawl/walk/run, then payoff mapped to their objectives).
+     Voice: present-like-matt (paint the art of the possible, then get pragmatic;
+     transparency; analogies as slide titles). No em dashes in slide copy.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Solo.io x [CUSTOMER] · [Deck Title]</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=DM+Sans:wght@400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#151927; --bg-2:#11141f;
+    --card:#1E2035; --card-2:#191B2E; --module:#152035;
+    --white:#FFFFFF; --label:#DDDFED; --subtitle:#9DA1BD; --body:#B5B8CD; --muted:#5C6178;
+
+    /* ► THE ONE KNOB: set this to the customer's brand hex (today / pain / their world) */
+    --customer-accent:#F2A33C;
+    /* derived from the accent — do not hand-edit, Chrome resolves these */
+    --customer-soft:color-mix(in srgb, var(--customer-accent) 10%, transparent);
+    --customer-glow:color-mix(in srgb, var(--customer-accent) 18%, transparent);
+    --customer-line:color-mix(in srgb, var(--customer-accent) 45%, transparent);
+
+    --blue:#20B7F3;           /* connectivity solution */
+    --purple:#8023C3;         /* agentic solution */
+    --purple-light:#CC85FF;
+    --green:#1FEEB3;
+    --block-accent:var(--blue);
+    --block-soft:color-mix(in srgb, var(--blue) 14%, transparent);
+  }
+  [data-block="ai"]{ --block-accent:var(--purple); --block-soft:color-mix(in srgb, var(--purple) 18%, transparent); }
+  [data-block="mesh"],[data-block="ingress"],[data-block="tag"],[data-block="connectivity"]{ --block-accent:var(--blue); --block-soft:color-mix(in srgb, var(--blue) 14%, transparent); }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{background:#0a0c12; font-family:'DM Sans',sans-serif; -webkit-font-smoothing:antialiased; padding:28px; display:flex; flex-direction:column; align-items:center; gap:28px;}
+
+  .slide{
+    width:1280px; height:720px; background:var(--bg); position:relative; overflow:hidden;
+    border-radius:14px; box-shadow:0 12px 48px rgba(0,0,0,.5);
+    background-image:radial-gradient(1100px 500px at 88% -10%, var(--customer-soft), transparent 60%);
+  }
+  .pad{position:absolute; inset:0; padding:64px 72px 92px;}
+
+  /* ---------- shared chrome ---------- */
+  .rail{position:absolute; top:30px; left:72px; right:72px; display:flex; align-items:center; justify-content:space-between;}
+  .blocks{display:flex; gap:10px; align-items:center;}
+  .blocks .dot{display:flex; align-items:center; gap:7px; font-family:'DM Mono',monospace; font-size:11px; letter-spacing:.04em; color:var(--muted);}
+  .blocks .dot b{width:7px; height:7px; border-radius:50%; background:var(--muted); display:inline-block;}
+  .blocks .dot.on{color:var(--label);}
+  .blocks .dot.on b{background:var(--customer-accent); box-shadow:0 0 0 4px var(--customer-glow);}
+  .rail .wm{display:flex; align-items:center;}
+  .rail .wm .logo{display:block; background-repeat:no-repeat; background-position:center; background-size:contain;}
+  .rail .wm .solo{height:15px; width:70px; background-image:url(data:image/png;base64,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);}
+  .rail .wm .x{color:var(--muted); font-weight:500; font-family:'Figtree',sans-serif; font-size:13px; margin:0 9px;}
+  /* customer mark: text placeholder. Swap for the customer's logo (data-URI / <img>, ~15px tall). */
+  .rail .wm .cust-logo{font-family:'Figtree',sans-serif; font-weight:700; font-size:14px; letter-spacing:-.02em; color:var(--label);}
+
+  .footer{position:absolute; bottom:30px; left:72px; right:72px; display:flex; align-items:center; justify-content:space-between; font-family:'DM Mono',monospace; font-size:11px; color:var(--muted);}
+  .footer .tag{color:var(--label);}
+  .footer .tag .pip{color:var(--customer-accent);}
+
+  .kicker{font-family:'DM Mono',monospace; font-size:13px; letter-spacing:.18em; text-transform:uppercase; color:var(--customer-accent); margin-bottom:18px; display:flex; align-items:center; gap:10px;}
+  .kicker::before{content:""; width:26px; height:2px; background:var(--customer-accent); display:inline-block;}
+
+  h1{font-family:'Figtree',sans-serif; font-weight:700; color:var(--white); font-size:46px; line-height:1.08; letter-spacing:-.02em;}
+  h2{font-family:'Figtree',sans-serif; font-weight:700; color:var(--white); font-size:36px; line-height:1.12; letter-spacing:-.02em;}
+  .lead{font-family:'DM Sans',sans-serif; font-size:19px; color:var(--body); line-height:1.55; max-width:760px; margin-top:18px;}
+  .sub{color:var(--subtitle); font-size:15px;}
+
+  /* cards */
+  .card{background:var(--card); border-radius:13px; padding:22px 24px; position:relative; overflow:hidden; border:1px solid rgba(92,97,120,.16);}
+  .card .bar{position:absolute; top:0; left:0; right:0; height:3px; background:var(--block-accent);}
+  .card.cust .bar{background:var(--customer-accent);}
+  .card h3{font-family:'Figtree',sans-serif; font-weight:600; font-size:17px; color:#fff; margin-bottom:8px;}
+  .card p{font-size:14px; color:var(--body); line-height:1.55;}
+  .card p .t{color:#fff; font-weight:600;}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  .grid3{display:grid; grid-template-columns:repeat(3,1fr); gap:18px;}
+
+  /* node / flow diagram (HTML, for simple left-to-right flows) */
+  .flow{display:flex; align-items:center; gap:0; flex-wrap:wrap;}
+  .node{background:var(--card); border:1px solid var(--muted); border-radius:10px; padding:13px 18px; font-size:14px; color:var(--body); font-family:'DM Sans',sans-serif; text-align:center; min-width:96px;}
+  .node .mono{font-family:'DM Mono',monospace; color:#fff; font-size:14px;}
+  .node.cust{border-color:var(--customer-accent); box-shadow:0 0 0 1px var(--customer-line) inset;}
+  .node.cust .mono{color:#fff;}
+  .node.sol{background:var(--block-accent); border:none;}
+  .node.sol .mono{color:#0c1018;}
+  .node.purple{background:var(--purple); border:none;} .node.purple .mono{color:#fff;}
+  .arrow{flex:0 0 44px; height:2px; background:var(--muted); position:relative; margin:0 4px;}
+  .arrow::after{content:""; position:absolute; right:-2px; top:-4px; width:9px; height:9px; border-right:2px solid var(--muted); border-top:2px solid var(--muted); transform:rotate(45deg);}
+  .arrow.hair{background:repeating-linear-gradient(90deg,var(--customer-accent),var(--customer-accent) 6px,transparent 6px,transparent 11px);}
+  .arrow.hair::after{border-color:var(--customer-accent);}
+  .arrow.sol{background:var(--block-accent);} .arrow.sol::after{border-color:var(--block-accent);}
+
+  /* big number */
+  .bignum{font-family:'Figtree',sans-serif; font-weight:700; color:#fff; font-size:120px; line-height:1; letter-spacing:-.03em;}
+  .bignum .u{color:var(--customer-accent); font-size:54px; vertical-align:super; margin-left:6px;}
+  .bignum.blue .u{color:var(--blue);}
+  .numlabel{font-family:'DM Sans',sans-serif; font-size:18px; color:var(--body); max-width:430px; line-height:1.5; margin-top:20px;}
+
+  /* lists */
+  ul.clean{list-style:none; display:flex; flex-direction:column; gap:14px; margin-top:6px;}
+  ul.clean li{font-size:15.5px; color:var(--body); line-height:1.5; padding-left:26px; position:relative;}
+  ul.clean li::before{content:""; position:absolute; left:0; top:8px; width:9px; height:9px; border-radius:2px; background:var(--customer-accent); transform:rotate(45deg);}
+  ul.clean.sol li::before{background:var(--block-accent); border-radius:50%; transform:none; top:6px; width:10px; height:10px;}
+  ul.clean.tight li{font-size:14.5px; gap:10px;}
+  li .t{color:#fff; font-weight:500;}
+
+  .twocol{display:grid; grid-template-columns:1fr 1fr; gap:46px; align-items:start;}
+  .colhead{font-family:'DM Mono',monospace; font-size:12px; letter-spacing:.14em; text-transform:uppercase; margin-bottom:18px; display:flex; align-items:center; gap:9px;}
+  .colhead.today{color:var(--customer-accent);} .colhead.future{color:var(--block-accent);}
+  .colhead b{width:8px;height:8px;border-radius:50%;display:inline-block;}
+  .colhead.today b{background:var(--customer-accent);} .colhead.future b{background:var(--block-accent);}
+
+  .pill{display:inline-block; font-family:'DM Mono',monospace; font-size:11px; letter-spacing:.05em; padding:5px 11px; border-radius:9999px; border:1px solid rgba(92,97,120,.4); color:var(--label);}
+  .pill.blue{border-color:rgba(32,183,243,.5); color:#bfeaff;}
+  .note{font-family:'DM Mono',monospace; font-size:11px; color:var(--muted); background:#0e1019; border:1px dashed rgba(92,97,120,.4); border-radius:8px; padding:7px 12px; max-width:1280px;}
+  .thread-glow{position:absolute; inset:0; background:radial-gradient(620px 420px at 50% 64%, var(--block-soft), transparent 62%);}
+
+  /* step rail (migration slide) */
+  .steps{display:flex; align-items:stretch; gap:0; margin-top:34px;}
+  .step{flex:1; position:relative; padding:0 18px;}
+  .step:not(:last-child)::after{content:""; position:absolute; right:-1px; top:20px; width:2px; bottom:18px; background:rgba(92,97,120,.25);}
+  .step .n{font-family:'DM Mono',monospace; font-size:12px; color:var(--block-accent); letter-spacing:.1em;}
+  .step h4{font-family:'Figtree',sans-serif; font-weight:600; font-size:16px; color:#fff; margin:8px 0 6px;}
+  .step p{font-size:13px; color:var(--body); line-height:1.5;}
+
+  /* three-up */
+  .triad{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:30px;}
+  .triad .card h3{display:flex; align-items:center; gap:9px;}
+  .triad .tagk{font-family:'DM Mono',monospace; font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--block-accent); margin-bottom:6px;}
+
+  @media print{
+    *{-webkit-print-color-adjust:exact !important; print-color-adjust:exact !important;}
+    @page{size:1280px 720px; margin:0;}
+    html,body{background:#0a0c12 !important; padding:0 !important; margin:0 !important; gap:0 !important; display:block !important;}
+    body > .note{display:none !important;}            /* hide top deck-metadata note in print/PDF */
+    .slide{border-radius:0 !important; box-shadow:none !important; margin:0 !important; page-break-after:always; break-after:page;}
+    .slide:last-child{page-break-after:auto !important; break-after:auto !important;}
+  }
+</style>
+</head>
+<body data-block="ai">
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad" style="display:flex; flex-direction:column; justify-content:center;">
+    <div class="kicker">Internal enablement</div>
+    <h1>Agents that are not pods.<br>kagent on Agent Substrate.</h1>
+    <p class="lead" style="max-width:790px;">Four agents, two shared workers, no pod per agent. This deck covers how the
+      pieces fit, which project owns which piece, and how to stand the whole thing up and demo it.</p>
+    <div style="display:flex; gap:10px; margin-top:26px;">
+      <span class="pill">Audience: SA / FDE</span>
+      <span class="pill blue">substrate 0.0.9 · kagent 0.10.1</span>
+      <span class="pill">Verified 2026-09-21</span>
+    </div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Title</span><span>01 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Why this exists</div>
+    <h2>Idle agents cost you capacity, not CPU.</h2>
+    <div class="twocol" style="margin-top:34px;">
+      <div>
+        <div class="colhead today"><b></b>An agent as an always-on pod</div>
+        <ul class="clean tight">
+          <li><span class="t">Reserves CPU and memory forever</span>, whether or not anyone is talking to it.</li>
+          <li>Uses close to nothing while idle, so the reservation is the real cost.</li>
+          <li>Density is capped by what the scheduler has promised, not by what runs.</li>
+          <li>Every agent you add is another permanent tenant of the cluster.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="colhead future"><b></b>An agent as a snapshot-backed actor</div>
+        <ul class="clean sol tight">
+          <li><span class="t">An idle agent is a compressed memory image</span> in object storage.</li>
+          <li>Workers are pre-warmed and shared. An agent occupies one only while it runs.</li>
+          <li>Restore, serve the turn, checkpoint back. Sub-second on a warm pool.</li>
+          <li>The sandbox is gVisor, so agent code runs against a user-space kernel.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="note" style="margin-top:30px;">Reservation is the honest comparison. Say that out loud in a demo, because it is
+      the claim a skeptical platform engineer will test, and it survives testing.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Why</span><span>02 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad" style="display:flex; flex-direction:column; justify-content:center;">
+    <div class="kicker">The number to remember</div>
+    <div style="display:grid; grid-template-columns:auto 1fr; gap:64px; align-items:center;">
+      <div>
+        <div class="bignum blue">4<span style="font-size:52px;"> agents </span>0<span class="u"> pods</span></div>
+        <div class="numlabel">Four SandboxAgents, zero pods of their own. They share two pre-warmed workers.</div>
+      </div>
+      <ul class="clean">
+        <li><span class="t">kubectl get pods shows the workers</span>, never the agents. That is the demo in one command.</li>
+        <li>Each agent has a golden snapshot in object storage and a placement record in the state store.</li>
+        <li>Adding a fifth agent adds a snapshot, not a pod.</li>
+        <li>The pool scales on queue depth and busy slots, not on CPU.</li>
+      </ul>
+    </div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Why</span><span>03 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Architecture</div>
+    <h2>Three tiers. Only two of them run in the cluster.</h2>
+    <div style="display:flex; gap:22px; margin-top:8px; font-family:'DM Mono',monospace; font-size:11px; color:#9DA1BD;"><span><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#1FEEB3;margin-right:7px;"></b>Agent Substrate</span><span><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#CC85FF;margin-right:7px;"></b>kagent</span><span><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#20B7F3;margin-right:7px;"></b>Substrate Scope</span></div>
+    <svg viewBox="0 0 1136 400" style="width:100%; height:400px; margin-top:14px; display:block;">
+  <defs>
+    <marker id="a4b" markerWidth="11" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="none" stroke="#20B7F3" stroke-width="1.7"/></marker>
+    <marker id="a4p" markerWidth="11" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="none" stroke="#CC85FF" stroke-width="1.7"/></marker>
+    <marker id="a4n" markerWidth="11" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="none" stroke="#1FEEB3" stroke-width="1.7"/></marker>
+  </defs>
+
+  <rect x="0" y="8" width="272" height="382" rx="12" fill="#11141f" stroke="rgba(32,183,243,.45)" stroke-dasharray="6 5"/>
+  <text x="16" y="34" font-family="DM Mono, monospace" font-size="12" fill="#20B7F3">YOUR LAPTOP</text>
+  <rect x="18" y="54" width="236" height="50" rx="10" fill="#1E2035" stroke="#20B7F3"/><text x="136.0" y="83.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">browser :8123</text>
+  <path d="M136,106 L136,124" fill="none" stroke="#20B7F3" stroke-width="1.6" marker-end="url(#a4b)"/>
+  <text x="148" y="121" font-family="DM Mono, monospace" font-size="10" fill="#20B7F3">SSE /events</text>
+  <rect x="18" y="128" width="236" height="66" rx="10" fill="#16243a" stroke="#20B7F3"/><text x="136.0" y="158.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">server.mjs</text><text x="136.0" y="176.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">zero deps · polls every 800ms</text>
+  <rect x="18" y="222" width="236" height="66" rx="10" fill="#16243a" stroke="#20B7F3"/><text x="136.0" y="252.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">stimulate.mjs</text><text x="136.0" y="270.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">drives real A2A chats</text>
+  <text x="136" y="332" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#5C6178">no cluster install · node ≥ 18 + kubectl</text>
+
+  <rect x="330" y="8" width="806" height="382" rx="12" fill="#11141f" stroke="rgba(92,97,120,.6)" stroke-dasharray="6 5"/>
+  <text x="346" y="34" font-family="DM Mono, monospace" font-size="12" fill="#fff">CLUSTER</text>
+
+  <rect x="348" y="52" width="770" height="150" rx="11" fill="#191B2E" stroke="rgba(204,133,255,.35)"/>
+  <text x="364" y="78" font-family="DM Mono, monospace" font-size="11" fill="#CC85FF">namespace: kagent</text>
+  <rect x="366" y="96" width="250" height="66" rx="10" fill="#221a33" stroke="#CC85FF"/><text x="491.0" y="126.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">kagent-controller</text><text x="491.0" y="144.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">A2A proxy · /api/substrate/status</text>
+  <rect x="628" y="96" width="140" height="66" rx="10" fill="#221a33" stroke="#CC85FF"/><text x="698.0" y="133.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">kagent-ui</text>
+  <rect x="780" y="96" width="320" height="66" rx="10" fill="#221a33" stroke="#CC85FF"/><text x="940.0" y="126.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">kagent-default-deployment ×2</text><text x="940.0" y="144.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">the workers · ateom-gvisor sandboxes</text>
+
+  <rect x="348" y="230" width="770" height="150" rx="11" fill="#191B2E" stroke="rgba(31,238,179,.3)"/>
+  <text x="950" y="256" text-anchor="end" font-family="DM Mono, monospace" font-size="11" fill="#1FEEB3">namespace: ate-system</text>
+  <rect x="366" y="274" width="137" height="66" rx="10" fill="#12261f" stroke="#1FEEB3"/><text x="434.5" y="304.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">ate-api-server</text><text x="434.5" y="322.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">gRPC :443</text>
+  <rect x="515" y="274" width="137" height="66" rx="10" fill="#12261f" stroke="#1FEEB3"/><text x="583.5" y="304.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">ate-controller</text><text x="583.5" y="322.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">reconciles CRs</text>
+  <rect x="664" y="274" width="137" height="66" rx="10" fill="#12261f" stroke="#1FEEB3"/><text x="732.5" y="304.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">atelet</text><text x="732.5" y="322.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">DaemonSet</text>
+  <rect x="813" y="274" width="137" height="66" rx="10" fill="#12261f" stroke="#1FEEB3"/><text x="881.5" y="304.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">atenet-router</text><text x="881.5" y="322.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">agentgateway</text>
+  <rect x="962" y="274" width="138" height="66" rx="10" fill="#12261f" stroke="#1FEEB3"/><text x="1031.0" y="304.0" text-anchor="middle" font-family="DM Mono, monospace" font-size="12.5" fill="#fff">rustfs + valkey</text><text x="1031.0" y="322.0" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">snapshots · placement</text>
+
+  <path d="M254,160 C300,152 330,132 360,124" fill="none" stroke="#20B7F3" stroke-width="2" marker-end="url(#a4b)"/>
+  <path d="M254,252 C316,246 338,176 360,150" fill="none" stroke="#20B7F3" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#a4b)"/>
+
+  <path d="M468,164 C456,200 446,238 438,270" fill="none" stroke="#CC85FF" stroke-width="2" marker-end="url(#a4p)"/>
+  <text x="478" y="222" font-family="DM Mono, monospace" font-size="10" fill="#CC85FF">actor lifecycle</text>
+  <path d="M732,272 C742,242 764,208 806,168" fill="none" stroke="#1FEEB3" stroke-width="1.8" marker-end="url(#a4n)"/>
+  <text x="672" y="222" font-family="DM Mono, monospace" font-size="10" fill="#1FEEB3">runs runsc</text>
+  <path d="M881,272 C881,242 890,208 902,168" fill="none" stroke="#1FEEB3" stroke-width="1.8" marker-end="url(#a4n)"/>
+  <text x="898" y="244" font-family="DM Mono, monospace" font-size="10" fill="#1FEEB3">agent traffic</text>
+  <path d="M990,272 C986,242 982,208 978,168" fill="none" stroke="#1FEEB3" stroke-width="1.8" marker-end="url(#a4n)"/>
+  <path d="M1022,168 C1026,208 1030,242 1034,272" fill="none" stroke="#1FEEB3" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#a4n)"/>
+  <text x="1048" y="202" font-family="DM Mono, monospace" font-size="10" fill="#1FEEB3">restore</text>
+  <text x="1048" y="220" font-family="DM Mono, monospace" font-size="10" fill="#1FEEB3">checkpoint</text>
+</svg>
+    <div style="margin-top:10px; font-family:'DM Mono',monospace; font-size:11px; color:#5C6178;">Scope reaches the cluster with kubectl and two long-lived port-forwards. stimulate.mjs posts A2A message/send straight at the controller.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Architecture</span><span>04 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Ownership</div>
+    <h2>Three separate projects. Know which one you are debugging.</h2>
+    <p class="lead" style="max-width:880px;">kagent ships the integration, not the runtime. Substrate installs separately,
+      and Scope is not installed at all.</p>
+    <div class="triad">
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div>
+        <div class="tagk" style="color:#1FEEB3"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#1FEEB3;margin-right:8px;"></b>Agent Substrate</div>
+        <h3>The runtime</h3>
+        <p>Runs actors in gVisor sandboxes, snapshots them, restores them, routes to them. Installs into
+          <span class="t">ate-system</span> from its own charts. Knows nothing about agents.</p>
+        <p style="margin-top:9px; color:#9DA1BD; font-size:13px;">Owns: WorkerPool, ActorTemplate, SandboxConfig</p>
+      </div>
+      <div class="card"><div class="bar" style="background:#CC85FF"></div>
+        <div class="tagk" style="color:#CC85FF"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#CC85FF;margin-right:8px;"></b>kagent</div>
+        <h3>The agent platform</h3>
+        <p>Turns a declarative agent into an ActorTemplate, proxies A2A traffic to it, and exposes substrate
+          state over REST. Installs into <span class="t">kagent</span>. Knows nothing about gVisor.</p>
+        <p style="margin-top:9px; color:#9DA1BD; font-size:13px;">Owns: SandboxAgent, the controller, the UI</p>
+      </div>
+      <div class="card"><div class="bar" style="background:#20B7F3"></div>
+        <div class="tagk" style="color:#20B7F3"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#20B7F3;margin-right:8px;"></b>Substrate Scope</div>
+        <h3>The view</h3>
+        <p>A local Node process that reads the cluster and draws it. No operator, no CRD, no pod.
+          Apache-2.0, maintained outside Solo.</p>
+        <p style="margin-top:9px; color:#9DA1BD; font-size:13px;">Owns: nothing in the cluster</p>
+      </div>
+    </div>
+    <div class="note" style="margin-top:26px;">Substrate is published by the kagent org at
+      ghcr.io/kagent-dev/substrate, which makes it look bundled. It is not. You install two charts, then kagent.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Ownership</span><span>05 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#1FEEB3;margin-right:8px;"></b>Agent Substrate · namespace ate-system</div>
+    <h2>Eight components, and only one of them touches the sandbox.</h2>
+    <div class="grid3" style="margin-top:28px;">
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>ate-api-server</h3>
+        <p>The control plane. gRPC on :443. Creates, suspends, resumes and deletes actors. Validates callers
+          with service-account tokens.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>ate-controller</h3>
+        <p>Reconciles the ate.dev CRs. Turns an ActorTemplate into a baked golden snapshot.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>atelet</h3>
+        <p>DaemonSet, one per node. Downloads the gVisor release, extracts runsc, starts and supervises
+          sandboxes, drives snapshots. <span class="t">This is the only component that runs runsc.</span></p></div>
+    </div>
+    <div class="grid3" style="margin-top:18px;">
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>atenet-router</h3>
+        <p>The actor data path. Runs agentgateway and routes by Host header to
+          &lt;actor-id&gt;.actors.resources.substrate.ate.dev.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>rustfs</h3>
+        <p>In-cluster S3-compatible object store. Every golden and incremental snapshot lands here.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>valkey, 6 nodes</h3>
+        <p>The actor and worker state store. Which actor sits on which worker is a record here, not a
+          Kubernetes object.</p></div>
+    </div>
+    <div class="note" style="margin-top:22px;">Also present: atenet-dns for actor name resolution, and a pod-certificate
+      controller that needs three alpha feature gates. Those gates are why this does not run on a stock cluster.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Substrate</span><span>06 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#CC85FF;margin-right:8px;"></b>kagent · namespace kagent</div>
+    <h2>kagent contributes four things, and one of them is the workers.</h2>
+    <div class="grid2" style="margin-top:30px;">
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>The SandboxAgent CRD</h3>
+        <p>An ordinary declarative kagent agent with one extra block. <span class="t">spec.substrate is the only
+          substrate-specific thing in the manifest.</span> The same agent definition runs as an always-on pod
+          without it.</p></div>
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>The controller</h3>
+        <p>Reconciles each SandboxAgent into a generated ActorTemplate, calls ate-api for lifecycle, and proxies
+          A2A requests at /api/a2a-sandboxes/&lt;ns&gt;/&lt;name&gt;/.</p></div>
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>The inventory API</h3>
+        <p>GET /api/substrate/status aggregates WorkerPools, ActorTemplates and live actor and worker state
+          from ate-api into one REST payload. Scope is built on it.</p></div>
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>The WorkerPool</h3>
+        <p>The kagent chart creates the pool when substrateWorkerPool.create is true, and its pods are the
+          pre-warmed sandboxes. Two replicas, because agent rollouts are blue-green.</p></div>
+    </div>
+    <div class="note" style="margin-top:26px;">The controller also runs the ordinary pod-based agents, k8s-agent and the
+      rest. Having both kinds on one cluster is useful: it is the control when something breaks.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> kagent</span><span>07 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot on"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#20B7F3;margin-right:8px;"></b>Substrate Scope · your laptop</div>
+    <h2>One Node process, zero dependencies, nothing installed.</h2>
+    <div class="grid3" style="margin-top:28px;">
+      <div class="card"><div class="bar" style="background:#20B7F3"></div><h3>server.mjs</h3>
+        <p>HTTP server on :8123. Polls the cluster every 800ms and pushes state to the browser over SSE at
+          /events.</p></div>
+      <div class="card"><div class="bar" style="background:#20B7F3"></div><h3>public/index.html</h3>
+        <p>The whole UI in one file. No build step, no framework, no bundler.</p></div>
+      <div class="card"><div class="bar" style="background:#20B7F3"></div><h3>stimulate.mjs</h3>
+        <p>A separate process. Drives real A2A chats and reports each one back to server.mjs over HTTP.</p></div>
+    </div>
+    <div class="twocol" style="margin-top:30px;">
+      <div>
+        <div class="colhead future"><b></b>How it reaches the cluster</div>
+        <ul class="clean sol tight">
+          <li>Shells out to <span class="t">kubectl</span>, every call pinned with the context you gave it.</li>
+          <li>Spawns two long-lived port-forwards, to the controller and the UI. Both respawn on exit.</li>
+        </ul>
+      </div>
+      <div>
+        <div class="colhead today"><b></b>Where it writes, not just reads</div>
+        <ul class="clean tight">
+          <li>Worker plus and minus, and the autoscaler, run <span class="t">kubectl scale workerpool</span>.</li>
+          <li>RESET POOL runs a rollout restart of the worker Deployment.</li>
+        </ul>
+      </div>
+    </div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Scope</span><span>08 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot on"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Object model</div>
+    <h2>One agent you author becomes four objects you can inspect.</h2>
+    <div class="flow" style="margin-top:34px;">
+      <div class="node" style="border-color:#CC85FF"><span class="mono">SandboxAgent</span><br><span style="font-size:11px;color:#9DA1BD;">kagent.dev/v1alpha2</span></div>
+      <div class="arrow sol"></div>
+      <div class="node" style="border-color:#1FEEB3"><span class="mono">ActorTemplate</span><br><span style="font-size:11px;color:#9DA1BD;">ate.dev/v1alpha1</span></div>
+      <div class="arrow sol"></div>
+      <div class="node" style="border-color:#1FEEB3"><span class="mono">golden snapshot</span><br><span style="font-size:11px;color:#9DA1BD;">zstd, in rustfs</span></div>
+      <div class="arrow sol"></div>
+      <div class="node" style="border-color:#1FEEB3"><span class="mono">Actor</span><br><span style="font-size:11px;color:#9DA1BD;">a record, not an object</span></div>
+    </div>
+    <div class="grid2" style="margin-top:34px;">
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>You write the first one</h3>
+        <p>A SandboxAgent is a declarative agent plus <span class="t">spec.substrate.workerPoolRef</span>.
+          The kagent controller generates everything downstream.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>The last one is invisible to kubectl</h3>
+        <p>An Actor is a record in valkey reached through ate-api, not a Kubernetes resource. That single fact
+          explains most of what follows.</p></div>
+    </div>
+    <div class="note" style="margin-top:24px;">Baking a golden means substrate started the agent container inside runsc on a
+      worker, let it reach ready, then checkpointed the whole process image. A Ready SandboxAgent is proof gVisor works.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Lifecycle</span><span>09 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot on"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">One turn, end to end</div>
+    <h2>The agent exists only while it is answering.</h2>
+    <svg viewBox="0 0 1136 180" style="width:100%; height:180px; margin-top:22px; display:block;">
+  <defs><marker id="a10" markerWidth="11" markerHeight="9" refX="7.5" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6" fill="none" stroke="#5C6178" stroke-width="1.4"/></marker></defs>
+  <rect x="0" y="44" width="176" height="62" rx="10" fill="#1E2035" stroke="#CC85FF"/><circle cx="20" cy="64" r="11" fill="#CC85FF" fill-opacity=".18" stroke="#CC85FF"/><text x="20" y="68" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#CC85FF">1</text><text x="40" y="68" font-family="DM Mono, monospace" font-size="12" fill="#fff">request in</text><text x="14" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">controller proxies A2A</text><rect x="192" y="44" width="176" height="62" rx="10" fill="#1E2035" stroke="#CC85FF"/><circle cx="212" cy="64" r="11" fill="#CC85FF" fill-opacity=".18" stroke="#CC85FF"/><text x="212" y="68" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#CC85FF">2</text><text x="232" y="68" font-family="DM Mono, monospace" font-size="12" fill="#fff">resume</text><text x="206" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">ate-api places the actor</text><rect x="384" y="44" width="176" height="62" rx="10" fill="#1E2035" stroke="#1FEEB3"/><circle cx="404" cy="64" r="11" fill="#1FEEB3" fill-opacity=".18" stroke="#1FEEB3"/><text x="404" y="68" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#1FEEB3">3</text><text x="424" y="68" font-family="DM Mono, monospace" font-size="12" fill="#fff">restore</text><text x="398" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">atelet unpacks the snapshot</text><rect x="576" y="44" width="176" height="62" rx="10" fill="#1E2035" stroke="#1FEEB3"/><circle cx="596" cy="64" r="11" fill="#1FEEB3" fill-opacity=".18" stroke="#1FEEB3"/><text x="596" y="68" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#1FEEB3">4</text><text x="616" y="68" font-family="DM Mono, monospace" font-size="12" fill="#fff">turn runs</text><text x="590" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">the LLM call goes out</text><rect x="768" y="44" width="176" height="62" rx="10" fill="#1E2035" stroke="#1FEEB3"/><circle cx="788" cy="64" r="11" fill="#1FEEB3" fill-opacity=".18" stroke="#1FEEB3"/><text x="788" y="68" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#1FEEB3">5</text><text x="808" y="68" font-family="DM Mono, monospace" font-size="12" fill="#fff">checkpoint</text><text x="782" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">new image to rustfs</text><rect x="960" y="44" width="176" height="62" rx="10" fill="#1E2035" stroke="#1FEEB3"/><circle cx="980" cy="64" r="11" fill="#1FEEB3" fill-opacity=".18" stroke="#1FEEB3"/><text x="980" y="68" text-anchor="middle" font-family="DM Mono, monospace" font-size="11" fill="#1FEEB3">6</text><text x="1000" y="68" font-family="DM Mono, monospace" font-size="12" fill="#fff">suspended</text><text x="974" y="92" font-family="DM Sans, sans-serif" font-size="10.5" fill="#9DA1BD">the worker slot is free</text><path d="M178,75 L188,75" fill="none" stroke="#5C6178" stroke-width="1.6" marker-end="url(#a10)"/><path d="M370,75 L380,75" fill="none" stroke="#5C6178" stroke-width="1.6" marker-end="url(#a10)"/><path d="M562,75 L572,75" fill="none" stroke="#5C6178" stroke-width="1.6" marker-end="url(#a10)"/><path d="M754,75 L764,75" fill="none" stroke="#5C6178" stroke-width="1.6" marker-end="url(#a10)"/><path d="M946,75 L956,75" fill="none" stroke="#5C6178" stroke-width="1.6" marker-end="url(#a10)"/>
+  <rect x="0" y="126" width="1136" height="40" rx="9" fill="#11141f" stroke="rgba(92,97,120,.5)" stroke-dasharray="6 5"/>
+  <text x="16" y="151" font-family="DM Mono, monospace" font-size="11" fill="#5C6178">actor state:</text>
+  <text x="120" y="151" font-family="DM Mono, monospace" font-size="11" fill="#9DA1BD">Suspended</text>
+  <text x="300" y="151" font-family="DM Mono, monospace" font-size="11" fill="#1FEEB3">Running, occupying one worker slot</text>
+  <text x="1120" y="151" text-anchor="end" font-family="DM Mono, monospace" font-size="11" fill="#9DA1BD">Suspended</text>
+</svg>
+    <div class="grid2" style="margin-top:26px;">
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>Why the pool wants two workers</h3>
+        <p>A config or image change to a SandboxAgent is blue-green. kagent keeps the old ActorTemplate serving
+          until the new golden is Ready, so a single-worker pool has <span class="t">nowhere to bake the
+          replacement</span>.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>What happens when the pool is full</h3>
+        <p>Substrate <span class="t">rejects rather than queues</span>. The restore queue you see on the board is
+          drawn from client-side retry reports, not from a queue inside substrate. That is worth saying if
+          someone asks where the queue lives.</p></div>
+    </div>
+    <div class="note" style="margin-top:24px;">The first turn after an install is the slowest you will see, because the actor is
+      cold. Send one throwaway chat before a demo so you do not open on the worst number.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Lifecycle</span><span>10 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot on"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Where the state lives</div>
+    <h2>kubectl cannot show you the interesting half.</h2>
+    <p class="lead" style="max-width:900px;">Snapshots live in rustfs and placement records live in valkey, reachable only
+      through ate-api. That is why Scope has two adapters with very different fidelity.</p>
+    <div class="grid2" style="margin-top:30px;">
+      <div class="card"><div class="bar" style="background:#CC85FF"></div>
+        <div class="tagk" style="color:#CC85FF"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#CC85FF;margin-right:8px;"></b>source: kagent</div>
+        <h3>Everything</h3>
+        <p>Reads <span class="t">/api/substrate/status</span> on the controller, which proxies ate-api, plus the sessions
+          API for chats. Per-actor state, worker occupancy, the drawer, SURGE.</p>
+        <p style="margin-top:9px; color:#9DA1BD; font-size:13px;">Needs kagent with substrate enabled</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div>
+        <div class="tagk" style="color:#1FEEB3"><b style="display:inline-block;width:9px;height:9px;border-radius:2px;background:#1FEEB3;margin-right:8px;"></b>source: crd</div>
+        <h3>The Kubernetes-visible half</h3>
+        <p>Reads WorkerPools, worker pods and ActorTemplates with kubectl. No actor placement at all, so it
+          synthesizes one pseudo-actor per template.</p>
+        <p style="margin-top:9px; color:#9DA1BD; font-size:13px;">Works on any substrate cluster, no kagent</p></div>
+    </div>
+    <div class="note" style="margin-top:26px;">Scope picks the source automatically. On our bundle it picks kagent. That REST
+      endpoint is also the one kagent 1.0.0-alpha1 removed, which is why the bundle pins 0.10.1.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Lifecycle</span><span>11 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot on"><b></b>02 · LIFECYCLE</span><span class="dot"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Worth knowing</div>
+    <h2>agentgateway is already the actor data path.</h2>
+    <div class="grid2" style="margin-top:30px;">
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>In substrate today</h3>
+        <p><span class="t">atenet-router runs agentgateway</span> with networking-mode set to agentgateway. Every request
+          that reaches an actor is routed by it, keyed on the actor Host header. This is true at the version the
+          bundle pins, not a roadmap item.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>In the newer substrate line</h3>
+        <p>An atenet-egress component adds a second agentgateway doing HTTPS interception on actor egress, with
+          credential injection from Kubernetes Secrets. An actor can then call an upstream API without ever
+          holding the key.</p></div>
+    </div>
+    <div class="note" style="margin-top:28px;">Do not confuse this with putting a Solo-configured agentgateway in front of
+      kagent for LLM routing, MCP tool RBAC or token exchange. That is a different job and a separate bundle.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Lifecycle</span><span>12 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot on"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Set expectations</div>
+    <h2>What bites, said out loud.</h2>
+    <p class="lead" style="max-width:900px;">Agent Substrate is early. Demo it as a shape of an answer, not a product you
+      would put in front of production traffic next quarter.</p>
+    <ul class="clean" style="margin-top:26px;">
+      <li><span class="t">The version pairing is tight.</span> kagent 0.10.1 vendors substrate 0.0.9. The newest kagent
+        removes the REST endpoint Scope depends on, so newer is worse for this demo.</li>
+      <li><span class="t">In-place substrate upgrades are not safe</span> across patch versions. Actor records are stored
+        as protojson and the schema moved. Rebuild the cluster instead.</li>
+      <li><span class="t">Actor egress breaks on any overlay CNI.</span> The gVisor sandbox does not inherit the pod MTU,
+        so outbound TLS blackholes on Calico, Cilium or flannel. We clamp MSS on the node to work around it.</li>
+      <li><span class="t">There is no exec or SSH into an actor.</span> The only way in is network ingress through
+        atenet, which is why interaction rides on A2A.</li>
+      <li><span class="t">The cluster is not ordinary.</span> Three alpha feature gates and Kubernetes 1.36, or nothing
+        starts.</li>
+    </ul>
+    <div class="note" style="margin-top:24px;">Full evidence, with verbatim errors and the controlled comparison behind the
+      MTU finding, is in the bundle at docs/findings.md.</div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Demo</span><span>13 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot on"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="thread-glow"></div>
+  <div class="pad">
+    <div class="kicker">What to show, and what it proves</div>
+    <h2>Three beats, twelve minutes.</h2>
+    <div class="steps" style="margin-top:32px;">
+      <div class="step"><div class="n">01</div><h4>Count the pods</h4>
+        <p>Four agents defined. No pods running them. Then show the ActorTemplates and their snapshots.</p></div>
+      <div class="step"><div class="n">02</div><h4>Watch one turn</h4>
+        <p>Chat an agent and follow the chip: storage, queue, worker, storage. Open the drawer for latency.</p></div>
+      <div class="step"><div class="n">03</div><h4>Drive it</h4>
+        <p>Start the stimulator. The queue becomes visible, and reserved capacity separates from the always-on line.</p></div>
+      <div class="step"><div class="n">04</div><h4>Scale it</h4>
+        <p>Worker plus and minus write to the real CR. Turn on the autoscaler and let demand drive it.</p></div>
+    </div>
+    <div class="card" style="margin-top:30px;"><div class="bar"></div>
+      <h3>The question you will get</h3>
+      <p>"Is this production ready?" No. Say so, then say what is real: snapshot-restore density plus gVisor
+        isolation, with agentgateway already routing every request that reaches an actor.</p></div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Demo</span><span>14 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot on"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Appendix A</div>
+    <h2>Stand it up in one command.</h2>
+    <p class="lead" style="max-width:900px;">Cluster, platform and agents from nothing. Measured at 2 minutes 25 seconds
+      with a warm image cache.</p>
+    <div style="background:#11141f; border:1px solid rgba(92,97,120,.5); border-radius:11px; padding:16px 20px; margin-top:18px; font-family:'DM Mono',monospace; font-size:12.5px; color:#B5B8CD; line-height:1.55;"><div style="white-space:pre; margin:3px 0;"><span style="color:#5C6178;"># cluster + substrate + kagent + 4 agents + all 6 tests</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#fff;">solomog vind:create apply test CLUSTER=kas BUNDLE=kagent-substrate \</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#fff;">  VCLUSTER_VALUES=bundles/kagent-substrate/helpers/vcluster-substrate.yaml</span></div><div style="height:12px;"></div><div style="white-space:pre; margin:3px 0;"><span style="color:#5C6178;"># iterate on one test by filename prefix</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#fff;">solomog test BUNDLE=kagent-substrate CLUSTER=kas TESTS=60</span></div><div style="height:12px;"></div><div style="white-space:pre; margin:3px 0;"><span style="color:#5C6178;"># tear it down</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#fff;">solomog teardown CLUSTER=kas</span></div></div>
+    <div class="grid3" style="margin-top:14px;">
+      <div class="card"><div class="bar" style="background:#20B7F3"></div><h3>What the config file adds</h3>
+        <p>Three alpha feature gates, a pod-reachable jwks_uri, and the MSS clamp as a systemd unit so it
+          survives a restart. Without any one of them the install fails in a way that looks like something
+          else.</p></div>
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>What you need first</h3>
+        <p>A model credential in .env matching KAGENT_PROVIDER, Docker Desktop with room for roughly 20 pods,
+          and node 18 or newer if you want the board.</p></div>
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>If a test fails</h3>
+        <p>Read the capture under .solomog/test-runs. The tests are ordered cheap control first, so the first
+          failure is usually the real one.</p></div>
+    </div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Appendix</span><span>15 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot on"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Appendix B</div>
+    <h2>Running the board.</h2>
+    <div style="background:#11141f; border:1px solid rgba(92,97,120,.5); border-radius:11px; padding:16px 20px; margin-top:18px; font-family:'DM Mono',monospace; font-size:12.5px; color:#B5B8CD; line-height:1.55;"><div style="white-space:pre; margin:3px 0;"><span style="color:#5C6178;"># the board. scope is cloned on demand into .solomog/ and pinned</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#fff;">bash bundles/kagent-substrate/helpers/scope.sh kas</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#5C6178;">#   → http://localhost:8123   and the kagent UI on :8001</span></div><div style="height:12px;"></div><div style="white-space:pre; margin:3px 0;"><span style="color:#5C6178;"># drive real traffic at the agents, in a second terminal</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#fff;">bash bundles/kagent-substrate/helpers/scope.sh kas --stimulate</span></div><div style="height:12px;"></div><div style="white-space:pre; margin:3px 0;"><span style="color:#5C6178;"># no cluster needed, for rehearsing the narration</span></div><div style="white-space:pre; margin:3px 0;"><span style="color:#fff;">bash bundles/kagent-substrate/helpers/scope.sh kas --sim</span></div></div>
+    <div class="grid2" style="margin-top:26px;">
+      <div class="card"><div class="bar" style="background:#20B7F3"></div><h3>Before anyone joins</h3>
+        <p>Run the tests green, open the board, and send one throwaway chat so the first turn of the demo is not
+          the cold one.</p></div>
+      <div class="card"><div class="bar" style="background:#20B7F3"></div><h3>One thing to remember</h3>
+        <p>kubectl scale takes field ownership of spec.replicas, so a later apply that manages the pool may need
+          force-conflicts.</p></div>
+    </div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Appendix</span><span>16 / 17</span></div></section>
+
+<section class="slide"><div class="rail"><div class="blocks"><span class="dot"><b></b>01 · ARCHITECTURE</span><span class="dot"><b></b>02 · LIFECYCLE</span><span class="dot on"><b></b>03 · DEMO</span></div><div class="wm"><i class="logo solo" role="img" aria-label="solo.io"></i><span class="x">×</span><span class="cust-logo">INTERNAL</span></div></div>
+  <div class="pad">
+    <div class="kicker">Appendix C</div>
+    <h2>Where to read more.</h2>
+    <div class="grid3" style="margin-top:30px;">
+      <div class="card"><div class="bar"></div><h3>docs/findings.md</h3>
+        <p>Why the pins are what they are, the jwks_uri trap, the MTU comparison, and every gotcha with its
+          verbatim error.</p></div>
+      <div class="card"><div class="bar"></div><h3>docs/demo-runsheet.md</h3>
+        <p>The beat-by-beat script, written to be read at the keyboard rather than projected.</p></div>
+      <div class="card"><div class="bar"></div><h3>docs/issue-ateom-gvisor-mtu.md</h3>
+        <p>A drafted upstream issue for the MTU defect, with a pre-filing checklist. Not filed yet.</p></div>
+    </div>
+    <div class="grid3" style="margin-top:18px;">
+      <div class="card"><div class="bar" style="background:#1FEEB3"></div><h3>Pinned versions</h3>
+        <p>substrate 0.0.9, kagent 0.10.1, Scope at commit 5d27549. Override each with an env var if you are
+          testing a newer line.</p></div>
+      <div class="card"><div class="bar" style="background:#CC85FF"></div><h3>The bundle</h3>
+        <p>bundles/kagent-substrate. Root hooks install, tests verify, helpers hold the cluster config and the
+          Scope runner.</p></div>
+      <div class="card"><div class="bar" style="background:#20B7F3"></div><h3>Upstream</h3>
+        <p>agent-substrate/substrate, kagent-dev/kagent, themsquared/substrate-scope. All Apache-2.0.</p></div>
+    </div>
+  </div><div class="footer"><span class="tag"><span class="pip">●</span> Appendix</span><span>17 / 17</span></div></section>
+
+</body>
+</html>
