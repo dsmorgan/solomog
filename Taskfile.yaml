@@ -790,6 +790,12 @@ tasks:
         GATEWAY      gateway to target for tracing + routing            default agw
         GATEWAY_NS   gateway namespace                                  default agentgateway-system
         EDITION      enterprise (community is rejected — no community UI)
+        UI_OIDC      false to log in with the bundled dev IdP (autoauth) instead of the
+                     real IdP in .env. CLI-only — no .env fallback. default true.
+                     Use it when SOLO_UI_OIDC_* in .env points at an IdP with no redirect
+                     URI for this cluster's host: Okta answers 400 and the UI never loads.
+                     Setting SOLO_UI_OIDC_ISSUER= on the CLI does NOT work — an empty
+                     value loses to the .env value through `default`.
         TOKEN_EXCHANGE   true to enable the OBO token-exchange STS (and restart the agw
                          proxy). CLI-only — no .env fallback. default false.
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
@@ -813,6 +819,10 @@ tasks:
       EDITION: '{{.EDITION}}'
       ROUTE: '{{.ROUTE | default "false"}}'
       GATEWAY: '{{.GATEWAY | default "agw"}}'
+      # CLI-only, like TOKEN_EXCHANGE below: no `env` fallback, so .env cannot turn it
+      # off and a CLI value always wins. That is the whole point — it exists to override
+      # SOLO_UI_OIDC_* in .env for one run.
+      UI_OIDC: '{{.UI_OIDC | default "true"}}'
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'

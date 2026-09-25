@@ -27,6 +27,12 @@ bases:
 ---
 
 {{- $preserveOIDC := eq (env "MANAGEMENT_PRESERVE_OIDC") "true" }}
+{{- /* UI_OIDC=false (CLI-only, from the agentgateway:ui task) forces the bundled dev IdP
+       even when SOLO_UI_OIDC_* is populated in .env. The case it exists for: .env points at
+       a real Okta org whose app has no redirect URI for this cluster's host, so Okta answers
+       400 and the UI never loads. Throwaway clusters get a new host every time, so demanding
+       an Okta app edit per cluster is the wrong trade. */ -}}
+{{- $uiOIDC := ne (env "UI_OIDC") "false" }}
 
 repositories:
   - name: solo-enterprise
@@ -70,7 +76,7 @@ releases:
        a confidential Web app (backend) and a public SPA (frontend) — see bundles/agw-okta-mcp/OKTA-SETUP.md.
        Client secret comes from .env (SOLO_UI_OIDC_BACKEND_CLIENT_SECRET), injected inline like the
        license key — never committed. */ -}}
-{{- if and (not $preserveOIDC) (env "SOLO_UI_OIDC_ISSUER") }}
+{{- if and (not $preserveOIDC) $uiOIDC (env "SOLO_UI_OIDC_ISSUER") }}
         oidc:
           issuer: "{{ env "SOLO_UI_OIDC_ISSUER" }}"
           additionalScopes: {{ env "SOLO_UI_OIDC_ADDITIONAL_SCOPES" | default "[\"profile\",\"email\"]" }}
@@ -93,4 +99,35 @@ releases:
           frontend:
             oidc:
               clientId: "{{ env "SOLO_UI_OIDC_FRONTEND_CLIENT_ID" }}"
+{{- else if and (not $preserveOIDC) (not $uiOIDC) }}
+        # UI_OIDC=false. Two non-obvious things make this block necessary and make it look
+        # the way it does.
+        #
+        # 1. Simply not rendering the OIDC block does NOT undo a previous OIDC install.
+        #    `reuseValues: true` means `helm upgrade --reuse-values`, which uses the PREVIOUS
+        #    release's computed values as the base, so the old Okta issuer survives.
+        #
+        # 2. `null` does not delete it either. Under --reuse-values a null reads as "no value
+        #    supplied" rather than "remove this key". It is worse than a no-op: it is recorded
+        #    in the user-supplied values, so `helm get values` prints `oidc: null` and the
+        #    change looks applied, while `helm get values --all` still shows the Okta issuer
+        #    and the UI keeps redirecting there.
+        #
+        # An empty STRING is what actually overrides it. The chart keys the autoauth-vs-real
+        # decision off a non-empty `oidc.issuer`, so blanking it returns OIDC_ISSUER to the
+        # bundled dev IdP at solo-enterprise-ui:5556. Verified by `helm upgrade --dry-run`.
+        #
+        # Only these three keys: `ui.backend.oidc.secret` and `.secretRef` are deliberately
+        # left alone, since secretRef is a mount NAME and blanking it makes the chart mount a
+        # Secret named "" (a hard failure). Guarded by `not $preserveOIDC` so this can never
+        # strip OIDC that Enterprise kagent shares on this same singleton release.
+        oidc:
+          issuer: ""
+        ui:
+          backend:
+            oidc:
+              clientId: ""
+          frontend:
+            oidc:
+              clientId: ""
 {{- end }}
