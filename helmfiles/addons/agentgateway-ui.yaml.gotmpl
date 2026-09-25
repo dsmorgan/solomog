@@ -60,6 +60,25 @@ releases:
           agentgateway:
             enabled: true
             namespace: agentgateway-system
+            features:
+              # Off by default in the chart, which hides the whole Cost Management
+              # section — Dashboard, Model Cost Catalog, Budgets, Dimensions and the
+              # admin-only Virtual Keys page that issues API keys. solomog turns it on
+              # because those pages are the point of an LLM gateway demo. Spend is
+              # computed from tracing spans, so the tracing policy applied by
+              # install-agentgateway-ui.sh is a hard prerequisite, and prices need a
+              # model cost catalog on the Gateway or spend stays 0.
+              #   Ref: https://docs.solo.io/agentgateway/kubernetes/2026.7.1/documentation/llm/cost-controls/dashboard/#enable
+              # Unquoted on purpose: these must reach the chart as YAML booleans. Quoted,
+              # COST_MANAGEMENT=false would render the STRING "false", which is non-empty
+              # and therefore truthy in a Go template `if` — the toggle would silently
+              # never turn anything off.
+              cost-management: {{ env "COST_MANAGEMENT" | default "true" }}
+              # Set COST_MANAGEMENT_WRITES=false for a read-only Cost Management
+              # section: the UI can then display budgets, dimensions and virtual keys
+              # but not create or edit them. Useful for showing what a locked-down
+              # operator view looks like.
+              cost-management-writes: {{ env "COST_MANAGEMENT_WRITES" | default "true" }}
         clickhouse:
           enabled: true
         tracing:
