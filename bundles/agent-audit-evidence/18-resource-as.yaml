@@ -1,0 +1,74 @@
+# The leg-2 resource authorization server (src/resource_as.py). Config comes entirely from the
+# ConfigMap/Secret that 16-resource-as-config.sh builds from .env, so this manifest is secret-free.
+# Deps are pip-installed at start (no image to build); python:3.12-slim is multi-arch.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evidence-resource-as
+  namespace: agent-evidence
+  labels:
+    app: evidence-resource-as
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evidence-resource-as
+  template:
+    metadata:
+      labels:
+        app: evidence-resource-as
+    spec:
+      containers:
+        - name: resource-as
+          image: python:3.12-slim
+          command: ["sh", "-c"]
+          args:
+            # PyJWT's [crypto] extra pulls `cryptography`, which the RS256 sign/verify path needs.
+            - |
+              pip install --quiet --no-cache-dir --root-user-action=ignore 'pyjwt[crypto]>=2.8,<3' &&
+              exec python -u /src/resource_as.py
+          env:
+            - name: PORT
+              value: "8080"
+          envFrom:
+            - configMapRef:
+                name: evidence-resource-as-env
+            - secretRef:
+                name: evidence-resource-as-client
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: src
+              mountPath: /src
+            - name: signing
+              mountPath: /signing
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            # Generous: the probe must not fail the pod while pip is still resolving wheels.
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: src
+          configMap:
+            name: evidence-resource-as-src
+        - name: signing
+          secret:
+            secretName: evidence-resource-as-signing
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evidence-resource-as
+  namespace: agent-evidence
+spec:
+  selector:
+    app: evidence-resource-as
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

@@ -1,0 +1,102 @@
+# The OTLP sink. Two exporters, because the session needs two different things from it.
+#
+#   debug  prints every record in full to the collector's own stdout. This is the ground truth for
+#          "what does the gateway actually emit" — no storage, no UI, no query language between you
+#          and the answer, so an attribute that is missing is visibly missing.
+#   otlphttp  forwards the same records to Loki, which is what makes them queryable in Grafana.
+#          Loki is optional (12-loki.yaml); when it is absent this exporter logs a connection error
+#          every batch and nothing else breaks.
+#
+# The contrib distribution is used because it publishes linux/arm64, which the vind clusters on
+# Apple Silicon require.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evidence-collector-config
+  namespace: agent-evidence
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      batch:
+        # Small and fast: a test should not wait on a batch window.
+        timeout: 1s
+        send_batch_size: 1
+    exporters:
+      debug:
+        # detailed prints resource attributes AND record attributes separately, which is the
+        # distinction the whole attribute question turns on.
+        verbosity: detailed
+      otlphttp/loki:
+        # Loki 3.x ingests OTLP natively at /otlp; the exporter appends /v1/logs itself.
+        endpoint: http://evidence-loki.agent-evidence.svc.cluster.local:3100/otlp
+        tls:
+          insecure: true
+        retry_on_failure:
+          # Do not let an absent Loki build an unbounded queue on a long-running demo cluster.
+          enabled: true
+          max_elapsed_time: 60s
+    service:
+      telemetry:
+        logs:
+          level: info
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]
+        logs:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug, otlphttp/loki]
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [debug]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evidence-collector
+  namespace: agent-evidence
+  labels: { app: evidence-collector }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: evidence-collector }
+  template:
+    metadata:
+      labels: { app: evidence-collector }
+    spec:
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.117.0
+          args: ["--config=/etc/otel/config.yaml"]
+          ports:
+            - { containerPort: 4317, name: otlp-grpc }
+            - { containerPort: 4318, name: otlp-http }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otel
+      volumes:
+        - name: config
+          configMap:
+            name: evidence-collector-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evidence-collector
+  namespace: agent-evidence
+  labels: { app: evidence-collector }
+spec:
+  selector: { app: evidence-collector }
+  ports:
+    - { name: otlp-grpc, port: 4317, targetPort: 4317 }
+    - { name: otlp-http, port: 4318, targetPort: 4318 }

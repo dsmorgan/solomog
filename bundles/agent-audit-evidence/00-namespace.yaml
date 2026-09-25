@@ -1,0 +1,9 @@
+# One namespace for every workload this bundle runs: the leg-2 resource authorization server, the
+# claims MCP server, the two agents, the claims-echo probe, and the evidence pipeline (OTel collector
+# + Loki). Gateway config objects live in agentgateway-system with the gateway.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agent-evidence
+  labels:
+    solomog.io/bundle: agent-audit-evidence

@@ -1,0 +1,15 @@
+# CHECKPOINT 2: one route, one relay, one tool policy for both agents. The agent identity arrives
+# inside the token as act.sub, so no per-agent route is needed here.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: claims-tools
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /claims-tools }
+      backendRefs:
+        - { name: claims-mcp-relay, group: enterpriseagentgateway.solo.io, kind: EnterpriseAgentgatewayBackend }

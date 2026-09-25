@@ -1,0 +1,42 @@
+# go-httpbin echoes the request headers it received, so /probe/priorauth and /probe/intake show the
+# exact token the gateway minted through both Cross App Access legs. Bring-up and test surface;
+# the agents report decoded claims only and never echo a raw token.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evidence-probe-echo
+  namespace: agent-evidence
+  labels:
+    app: evidence-probe-echo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: evidence-probe-echo
+  template:
+    metadata:
+      labels:
+        app: evidence-probe-echo
+    spec:
+      containers:
+        - name: go-httpbin
+          image: docker.io/mccutchen/go-httpbin:v2.15.0   # listens on :8080; don't override args
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /status/200
+              port: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evidence-probe-echo
+  namespace: agent-evidence
+spec:
+  selector:
+    app: evidence-probe-echo
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
