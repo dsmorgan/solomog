@@ -1,0 +1,72 @@
+# Checkpoint-1 routes. Each agent has a demo route and a probe twin carrying the identical policy
+# (44-checkpoint1-policies.sh); only the upstream differs.
+#
+#   /agents/priorauth  /agents/intake   → the agent workloads   ← THE DEMO
+#   /probe/priorauth   /probe/intake    → go-httpbin /headers   ← reads back the minted token
+#
+# The path is the agent selector because each route authenticates leg 1 with a different agent's Okta
+# credential. The selector is soft (whoever reaches the route gets that credential); what it selects
+# is real, so act.sub on the far end comes out of an Okta-signed assertion.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: agents-priorauth
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /agents/priorauth }
+      backendRefs:
+        - { name: priorauth-agent-svc, group: enterpriseagentgateway.solo.io, kind: EnterpriseAgentgatewayBackend }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: agents-intake
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /agents/intake }
+      backendRefs:
+        - { name: intake-agent-svc, group: enterpriseagentgateway.solo.io, kind: EnterpriseAgentgatewayBackend }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: probe-priorauth
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /probe/priorauth }
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: /headers }
+      backendRefs:
+        - { name: evidence-probe-echo, group: enterpriseagentgateway.solo.io, kind: EnterpriseAgentgatewayBackend }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: probe-intake
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+  rules:
+    - matches:
+        - path: { type: PathPrefix, value: /probe/intake }
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path: { type: ReplacePrefixMatch, replacePrefixMatch: /headers }
+      backendRefs:
+        - { name: evidence-probe-echo, group: enterpriseagentgateway.solo.io, kind: EnterpriseAgentgatewayBackend }

@@ -1,0 +1,59 @@
+# The claims MCP server (src/claims_mcp.py): the protected resource behind /claims-tools.
+# mcp pinned to 1.28.1 to match the agents and tests (2.x renamed the client API).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: claims-mcp
+  namespace: agent-evidence
+  labels:
+    app: claims-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: claims-mcp
+  template:
+    metadata:
+      labels:
+        app: claims-mcp
+    spec:
+      containers:
+        - name: claims-mcp
+          image: python:3.12-slim
+          command: ["sh", "-c"]
+          args:
+            - |
+              pip install --quiet --no-cache-dir --root-user-action=ignore 'mcp==1.28.1' &&
+              exec python -u /src/claims_mcp.py
+          ports:
+            - name: mcp-http
+              containerPort: 8000
+          volumeMounts:
+            - name: src
+              mountPath: /src
+          readinessProbe:
+            # FastMCP serves the streamable-HTTP endpoint at /mcp. A bare GET is not a valid MCP
+            # request, so the server answers 4xx — which still proves the listener is up. tcpSocket
+            # keeps the probe honest about what it actually verifies.
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: src
+          configMap:
+            name: claims-mcp-src
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: claims-mcp
+  namespace: agent-evidence
+spec:
+  selector:
+    app: claims-mcp
+  ports:
+    - name: mcp-http
+      port: 8000
+      targetPort: 8000

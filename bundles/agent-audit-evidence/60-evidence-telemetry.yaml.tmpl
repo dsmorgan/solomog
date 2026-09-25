@@ -1,0 +1,109 @@
+# THE EVIDENCE RECORD, as configuration: one access-log line per request that answers the four
+# questions an auditor asks of an agent action.
+#
+#   Q1 which agent             audit.agent.*        (IdP-asserted, from the act claim)
+#                              audit.declared.*     (what the agent says about itself: labelled so)
+#   Q2 whose authority         jwt.sub (built in), audit.user.*, audit.token.*
+#   Q3 what it called          gen_ai.tool.name, mcp.method.name, mcp.target, route (all built in)
+#   Q4 which control decided   reason, error (built in), audit.response.status
+#   join key                   trace.id / span.id (built in; the agents forward traceparent)
+#
+# Built in and therefore absent here: gateway, listener, route, endpoint, src.addr, http.*,
+# trace.id, span.id, jwt.sub, mcp.method.name, mcp.session.id, gen_ai.tool.name, reason, error,
+# duration.
+#
+# A `frontend` policy may only target a Gateway, so this applies to every route on it. Attributes are
+# additive, and an expression that fails to evaluate (jwt.act on a route with no actor) drops only its
+# own attribute, which is why nothing below needs a has() guard.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: evidence-telemetry
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: %%GATEWAY%%
+  frontend:
+    accessLog:
+      attributes:
+        add:
+          # -- Q1: which agent ---------------------------------------------------------------------
+          # IdP-asserted. act.sub is the alias an admin typed on the agent's Okta connection;
+          # act.okta_agent_id is Okta's own AI Agent id, for correlation with Okta's System Log;
+          # act.act.sub is the app the reviewer signed into (the next hop in Okta's signed chain).
+          - name: audit.agent.id
+            expression: jwt.act.sub
+          - name: audit.agent.okta_id
+            expression: jwt.act.okta_agent_id
+          - name: audit.agent.via_app
+            expression: jwt.act.act.sub
+          # Declared by the caller, and kept under a different prefix so no reader mistakes it for
+          # the asserted identity above.
+          - name: audit.declared.agent_name
+            expression: request.headers["x-agent-name"]
+          - name: audit.declared.agent_version
+            expression: request.headers["x-agent-version"]
+          - name: audit.declared.user_agent
+            expression: request.headers["user-agent"]
+
+          # -- Q2: whose authority -----------------------------------------------------------------
+          # Present only because the signature, issuer, audience and expiry checked out: the gateway
+          # publishes claims to CEL only after validation, so a line carrying audit.token.issuer IS
+          # the record that validation succeeded.
+          - name: audit.user.email
+            expression: jwt.email
+          - name: audit.user.groups
+            expression: jwt.groups
+          - name: audit.token.scopes
+            expression: jwt.scp
+          - name: audit.token.issuer
+            expression: jwt.iss
+          - name: audit.token.audience
+            expression: jwt.aud
+          - name: audit.token.id
+            expression: jwt.jti
+          - name: audit.token.expiry
+            expression: jwt.exp
+          # The Okta ID-JAG this token was minted from: the link back to the IdP's own record.
+          - name: audit.token.idjag_id
+            expression: jwt.idjag_jti
+
+          # -- Q3 / caller ------------------------------------------------------------------------
+          # Resolved from the source IP. Attribution, NOT authentication; the name says so.
+          - name: audit.caller.unverified_pod
+            expression: source.unverifiedWorkload.name
+          - name: audit.caller.unverified_namespace
+            expression: source.unverifiedWorkload.namespace
+
+          # -- Q4: which control decided ----------------------------------------------------------
+          # reason + error are built in; the status makes a denial readable on its own.
+          - name: audit.response.status
+            expression: string(response.code)
+          # Tool-call arguments stay OFF by default: they are the most likely place for regulated
+          # data (member ids, clinical notes) to enter a log pipeline. Enable as a decision.
+          # - name: audit.mcp.tool_arguments
+          #   expression: mcp.tool.arguments
+
+          # Promoted to first-class columns in the Solo UI request log store.
+          - name: agentgateway.user
+            expression: jwt.email
+          - name: agentgateway.group
+            expression: jwt.act.sub
+
+      # The same records over OTLP. Leaving otlp.attributes unset INHERITS the list above.
+      otlp:
+        backendRef:
+          name: evidence-collector
+          namespace: agent-evidence
+          kind: Service
+          port: 4317
+        protocol: GRPC
+
+    # Bounded labels only: every distinct value is a time series.
+    metrics:
+      attributes:
+        add:
+          - name: audit_agent
+            expression: jwt.act.sub

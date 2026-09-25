@@ -1,0 +1,108 @@
+# Loki, so the audit records are QUERYABLE rather than only readable.
+#
+# OPTIONAL. Everything else in this bundle works without it — the collector's debug exporter and
+# the proxy's own stdout already prove what the gateway emits. Loki earns its place for one
+# reason: an IdP and audit audience does not want to read a log line, they want to ask a question
+# of a log store, which is what their SIEM will do. Being able to type
+#
+#     {service_name="agentgateway"} | auth_token_issuer != ""
+#
+# in Grafana and get one row per authentication decision is a materially more convincing answer
+# than a terminal full of JSON, and it is the same shape of query they will write against Splunk.
+#
+# Single binary, filesystem storage, no retention beyond a day. This is a demo store, not a
+# reference deployment, and it should not be presented as one.
+#
+# `allow_structured_metadata` is required for OTLP ingest: Loki maps OTLP log-record attributes to
+# structured metadata, which is where every attribute this bundle adds lands. Without it the
+# records are rejected.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: evidence-loki-config
+  namespace: agent-evidence
+data:
+  loki.yaml: |
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      log_level: warn
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+    schema_config:
+      configs:
+        - from: 2024-01-01
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      allow_structured_metadata: true
+      volume_enabled: true
+      retention_period: 24h
+      reject_old_samples: false
+    compactor:
+      working_directory: /loki/compactor
+      retention_enabled: false
+    analytics:
+      reporting_enabled: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: evidence-loki
+  namespace: agent-evidence
+  labels: { app: evidence-loki }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: evidence-loki }
+  template:
+    metadata:
+      labels: { app: evidence-loki }
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.3.2
+          args: ["-config.file=/etc/loki/loki.yaml"]
+          ports:
+            - { containerPort: 3100, name: http }
+          volumeMounts:
+            - { name: config, mountPath: /etc/loki }
+            - { name: data, mountPath: /loki }
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: config
+          configMap:
+            name: evidence-loki-config
+        # emptyDir, deliberately: this store is disposable and a PVC would outlive the demo.
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: evidence-loki
+  namespace: agent-evidence
+  labels: { app: evidence-loki }
+spec:
+  selector: { app: evidence-loki }
+  ports:
+    - { name: http, port: 3100, targetPort: 3100 }

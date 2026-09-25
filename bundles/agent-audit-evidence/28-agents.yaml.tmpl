@@ -1,0 +1,104 @@
+# The two faux claims agents (src/agent.py): ONE ConfigMap, TWO Deployments, differing only by
+# AGENT_NAME / AGENT_VERSION. Identical code is the argument: when priorauth-agent may approve and
+# intake-agent may not, for the same reviewer, nothing in the code accounts for it. The difference is
+# the identity checkpoint 1 attached and the policy checkpoint 2 read.
+#
+# Each agent hairpins back through the same gateway to /claims-tools over its cluster-local Service
+# (plaintext, pod network only; see src/agent.py). mcp pinned to 1.28.1, same as the server.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: priorauth-agent
+  namespace: agent-evidence
+  labels: { app: priorauth-agent }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: priorauth-agent }
+  template:
+    metadata:
+      labels: { app: priorauth-agent }
+    spec:
+      containers:
+        - name: agent
+          image: python:3.12-slim
+          command: ["sh", "-c"]
+          args:
+            - |
+              pip install --quiet --no-cache-dir --root-user-action=ignore 'mcp==1.28.1' &&
+              exec python -u /src/agent.py
+          env:
+            - { name: AGENT_NAME, value: priorauth-agent }
+            - { name: AGENT_VERSION, value: "2.3.0" }
+            - { name: AGW_BASE_URL, value: "http://%%GATEWAY%%.agentgateway-system.svc.cluster.local:8080" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          volumeMounts:
+            - { name: src, mountPath: /src }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: src
+          configMap: { name: evidence-agent-src }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: priorauth-agent
+  namespace: agent-evidence
+spec:
+  selector: { app: priorauth-agent }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intake-agent
+  namespace: agent-evidence
+  labels: { app: intake-agent }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: intake-agent }
+  template:
+    metadata:
+      labels: { app: intake-agent }
+    spec:
+      containers:
+        - name: agent
+          image: python:3.12-slim
+          command: ["sh", "-c"]
+          args:
+            - |
+              pip install --quiet --no-cache-dir --root-user-action=ignore 'mcp==1.28.1' &&
+              exec python -u /src/agent.py
+          env:
+            - { name: AGENT_NAME, value: intake-agent }
+            - { name: AGENT_VERSION, value: "1.4.2" }
+            - { name: AGW_BASE_URL, value: "http://%%GATEWAY%%.agentgateway-system.svc.cluster.local:8080" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          volumeMounts:
+            - { name: src, mountPath: /src }
+          readinessProbe:
+            httpGet: { path: /healthz, port: 8080 }
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+      volumes:
+        - name: src
+          configMap: { name: evidence-agent-src }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intake-agent
+  namespace: agent-evidence
+spec:
+  selector: { app: intake-agent }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
