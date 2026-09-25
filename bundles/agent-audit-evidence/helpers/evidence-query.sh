@@ -29,7 +29,7 @@ echo ""
 printf '%s' "$RESP" | jq -r '
   [.data.result[] | .stream as $s | .values[] | {ts: .[0]} + $s]
   | sort_by(.ts) | .[]
-  | [ (.ts | tonumber / 1e9 | strftime("%H:%M:%S")),
+  | [ (.ts | tonumber / 1e9 | strflocaltime("%H:%M:%S")),
       (.audit_agent_id // "-"),
       (.audit_declared_agent_name // "-") + "/" + (.audit_declared_agent_version // "-"),
       (.audit_user_email // .jwt_sub // "-"),
