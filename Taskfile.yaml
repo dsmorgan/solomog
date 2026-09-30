@@ -1576,7 +1576,10 @@ tasks:
       removes the ARN-named kubeconfig entries (eksctl skips those, so dead contexts used to linger
       in kubectx). Also self-heals orphans: deletes any LB left in the VPC (and the k8s-elb-* SGs the
       ELB leaves behind), and if the control plane is already gone deletes the eksctl-<name>-*
-      CloudFormation stacks directly (disabling termination protection). MUTATES AWS. EKS only.
+      CloudFormation stacks directly (disabling termination protection). Before the cluster goes,
+      it deletes every namespace holding a PVC so the EBS CSI driver deletes those volumes (they
+      would otherwise outlive the cluster and keep billing), and afterwards it removes the
+      eks:storage IAM role. MUTATES AWS. EKS only.
       Non-eks names are refused (use that type's delete, or `solomog teardown`).
 
       Needs eksctl, and AWS creds: `solomog aws:refresh` writes them to .env and the task
@@ -1602,6 +1605,38 @@ tasks:
       EKS_REGION: '{{.EKS_REGION | default ""}}'
       AWS_REGION: '{{.AWS_REGION | default ""}}'
       GATEWAY: '{{.GATEWAY | default ""}}'
+
+  eks:storage:
+    desc: "EBS CSI driver + default gp3 StorageClass on EKS"
+    summary: |
+      Give an EKS cluster a working default StorageClass. A fresh EKS cluster can't provision a
+      volume: the EBS CSI driver is an opt-in add-on, and on 1.30+ EKS no longer marks gp2 as
+      default, so any PVC without a storageClassName stays Pending. Installs the aws-ebs-csi-driver
+      add-on with an IRSA role (solomog-<cluster>-ebs-csi, AWS-managed AmazonEBSCSIDriverPolicy),
+      applies a default gp3 StorageClass (encrypted, WaitForFirstConsumer), and proves it with a
+      1Gi PVC + pod that it then deletes. Idempotent. EKS only. Mutates AWS IAM + the cluster.
+      eks:delete removes the role and releases the volumes first.
+
+      Needs eksctl, and AWS creds: `solomog aws:refresh` writes them to .env and the task
+      reloads it (robust to stale shell creds), or export them in the shell.
+
+      Variables:
+        CLUSTER     registered EKS cluster name (required)             e.g. dmorgan-agw
+        CONTEXT     override: target an unregistered kube context      e.g. arn:aws:eks:...:cluster/dmorgan-agw
+        EKS_REGION  cluster region (preferred)                         explicit override
+        AWS_REGION  region (fallback)                                  default: derived from the context ARN
+
+      Examples:
+        solomog aws:refresh eks:storage CLUSTER=dmorgan-agw
+        solomog eks:create eks:storage CLUSTER=dmorgan-agw EKS_NODE_TYPE=m5.xlarge
+    cmds:
+      - bash scripts/run.sh "EBS storage for {{.CLUSTER}}" bash scripts/eks-storage.sh
+    env:
+      CONTEXT: '{{.CONTEXT | default ""}}'
+      CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
+      EKS_REGION: '{{.EKS_REGION | default ""}}'
+      AWS_REGION: '{{.AWS_REGION | default ""}}'
+      OWNER: '{{.OWNER | default ""}}'
 
   eks:irsa:
     desc: "IRSA for the agentgateway proxy on EKS"

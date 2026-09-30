@@ -10,6 +10,9 @@ set -euo pipefail
 # AWS to drop the ELBs, THEN eksctl delete — then deregister from .solomog/contexts and remove the
 # ARN-named kubeconfig entries (the vcluster-style context cleanup eksctl skips for those).
 #
+# Same idea for storage: namespaces holding PVCs are deleted first, so the EBS CSI driver deletes
+# their volumes while it still runs, and the eks:storage IAM role is removed after the cluster.
+#
 # Also self-heals the orphan case: any load balancers still in the cluster's VPC are deleted, and
 # if eksctl can't run (control plane already gone) the eksctl-<name>-* CloudFormation stacks are
 # deleted directly (disabling termination protection first).
@@ -107,6 +110,33 @@ delete_elb_sgs_in_vpc() {   # args: <vpc>
   done
 }
 
+# Release dynamically provisioned EBS volumes while the CSI driver can still delete them.
+# `eksctl delete cluster` removes the nodes and the driver with them, so a PV left behind orphans
+# its EBS volume, which keeps billing with nothing pointing at it. Deleting the namespaces that
+# hold PVCs removes the pods pinning them, then the PVCs, and reclaimPolicy Delete removes the
+# volumes. The cluster is being destroyed anyway, so a namespace is the right unit to delete.
+release_volumes() {   # args: <ctx>
+  local ctx="$1" namespaces elapsed left
+  namespaces="$(kubectl --context "$ctx" get pvc -A -o json 2>/dev/null \
+    | jq -r '[.items[].metadata.namespace] | unique | .[]' || true)"
+  [ -z "$namespaces" ] && return 0
+  echo "==> releasing EBS volumes: deleting namespaces with PVCs ($(echo $namespaces))"
+  # shellcheck disable=SC2086  # one argument per namespace, intended
+  kubectl --context "$ctx" delete namespace $namespaces --wait=false >/dev/null 2>&1 || true
+  elapsed=0
+  while [ $elapsed -lt 180 ]; do
+    left="$(kubectl --context "$ctx" get pv -o json 2>/dev/null \
+      | jq -r '[.items[] | select(.spec.persistentVolumeReclaimPolicy == "Delete")] | length' || echo 0)"
+    [ "$left" = "0" ] && { echo "    volumes released"; return 0; }
+    echo "    ${left} volume(s) still releasing... (${elapsed}s)"; sleep 15; elapsed=$((elapsed + 15))
+  done
+  # Carry on with the teardown, but name what is left so it can be deleted by hand.
+  echo "    ⚠ volumes still present after 180s — these EBS volumes may be orphaned:"
+  kubectl --context "$ctx" get pv -o json 2>/dev/null \
+    | jq -r '.items[] | "      \(.spec.csi.volumeHandle // .spec.awsElasticBlockStore.volumeID // "?")  (\(.spec.claimRef.namespace)/\(.spec.claimRef.name))"' || true
+  echo "      delete with: aws ec2 delete-volume --region ${REGION} --volume-id <id>"
+}
+
 delete_one() {   # args: <cluster>
   local cluster="$1" ctx cluster_name vpc elapsed c1 c2 stack
   ctx="$(solomog_context "$cluster")"
@@ -134,6 +164,7 @@ delete_one() {   # args: <cluster>
       | while read -r ns name; do
           [ -n "$name" ] && kubectl --context "$ctx" -n "$ns" delete svc "$name" --ignore-not-found 2>/dev/null || true
         done
+    release_volumes "$ctx"
   else
     echo "    cluster API not reachable (already partly gone) — skipping in-cluster cleanup"
   fi
@@ -169,6 +200,17 @@ delete_one() {   # args: <cluster>
       aws cloudformation delete-stack --region "$REGION" --stack-name "$stack" 2>/dev/null || true
     done
     echo "    (stack deletion is async — check: aws cloudformation describe-stacks --stack-name eksctl-${cluster_name}-cluster)"
+  fi
+
+  # 4b. The IRSA role eks:storage created for the EBS CSI controller. Harmless if left, but it
+  #     names a cluster that no longer exists. Absent on clusters that never ran eks:storage.
+  local ebs_role="solomog-${cluster_name}-ebs-csi"
+  if aws iam get-role --role-name "$ebs_role" >/dev/null 2>&1; then
+    echo "==> deleting IAM role ${ebs_role}"
+    aws iam detach-role-policy --role-name "$ebs_role" \
+      --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy 2>/dev/null || true
+    aws iam delete-role --role-name "$ebs_role" 2>/dev/null \
+      || echo "    could not delete role ${ebs_role} — remove it by hand"
   fi
 
   # 5. Deregister from the context registry.
