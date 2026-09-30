@@ -81,7 +81,7 @@ see	cluster	vSphere tasks:    solomog help vsphere
 see	standalone	Needs no cluster — Docker only. Version pin: AGENTGATEWAY_STANDALONE_VERSION.
 see	cluster	Standalone (no-cluster) instances:  solomog help standalone
 
-ptitle	eks	EKS — create, IRSA, and delete
+ptitle	eks	EKS — create, storage, IRSA, and delete
 ptitle	vsphere	vSphere — homelab k3s on vCenter
 ptitle	env	.env — backup, sync, and diff
 ptitle	agentcore	AgentCore — list, env, shell, prune
