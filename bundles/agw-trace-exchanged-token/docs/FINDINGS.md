@@ -13,8 +13,7 @@
 ### The headline
 
 **A debug trace exposes the exchanged token on an MCP relay route, where the access log cannot.**
-Sadie's technique covers the customer's shape. Citizens and RBC have a usable troubleshooting
-path today on the version they already run.
+Sadie's technique covers this shape. It works on the version those clusters already run.
 
 The two surfaces disagree because they hook different things. The relay performs the exchange on
 its own upstream call; that call is issued with no request log attached, so **nothing about it

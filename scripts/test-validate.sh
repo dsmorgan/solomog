@@ -96,7 +96,7 @@ printf '%s\n' "$tf" | grep -qx 'NOTE' && fail "NOTE from summary leaked into key
 echo "==> valid chain passes"
 _validate_fixture
 TASKS=(agentgateway:ui expose apply)
-VARS=(ROUTE=true BUNDLES=citizens-audit-logging CLUSTER=clog2)
+VARS=(ROUTE=true BUNDLES=agw-policy-logging CLUSTER=clog2)
 _run_cli
 assert_eq "valid rc" "$_LAST_RC" "0"
 assert_eq "valid silent" "$_LAST_OUT" ""

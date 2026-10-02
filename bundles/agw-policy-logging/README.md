@@ -14,11 +14,11 @@ The bundle expects the enterprise agentgateway and an exposed Gateway named `agw
 ```bash
 solomog agentgateway expose apply \
   BUNDLE=agw-policy-logging \
-  CLUSTER=citizens-logging
+  CLUSTER=aaa
 
 solomog test \
   BUNDLE=agw-policy-logging \
-  CLUSTER=citizens-logging
+  CLUSTER=aaa
 ```
 
 For the Solo UI and metrics dashboards too:
@@ -27,7 +27,7 @@ For the Solo UI and metrics dashboards too:
 solomog agentgateway:ui monitoring expose apply \
   ROUTE=true \
   BUNDLE=agw-policy-logging \
-  CLUSTER=citizens-logging
+  CLUSTER=aaa
 ```
 
 `monitoring` installs Prometheus and Grafana metrics. It does not collect logs.
@@ -71,19 +71,19 @@ The parameters resource starts with `level: info` and `format: json`. Follow the
 proxy logs:
 
 ```bash
-kubectl --context vcluster-docker_citizens-logging \
+kubectl --context vcluster-docker_aaa \
   logs -n agentgateway-system deployment/agw -f
 ```
 
 Change one module persistently:
 
 ```bash
-kubectl --context vcluster-docker_citizens-logging \
+kubectl --context vcluster-docker_aaa \
   patch enterpriseagentgatewayparameters policy-logging \
   -n agentgateway-system --type=merge \
   -p '{"spec":{"logging":{"level":"info,agentgateway::proxy=debug","format":"json"}}}'
 
-kubectl --context vcluster-docker_citizens-logging \
+kubectl --context vcluster-docker_aaa \
   rollout status -n agentgateway-system deployment/agw
 ```
 
@@ -111,15 +111,15 @@ resource's persistent setting.
 Generate a successful policy response and a missing-route response:
 
 ```bash
-curl -i https://agw.citizens-logging.test/logging/healthz
-curl -i https://agw.citizens-logging.test/logging/missing
+curl -i https://agw.aaa.test/logging/healthz
+curl -i https://agw.aaa.test/logging/missing
 ```
 
 The proxy's JSON logs include `solomog.bundle`, `solomog.request_path`,
 `solomog.request_method`, and `solomog.status_code` attributes:
 
 ```bash
-kubectl --context vcluster-docker_citizens-logging \
+kubectl --context vcluster-docker_aaa \
   logs -n agentgateway-system deployment/agw --since=5m |
   grep 'solomog.bundle'
 ```
@@ -142,7 +142,7 @@ the hostname.
 ```bash
 agctl proxy trace gateway/agw -n agentgateway-system \
   --raw --port 8080 -- \
-  http://agw.citizens-logging.test/logging/healthz
+  http://agw.aaa.test/logging/healthz
 ```
 
 Omit `--raw` for the interactive TUI. Look for route-selection and
@@ -161,13 +161,13 @@ Then run the curl request in another terminal.
 Point the direct-response policy at a nonexistent route:
 
 ```bash
-kubectl --context vcluster-docker_citizens-logging \
+kubectl --context vcluster-docker_aaa \
   patch enterpriseagentgatewaypolicy logging-direct-response \
   -n agentgateway-system --type=merge \
   -p '{"spec":{"targetRefs":[{"group":"gateway.networking.k8s.io","kind":"HTTPRoute","name":"missing-route"}]}}'
 
-solomog routes CLUSTER=citizens-logging WIDE=true
-solomog graph CLUSTER=citizens-logging
+solomog routes CLUSTER=aaa WIDE=true
+solomog graph CLUSTER=aaa
 ```
 
 Repeat the trace. The direct-response policy is absent from the effective policy
@@ -177,7 +177,7 @@ configuration and retest:
 ```bash
 solomog apply test \
   BUNDLE=agw-policy-logging \
-  CLUSTER=citizens-logging
+  CLUSTER=aaa
 ```
 
 Use `rawConfig` only for proxy configuration that has no typed field. Logging

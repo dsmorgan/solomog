@@ -1068,8 +1068,8 @@ tasks:
 
       Examples:
         solomog bundles:list
-        solomog bundles:list FILTER=citizens
-        solomog bundles:list FILTER=outsystems
+        solomog bundles:list FILTER=llm
+        solomog bundles:list FILTER=okta
     env:
       # CLI-only on purpose: a FILTER sitting in .env would silently shrink every list.
       # Named FILTER (not MATCH) because go-task's MATCH var is the wildcard capture array.
@@ -1109,8 +1109,8 @@ tasks:
       Examples:
         solomog test BUNDLE=llmroute-bedrock CLUSTER=aaa
         solomog test BUNDLES="llmroute-vertex llmroute-bbr" CLUSTER=aaa
-        solomog test BUNDLE=citizens-agentcore-user TESTS="54" CLUSTER=aaa
-        solomog test BUNDLE=citizens-agentcore-user TESTS="54 56" CLUSTER=aaa
+        solomog test BUNDLE=llmroute-bedrock TESTS="20" CLUSTER=aaa
+        solomog test BUNDLE=llmroute-bedrock TESTS="20 30" CLUSTER=aaa
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       # BUNDLE/BUNDLES interchangeable; either may name several bundles, tested in order.

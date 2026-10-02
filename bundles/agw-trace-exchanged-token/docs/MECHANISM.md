@@ -30,7 +30,7 @@ endpoint's reply is captured like any other response. Per RFC 6749 that body is 
 containing `access_token` — which is why the exchanged token is readable from a trace even
 though the header carrying it is redacted.
 
-Credit: this route to the token was found by Solo engineering on an RBC ticket and noted on
+Credit: this route to the token was found by Solo engineering on a customer ticket and noted on
 [#7844](https://github.com/solo-io/agentgateway-enterprise/issues/7844).
 
 ## The redaction asymmetry
