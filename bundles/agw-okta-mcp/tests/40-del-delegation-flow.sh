@@ -62,7 +62,7 @@ if ! command -v uv >/dev/null 2>&1; then
   echo "✗ uv not found — install it:  brew install uv   (or re-run: solomog setup)" >&2
   exit 1
 fi
-OBO_JWT="$DEL_JWT" uv run --with mcp --with truststore --python 3.12 - <<'PY'
+OBO_JWT="$DEL_JWT" uv run --with 'mcp<2' --with truststore --python 3.12 - <<'PY'
 import truststore; truststore.inject_into_ssl()
 import os, sys, asyncio
 from mcp.client.streamable_http import streamablehttp_client
