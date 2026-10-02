@@ -149,9 +149,9 @@ spec:
           - name: X-Snowflake-Authorization-Token-Type
             value: "'OAUTH'"
     tokenExchange:
-      # NO `mode` here — deliberately. In the enterprise source (proxy/token_exchange.rs
+      # NO mode key here — deliberately. In the enterprise source (proxy/token_exchange.rs
       # handle_request), the exchanged/elicited token is only injected into Authorization when
-      # `should_exchange` is true. expand_mode(): ElicitationOnly→(exchange=FALSE, elicit=true) so it
+      # should_exchange is true. expand_mode(): ElicitationOnly→(exchange=FALSE, elicit=true) so it
       # ELICITS but NEVER injects the token (the "STS 200 served elicitation token but no Authorization
       # upstream" bug we chased). Omitting mode → default (exchange=true, elicit=true) → elicits AND
       # injects. NOT a bug — ElicitationOnly is documented as "elicit, don't exchange/inject"; default
