@@ -1549,12 +1549,14 @@ tasks:
         AWS_REGION     cluster region (fallback)       default us-east-1 if neither set
         EKS_VERSION    Kubernetes version              pinned in versions.env (1.34); override per-run
         EKS_NODES      managed node count              default 2
-        EKS_NODE_TYPE  instance type                   default m5.large
+        EKS_NODE_TYPE  instance type                   default m5.large (m8i.xlarge if nested)
+        EKS_NESTED_VIRT  true = nodes expose /dev/kvm  default false; m8i/c8i/r8i only
         OWNER          owner=<val> tag (from .env)     default "solomog" — set to your email
 
       Examples:
         solomog aws:refresh eks:create CLUSTER=dmorgan-agw
         solomog eks:create CLUSTER=dmorgan-agw EKS_REGION=us-east-2 EKS_NODES=3
+        solomog eks:create CLUSTER=kvm1 EKS_NESTED_VIRT=true EKS_NODES=3
     cmds:
       - bash scripts/run.sh "Create EKS cluster {{.CLUSTER}}" bash scripts/eks-create.sh
     env:
@@ -1564,6 +1566,7 @@ tasks:
       EKS_VERSION: '{{.EKS_VERSION | default ""}}'
       EKS_NODES: '{{.EKS_NODES | default ""}}'
       EKS_NODE_TYPE: '{{.EKS_NODE_TYPE | default ""}}'
+      EKS_NESTED_VIRT: '{{.EKS_NESTED_VIRT | default ""}}'
       OWNER: '{{.OWNER | default ""}}'
 
   eks:delete:
