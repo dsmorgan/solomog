@@ -1811,6 +1811,7 @@ tasks:
       Mixed lists are fine. A registered generic external cluster is refused (solomog
       did not create it). FORCE=true skips the prompt (children run unattended).
       vind and vsphere also drop stamped /etc/hosts lines for each name.
+      vind also drops the vcluster-docker_<name> kube context.
 
       Type-specific: solomog vind:delete / vsphere:delete / eks:delete.
 
@@ -1871,7 +1872,8 @@ tasks:
       responsibility for the name), but registered eks/vsphere/external names are
       refused (use that type's delete, or `solomog teardown`). Prunes stale
       .solomog/clusters entries when `vcluster list` is available. Removes stamped
-      /etc/hosts lines for each name. FORCE=true skips the prompt.
+      /etc/hosts lines for each name, and the vcluster-docker_<name> kube context
+      even when vcluster delete does not. FORCE=true skips the prompt.
 
       Variables:
         CLUSTER / CLUSTERS   vind cluster name(s), space-separated (required — no default;
