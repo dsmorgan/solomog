@@ -202,6 +202,15 @@ delete_one() {   # args: <cluster>
     echo "    (stack deletion is async — check: aws cloudformation describe-stacks --stack-name eksctl-${cluster_name}-cluster)"
   fi
 
+  # 4a. The launch template eks:create made for EKS_NESTED_VIRT=true. eksctl doesn't own it, so
+  #     deleting the cluster leaves it behind. Absent on clusters made without nested virtualization.
+  local lt_name="solomog-${cluster_name}-nested-virt"
+  if aws ec2 describe-launch-templates --region "$REGION" --launch-template-names "$lt_name" >/dev/null 2>&1; then
+    echo "==> deleting launch template ${lt_name}"
+    aws ec2 delete-launch-template --region "$REGION" --launch-template-name "$lt_name" >/dev/null 2>&1 \
+      || echo "    could not delete launch template ${lt_name} — remove it by hand"
+  fi
+
   # 4b. The IRSA role eks:storage created for the EBS CSI controller. Harmless if left, but it
   #     names a cluster that no longer exists. Absent on clusters that never ran eks:storage.
   local ebs_role="solomog-${cluster_name}-ebs-csi"
