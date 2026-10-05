@@ -13,6 +13,11 @@ set -euo pipefail
 # showing "gone" forever. Also removes /etc/hosts lines stamped for each name
 # (`# solomog cluster=<name>`); unmarked leftovers are printed, not deleted.
 #
+# Also removes the kube context `vcluster-docker_<name>` (and its cluster and
+# user entries). `vcluster delete` only does that after the container is fully
+# gone — a failed or already-gone delete leaves the context in kubectx. solomog
+# removes it itself, the same way eks:delete and vsphere:delete do.
+#
 # Env:
 #   CLUSTER / CLUSTERS  space-separated names (required — destructive)
 #   FORCE               "true" skips the confirmation prompt
@@ -64,6 +69,30 @@ untrack_cluster() {
   [ -s "$STATE_FILE" ] || rm -f "$STATE_FILE"
 }
 
+# vcluster only drops this context after a fully successful container delete.
+# Always remove it here so a failed or already-gone delete does not leave
+# vcluster-docker_<name> in kubectx.
+drop_vind_kubeconfig() {   # args: <cluster>
+  local ctx="vcluster-docker_$1" err=""
+  if kubectl config get-contexts -o name 2>/dev/null | grep -qxF "$ctx"; then
+    # The "removed your active context" warning is stderr and is not a failure.
+    if err="$(kubectl config delete-context "$ctx" 2>&1 >/dev/null)"; then
+      echo "    deleted kube context ${ctx}"
+    else
+      echo "    WARNING: could not delete kube context ${ctx}: ${err}" >&2
+    fi
+  else
+    echo "    (kube context ${ctx} not present)"
+  fi
+  kubectl config delete-cluster "$ctx" >/dev/null 2>&1 || true
+  kubectl config delete-user "$ctx" >/dev/null 2>&1 || true
+  # delete-context warns, then leaves current-context pointing at the deleted name.
+  if [ "$(kubectl config current-context 2>/dev/null || true)" = "$ctx" ]; then
+    kubectl config unset current-context >/dev/null
+  fi
+  return 0
+}
+
 # Drop tracked names that are no longer in `vcluster list`. Safe no-op when the
 # list is unavailable (keeps entries rather than mass-pruning on a docker blip).
 prune_stale_tracking() {
@@ -112,12 +141,14 @@ fi
 
 for cluster in "${NAMES[@]}"; do
   echo "==> Deleting: $cluster"
-  if vcluster delete "$cluster" 2>/dev/null; then
+  if vcluster delete "$cluster"; then
     untrack_cluster "$cluster"
   else
-    echo "    Warning: could not delete '$cluster' (may already be gone)"
+    echo "    Warning: vcluster delete failed for '$cluster' (may already be gone)" >&2
     untrack_cluster "$cluster"
   fi
+  # Always — vcluster skips this when the container delete does not finish.
+  drop_vind_kubeconfig "$cluster"
   # Always — same as untrack. Stamped lines only; unmarked leftovers are printed.
   solomog_hosts_unset_cluster "$cluster" || \
     echo "    WARNING: /etc/hosts cleanup failed for '${cluster}'." >&2
