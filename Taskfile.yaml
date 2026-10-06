@@ -231,6 +231,8 @@ tasks:
         TOKEN_EXCHANGE   true to enable the agentgateway STS and restart the agw proxy (only
                    if PRODUCTS includes agentgateway). CLI-only, default false.
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
+        TOKEN_EXCHANGE_ISSUER / _EXPIRATION / _ALLOWED_SUBJECT_CLAIMS   STS issuer, token
+                   lifetime (default 24h), comma-separated claims to copy. CLI-only.
         KGATEWAY_ELS_CRD true to also install the EnterpriseListenerSet CRD (only if PRODUCTS
                          includes kgateway; chart defaults it off). CLI-only, default false.
         KGATEWAY_SKIP_SHARED_CRDS  true when agentgateway already owns the shared ext-auth /
@@ -269,6 +271,10 @@ tasks:
       KGATEWAY_ELS_CRD: '{{.KGATEWAY_ELS_CRD | default "false"}}'
       KGATEWAY_SKIP_SHARED_CRDS: '{{.KGATEWAY_SKIP_SHARED_CRDS | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
+      # CLI-only, like TOKEN_EXCHANGE: no .env fallback (see the helmfile for why).
+      TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'
+      TOKEN_EXCHANGE_EXPIRATION: '{{.TOKEN_EXCHANGE_EXPIRATION | default ""}}'
+      TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS: '{{.TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
@@ -687,6 +693,11 @@ tasks:
         TOKEN_EXCHANGE   true to enable the OBO token-exchange STS (and restart the agw
                          proxy). CLI-only — no .env fallback. default false.
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
+        TOKEN_EXCHANGE_ISSUER  STS issuer. Set a full URL when something discovers the STS
+                         by OIDC. CLI-only. default enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777
+        TOKEN_EXCHANGE_EXPIRATION  lifetime of minted tokens. CLI-only. default 24h
+        TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS  comma-separated subject-token claims the STS
+                         copies into the minted token. CLI-only.
         OAUTH_ISSUER     true to enable the eager-auth OAuth issuer (gateway acts as the
                          OAuth AS at /oauth-issuer, brokers to Okta). Needs TOKEN_EXCHANGE=true
                          + OKTA_* in .env. CLI-only. default false.
@@ -709,6 +720,10 @@ tasks:
       CONTEXT: '{{.CONTEXT | default ""}}'
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
+      # CLI-only, like TOKEN_EXCHANGE: no .env fallback (see the helmfile for why).
+      TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'
+      TOKEN_EXCHANGE_EXPIRATION: '{{.TOKEN_EXCHANGE_EXPIRATION | default ""}}'
+      TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS: '{{.TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
@@ -825,6 +840,10 @@ tasks:
       UI_OIDC: '{{.UI_OIDC | default "true"}}'
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
+      # CLI-only, like TOKEN_EXCHANGE: no .env fallback (see the helmfile for why).
+      TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'
+      TOKEN_EXCHANGE_EXPIRATION: '{{.TOKEN_EXCHANGE_EXPIRATION | default ""}}'
+      TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS: '{{.TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'

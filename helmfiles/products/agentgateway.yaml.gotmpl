@@ -63,10 +63,21 @@ releases:
        (k8s rejects the UI's Keycloak JWTs with 401). */ -}}
 {{- if and (eq .Environment.Name "enterprise") (eq (env "TOKEN_EXCHANGE") "true") }}
 {{- $jwks := env "TOKEN_EXCHANGE_JWKS_URL" | default "http://keycloak.keycloak.svc.cluster.local:8080/realms/obo-realm/protocol/openid-connect/certs" }}
+{{- /* TOKEN_EXCHANGE_ISSUER / _EXPIRATION / _ALLOWED_SUBJECT_CLAIMS are CLI-only like
+       TOKEN_EXCHANGE: a changed issuer or claim list left in .env would silently alter every
+       other cluster's STS. The issuer is also what the STS publishes in its OIDC discovery, so a
+       consumer that discovers it (enterprise kagent's oidc.issuer) needs a full http(s) URL here.
+       allowedSubjectClaims names subject-token claims the STS copies into the token it mints. */}}
       - tokenExchange:
           enabled: true
-          issuer: "enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777"
-          tokenExpiration: 24h
+          issuer: "{{ env "TOKEN_EXCHANGE_ISSUER" | default "enterprise-agentgateway.agentgateway-system.svc.cluster.local:7777" }}"
+          tokenExpiration: {{ env "TOKEN_EXCHANGE_EXPIRATION" | default "24h" }}
+{{- with env "TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS" }}
+          allowedSubjectClaims:
+{{- range splitList "," . }}
+            - "{{ trim . }}"
+{{- end }}
+{{- end }}
           subjectValidator:
             validatorType: remote
             remoteConfig:
