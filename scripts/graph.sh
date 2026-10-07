@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# graph.sh — `solomog graph`. Snapshots a cluster's agentgateway configuration and
-# renders it as an interactive, self-contained HTML graph you explore in a browser:
-# Gateway (data plane) + control-plane deployment + pods → HTTPRoutes → Backends →
-# Policies, with Gateway-API edges (parentRef / backendRef / targetRef). Click any node
-# for its details and a copy-paste `kubectl` command.
+# graph.sh — `solomog graph`. Snapshots a cluster's agentgateway, kagent and Agent Substrate
+# configuration and renders it as an interactive, self-contained HTML graph you explore in a
+# browser:
+#   agentgateway: Gateway (data plane) + control-plane deployment + pods → HTTPRoutes →
+#                 Backends → Policies, with Gateway-API edges (parentRef / backendRef / targetRef)
+#   kagent:       controller → Agents → AgentTemplate / Harness (1.0) or declarative refs (0.10)
+#                 → ModelConfigs / RemoteMCPServers; Harness → substrate WorkerPool → worker
+#                 pods + SandboxConfig (model in lib/graph/kagent.jq)
+# Either product may be absent. When both are present, one page holds both with a view switch
+# (agentgateway | kagent | all), and cross-product edges show which kagent model/MCP traffic
+# rides an agentgateway route and which routes front kagent. Click any node for its details
+# and a copy-paste `kubectl` command.
 #
 # The relationship model is the same one `routes` computes (kubectl + jq); this just emits
 # it as Cytoscape.js elements, inlines them + the vendored graph lib into ONE HTML file
@@ -43,13 +50,15 @@ TS="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo graph)"
 OUT="${OUT:-$REPO_DIR/.solomog/graph/${CLUSTER}-${TS}.html}"
 CYTO="$REPO_DIR/scripts/lib/graph/cytoscape.min.js"
 
-if ! _probe="$(kubectl --context "$CTX" get gatewayclass 2>&1)"; then
+if ! _probe="$(kubectl --context "$CTX" get --raw /version 2>&1)"; then
   echo "Error: can't reach context '$CTX' (is cluster '$CLUSTER' up?)." >&2
   echo "  kubectl said:" >&2
   printf '%s\n' "$_probe" | sed 's/^/    /' >&2
   exit 1
 fi
 [ -f "$CYTO" ] || { echo "Error: vendored graph lib missing: $CYTO" >&2; exit 1; }
+KAGENT_JQ="$REPO_DIR/scripts/lib/graph/kagent.jq"
+[ -f "$KAGENT_JQ" ] || { echo "Error: graph model missing: $KAGENT_JQ" >&2; exit 1; }
 
 # Sanitize raw C0 control bytes (live controllers sometimes write an unescaped newline into
 # a status field → invalid JSON → jq bails). Lossless: valid JSON escapes control chars.
@@ -60,22 +69,56 @@ _items() {
 }
 # Merge a CRD's items, tagging each with its full resource type (for kubectl hints).
 _tagged() { _items "$1" | jq --arg t "$1" 'map(. + {_rtype:$t})'; }
+# Large lists (pods, deployments, services) go to jq through --slurpfile <(...), never
+# --argjson: on a real cluster they exceed ARG_MAX ("argument list too long").
+_json() { printf '%s' "$1"; }
 
-echo "==> Snapshotting agentgateway config on '${CLUSTER}'"
+# Installed CRDs, fetched once: product detection, and kagent/substrate kinds are only listed
+# when served (they span two API groups across kagent 0.10 → 1.0).
+CRDS="$(kubectl --context "$CTX" get crd -o name 2>/dev/null | sed 's|^.*/||')"
+_has_crd() { printf '%s\n' "$CRDS" | grep -qx "$1"; }
+
+echo "==> Snapshotting agentgateway / kagent / substrate config on '${CLUSTER}'"
 GW="$(_items gateways.gateway.networking.k8s.io)"
 RT="$(_items httproutes.gateway.networking.k8s.io)"
 POL="$(jq -s 'add' <(_tagged enterpriseagentgatewaypolicies.enterpriseagentgateway.solo.io) <(_tagged agentgatewaypolicies.agentgateway.dev))"
 BE="$(jq -s 'add' <(_tagged enterpriseagentgatewaybackends.enterpriseagentgateway.solo.io) <(_tagged agentgatewaybackends.agentgateway.dev))"
-PODS="$(_items pods)"
+# Only the pods the graph draws: gateway data-plane pods and substrate worker pods.
+PODS="$(_items pods | jq '[.[] | select(.metadata.labels["gateway.networking.k8s.io/gateway-name"] or .metadata.labels["ate.dev/worker-pool"])]')"
 DEPS="$(_items deployments.apps)"
 GC="$(_items gatewayclasses.gateway.networking.k8s.io)"
 
+# kagent (0.10 kagent.dev/v1alpha2; 1.0 api.kagent.dev/v1alpha3 — early 1.0 alphas served
+# v1alpha3 under kagent.dev) + Agent Substrate (ate.dev). Fetch whichever are served.
+KAGENT_RES="agents agenttemplates harnesses agentharnesses sandboxagents sandboxtemplates modelconfigs modelproviderconfigs remotemcpservers mcpservers"
+KRES=""
+for r in $KAGENT_RES; do
+  for g in api.kagent.dev kagent.dev; do _has_crd "$r.$g" && KRES="$KRES $r.$g"; done
+done
+for r in enterprisekagentrbacpolicies.enterprisekagent.solo.io workerpools.ate.dev sandboxconfigs.ate.dev; do
+  _has_crd "$r" && KRES="$KRES $r"
+done
+KOBJS='[]'
+for r in $KRES; do KOBJS="$(jq -s 'add' <(_json "$KOBJS") <(_tagged "$r"))"; done
+HAS_KAGENT=false; HAS_SUBSTRATE=false
+{ _has_crd agents.api.kagent.dev || _has_crd agents.kagent.dev; } && HAS_KAGENT=true
+_has_crd workerpools.ate.dev && HAS_SUBSTRATE=true
+
 GWNAMES="$(echo "$GW" | jq -r '[.[]|select(.spec.gatewayClassName|test("agentgateway"))|.metadata.name]|join(",")')"
-if [ -z "$GWNAMES" ]; then
-  echo "No agentgateway Gateways on '${CLUSTER}' — nothing to graph." >&2
+HAS_AGW=true; [ -z "$GWNAMES" ] && HAS_AGW=false
+if [ "$HAS_AGW" = false ] && [ "$HAS_KAGENT" = false ] && [ "$HAS_SUBSTRATE" = false ]; then
+  echo "No agentgateway Gateways, kagent, or Agent Substrate on '${CLUSTER}' — nothing to graph." >&2
   exit 0
 fi
+# No agentgateway Gateway → leave its half empty, so HTTPRoutes / backends that belong to some
+# other gateway (kgateway, Istio) don't surface as "unused agentgateway config".
+if [ "$HAS_AGW" = false ]; then GW="[]"; RT="[]"; POL="[]"; BE="[]"; fi
 EDITION="community"; echo "$GW" | jq -e '.[]|select(.spec.gatewayClassName=="enterprise-agentgateway")' >/dev/null 2>&1 && EDITION="enterprise"
+SVCS='[]'
+if [ "$HAS_KAGENT" = true ] || [ "$HAS_SUBSTRATE" = true ]; then
+  # Services map agentgateway backends onto the kagent / substrate Deployments they front.
+  SVCS="$(_items services)"
+fi
 
 # ── Proxy admin /config_dump (version + loaded enrichment). Soft-fail. ──────────
 # Docs: each gateway pod serves admin on :15000; /config_dump includes build info
@@ -164,7 +207,7 @@ EOF
 fi
 
 # Image-tag fallback when dump didn't yield a version.
-if [ -z "$VERSION" ]; then
+if [ -z "$VERSION" ] && [ "$HAS_AGW" = true ]; then
   first_gw="$(echo "$GWNAMES" | cut -d, -f1)"
   img_ver="$(_image_version_for_gw "$first_gw")"
   if [ -n "$img_ver" ]; then
@@ -182,6 +225,13 @@ LOADED="$(jq -cn --argjson dumps "$DUMPS" '
     [.[] | .binds[]? | (.listeners // {}) | to_entries[]? | (.value.routes // {}) | to_entries[]?
      | .value | select(.name != null)
      | ((.namespace // "") + "/" + .name)];
+  # Plain Service backendRefs never appear in .backends — the dump records them inline on each
+  # route as service.name "<ns>/<svc>.<ns>.svc.cluster.local". Collect those as ns/svc.
+  def service_keys:
+    [.[] | .binds[]? | (.listeners // {}) | to_entries[]? | (.value.routes // {}) | to_entries[]?
+     | .value.backends[]? | .service.name? | select(type=="string")
+     | split("/") as $p | select(($p|length)==2)
+     | ($p[1] | split(".")) as $h | $h[1] + "/" + $h[0]];
   def backend_keys:
     [.[] | .backends[]? | .backend // {} | to_entries[]? | .value
      | select(type=="object" and (.name|type)=="string")
@@ -204,6 +254,7 @@ LOADED="$(jq -cn --argjson dumps "$DUMPS" '
   | {
       routes:   ($all | route_keys   | unique),
       backends: ($all | backend_keys | unique),
+      services: ($all | service_keys | unique),
       policies: ($all | policy_keys  | unique),
       hasDump:  (($dumps|length) > 0)
     }
@@ -211,11 +262,12 @@ LOADED="$(jq -cn --argjson dumps "$DUMPS" '
 
 # ── Build Cytoscape elements (nodes + edges) from the snapshot. ─────────────────
 DATA="$(jq -cn \
-  --argjson gw "$GW" --argjson rt "$RT" --argjson pol "$POL" --argjson be "$BE" \
-  --argjson pods "$PODS" --argjson deps "$DEPS" --argjson gc "$GC" \
+  --argjson gw "$GW" --slurpfile rt <(_json "$RT") --slurpfile pol <(_json "$POL") --slurpfile be <(_json "$BE") \
+  --slurpfile pods <(_json "$PODS") --slurpfile deps <(_json "$DEPS") --argjson gc "$GC" \
   --argjson loaded "$LOADED" \
   --arg cluster "$CLUSTER" --arg edition "$EDITION" \
   --arg version "$VERSION" --arg versionSource "$VERSION_SOURCE" --arg gitRevision "$GIT_REVISION" '
+  $rt[0] as $rt | $pol[0] as $pol | $be[0] as $be | $pods[0] as $pods | $deps[0] as $deps |
   def cond(t): [.status.conditions[]?|select(.type==t).status];
   def stat(t): cond(t) as $c | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end;
   def rstat:
@@ -352,12 +404,19 @@ DATA="$(jq -cn \
 
         # ── Backend nodes + backendRef edges from routes ──
         + [ $backends[] | {data:{
-            id:("backend:"+.key), label:.name, kind:"Backend",
+            # A plain Kubernetes Service named in a backendRef is a Gateway-API backend, but not an
+            # agentgateway Backend CR — draw it as its own kind so the two aren'"'"'t confused.
+            id:("backend:"+.key), label:.name, kind:(if (.rtype // "service")=="service" then "Service" else "Backend" end),
             role:(if .cr then "backend" else "external" end), ns:.ns, name:.name,
             status:(.status // "na"), rtype:(.rtype // "service"),
-            loaded:({ns:.ns, name:.name} | mark_loaded($loaded.backends)),
+            # Service: found on a loaded route → true; otherwise "na", not false — a Service used
+            # only by a policy (e.g. a JWKS fetch) is not recorded on any route.
+            loaded:(if (.rtype // "service")=="service"
+                    then ({ns:.ns, name:.name} | mark_loaded($loaded.services) | if .=="false" then "na" else . end)
+                    else ({ns:.ns, name:.name} | mark_loaded($loaded.backends)) end),
             kubectl:(if .cr then ("kubectl get "+(.rtype)+" "+.name+" -n "+.ns+" -o yaml")
-                     else ("kubectl get service "+.name+" -n "+.ns+" -o yaml  # or a backend CR") end),
+                     elif (.rtype // "service")=="service" then ("kubectl get service "+.name+" -n "+.ns+" -o yaml")
+                     else ("kubectl get "+(.rtype)+" "+.name+" -n "+.ns+" -o yaml   # referenced, but no such object") end),
             detail:{ resource:(.rtype // "service"), type:(.btype // "-"),
                      declared:(if .cr then "CR" else "route/policy ref" end),
                      conditions:(.conds // []) } }} ]
@@ -395,11 +454,40 @@ DATA="$(jq -cn \
       )
     }')"
 
+# No agentgateway → drop its half (the jq above still emits an empty frame).
+[ "$HAS_AGW" = false ] && DATA="$(printf '%s' "$DATA" | jq -c '.elements=[]')"
+# Every agentgateway node belongs to the agentgateway view.
+DATA="$(printf '%s' "$DATA" | jq -c '.elements |= map(if (.data.source|not) then .data.product //= "agentgateway" else . end)')"
+
+# ── kagent + Agent Substrate elements (lib/graph/kagent.jq), merged onto the same canvas. ──
+KDATA='{"elements":[],"objs":{},"kagentVersion":"","kagentEdition":"","substrateVersion":""}'
+if [ "$HAS_KAGENT" = true ] || [ "$HAS_SUBSTRATE" = true ]; then
+  KDATA="$(jq -cn -f "$KAGENT_JQ" \
+    --slurpfile kobjs <(_json "$KOBJS") --slurpfile deps <(_json "$DEPS") --slurpfile pods <(_json "$PODS") \
+    --slurpfile svcs <(_json "$SVCS") \
+    --slurpfile gws <(echo "$GW" | jq '[.[]|select(.spec.gatewayClassName|test("agentgateway"))]') \
+    --slurpfile rts <(_json "$RT") --slurpfile bes <(_json "$BE"))"
+fi
+KAGENT_VERSION="$(printf '%s' "$KDATA" | jq -r '.kagentVersion')"
+KAGENT_EDITION="$(printf '%s' "$KDATA" | jq -r '.kagentEdition')"
+SUBSTRATE_VERSION="$(printf '%s' "$KDATA" | jq -r '.substrateVersion')"
+DATA="$(jq -cn --argjson d "$DATA" --slurpfile k <(_json "$KDATA") \
+  --argjson agw "$HAS_AGW" --argjson kagent "$HAS_KAGENT" --argjson substrate "$HAS_SUBSTRATE" \
+  --arg kv "$KAGENT_VERSION" --arg ke "$KAGENT_EDITION" --arg sv "$SUBSTRATE_VERSION" '
+  $d + {elements:($d.elements + $k[0].elements),
+        products:{agentgateway:$agw, kagent:$kagent, substrate:$substrate},
+        kagentVersion:$kv, kagentEdition:$ke, substrateVersion:$sv}')"
+
 NODE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source|not)]|length')"
 EDGE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source)]|length')"
-VER_NOTE="${VERSION:-unknown}"
-[ -n "$VERSION_SOURCE" ] && [ "$VERSION_SOURCE" != "unknown" ] && VER_NOTE="${VER_NOTE} (${VERSION_SOURCE})"
-echo "    ${NODE_N} node(s), ${EDGE_N} edge(s)  (edition=${EDITION}, version=${VER_NOTE}, gateways=${GWNAMES})"
+if [ "$HAS_AGW" = true ]; then
+  VER_NOTE="${VERSION:-unknown}"
+  [ -n "$VERSION_SOURCE" ] && [ "$VERSION_SOURCE" != "unknown" ] && VER_NOTE="${VER_NOTE} (${VERSION_SOURCE})"
+  echo "    agentgateway: edition=${EDITION}, version=${VER_NOTE}, gateways=${GWNAMES}"
+fi
+[ "$HAS_KAGENT" = true ] && echo "    kagent: edition=${KAGENT_EDITION}, version=${KAGENT_VERSION:-unknown}, agents=$(printf '%s' "$KOBJS" | jq '[.[]|select(.kind=="Agent" or .kind=="SandboxAgent")]|length')"
+[ "$HAS_SUBSTRATE" = true ] && echo "    substrate: version=${SUBSTRATE_VERSION:-unknown}, worker pools=$(printf '%s' "$KOBJS" | jq '[.[]|select(.kind=="WorkerPool")]|length')"
+echo "    ${NODE_N} node(s), ${EDGE_N} edge(s)"
 
 # Prune edges whose endpoints don't exist (e.g. a backendRef to a Service we didn't node-ify
 # as a CR still has a node; but a stray targetRef to a missing route would dangle). Keeps
@@ -414,12 +502,16 @@ DATA="$(printf '%s' "$DATA" | jq '
 # map each node id to its full object, then render two YAML views: the raw manifest and a
 # cleaned one for copy/paste into a new cluster/bundle (kubectl-neat if installed, else a
 # built-in strip of server-managed fields). All done at generate time — no extra cluster calls.
-MANIFESTS="$(jq -n --argjson data "$DATA" --argjson gws "$GW" --argjson rts "$RT" --argjson gcs "$GC" \
-  --argjson deps "$DEPS" --argjson pods "$PODS" --argjson bes "$BE" --argjson pols "$POL" '
-  ($data.elements | map(select(.data.source|not) | .data)) as $nodes
+MANIFESTS="$(jq -n --slurpfile data <(_json "$DATA") --argjson gws "$GW" --slurpfile rts <(_json "$RT") --argjson gcs "$GC" \
+  --slurpfile deps <(_json "$DEPS") --slurpfile pods <(_json "$PODS") --slurpfile bes <(_json "$BE") --slurpfile pols <(_json "$POL") \
+  --slurpfile kobjs <(printf '%s' "$KDATA" | jq '.objs') '
+  $data[0] as $data | $rts[0] as $rts | $deps[0] as $deps | $pods[0] as $pods | $bes[0] as $bes
+  | $pols[0] as $pols | $kobjs[0] as $kobjs
+  | ($data.elements | map(select(.data.source|not) | .data)) as $nodes
   | reduce $nodes[] as $n ({};
       ($n.rtype) as $k | ($n.ns) as $ns | ($n.name) as $nm | ($n.id) as $id
-      | (( if   $k=="gateway"      then first($gws[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
+      | (( if   ($id|startswith("k:")) then $kobjs[$id]
+           elif $k=="gateway"      then first($gws[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
            elif $k=="httproute"    then first($rts[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
            elif $k=="gatewayclass" then first($gcs[]|select(.metadata.name==$nm))
            elif $k=="deploy"       then first($deps[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
@@ -487,8 +579,11 @@ DUMP_PAYLOAD="$(jq -cn --argjson dumps "$DUMPS" --arg version "$VERSION" --arg v
       summary:$summary, gateways:$dumps }
 ')"
 
-VERSION_SUB=""
-[ -n "$VERSION" ] && VERSION_SUB=" · ${VERSION}"
+# Subtitle: one segment per product present on the cluster.
+SUBTITLE="cluster ${CLUSTER}"
+[ "$HAS_AGW" = true ] && SUBTITLE="${SUBTITLE} · agentgateway (${EDITION})${VERSION:+ ${VERSION}}"
+[ "$HAS_KAGENT" = true ] && SUBTITLE="${SUBTITLE} · kagent${KAGENT_EDITION:+ (${KAGENT_EDITION})}${KAGENT_VERSION:+ ${KAGENT_VERSION}}"
+[ "$HAS_SUBSTRATE" = true ] && SUBTITLE="${SUBTITLE} · substrate${SUBSTRATE_VERSION:+ ${SUBSTRATE_VERSION}}"
 
 # ── Assemble the self-contained HTML (vendored Cytoscape + inlined data + app). ─
 mkdir -p "$(dirname "$OUT")"
@@ -532,14 +627,24 @@ mkdir -p "$(dirname "$OUT")"
   #legend i.tag{clip-path:polygon(0 0,68% 0,100% 50%,68% 100%,0 100%)}
   #legend i.ring{background:transparent;border:2px solid #9fb0d0;border-radius:50%}
   #legend i.ring.dash{border-style:dashed;border-radius:3px}
+  #legend i.star{clip-path:polygon(50% 0,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)}
+  #legend i.rhomb{clip-path:polygon(25% 0,100% 0,75% 100%,0 100%)}
+  #legend i.cut{clip-path:polygon(25% 0,75% 0,100% 25%,100% 75%,75% 100%,25% 100%,0 75%,0 25%);border-radius:0}
+  #legend i.tri{clip-path:polygon(50% 0,100% 100%,0 100%)}
+  #legend i.pent{clip-path:polygon(50% 0,100% 38%,82% 100%,18% 100%,0 38%)}
+  #legend i.barrel{border-radius:35%/50%}
+  #legend i.oct{clip-path:polygon(30% 0,70% 0,100% 30%,100% 70%,70% 100%,30% 100%,0 70%,0 30%)}
   #controls{position:fixed;left:12px;top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--dim);display:flex;gap:14px;align-items:center}
   #controls label{cursor:pointer;user-select:none} #controls input{vertical-align:middle;margin-right:5px}
   #controls button{background:transparent;color:var(--accent);border:1px solid var(--line);border-radius:6px;padding:3px 9px;font-size:12px}
+  #views{display:flex;gap:4px;align-items:center;padding-right:10px;border-right:1px solid var(--line)}
+  #views button{color:var(--dim)} #views button.on{color:#0b0f18;background:var(--accent);border-color:var(--accent)}
 </style></head><body><div id="wrap"><div id="cy"></div>
 <div id="grip" title="drag to resize"></div>
-<div id="side"><h1>solomog graph</h1><div class="sub">cluster ${CLUSTER} · agentgateway (${EDITION})${VERSION_SUB}</div>
+<div id="side"><h1>solomog graph</h1><div class="sub">${SUBTITLE}</div>
 <div id="detail"><div class="empty">Click a node to inspect it, or open the dump panel.</div></div></div></div>
 <div id="controls">
+  <span id="views"></span>
   <label><input type="checkbox" id="unused"> unused components</label>
   <label><input type="checkbox" id="aux"> control-plane services</label>
   <button id="relayout">re-layout</button>
@@ -557,7 +662,18 @@ HTMLHEAD
 (function(){
   var D=window.SOLOMOG_DATA;
   var DUMP=window.SOLOMOG_DUMP||{};
-  var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c',GatewayClass:'#80cbc4'};
+  var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c',GatewayClass:'#80cbc4',
+    Agent:'#ff79c6',SandboxAgent:'#ff79c6',AgentTemplate:'#b39ddb',Harness:'#4dd0e1',AgentHarness:'#4dd0e1',SandboxTemplate:'#4dd0e1',
+    ModelConfig:'#e6c07b',ModelProviderConfig:'#bcaaa4',RemoteMCPServer:'#9ccc65',MCPServer:'#9ccc65',Service:'#9fb0d0',
+    WorkerPool:'#4fc3f7',SandboxConfig:'#80cbc4',EnterpriseKagentRBACPolicy:'#f78c6c'};
+  // legend swatch class per kind (mirrors the canvas shape)
+  var SHAPE={Gateway:'rrect',GatewayClass:'tag',Deployment:'rrect',Pod:'ellipse',HTTPRoute:'ellipse',Backend:'diamond',Policy:'hex',
+    Agent:'star',SandboxAgent:'star',AgentTemplate:'rhomb',Harness:'cut',AgentHarness:'cut',SandboxTemplate:'cut',
+    ModelConfig:'tri',ModelProviderConfig:'tri',RemoteMCPServer:'pent',MCPServer:'pent',Service:'barrel',
+    WorkerPool:'oct',SandboxConfig:'tag',EnterpriseKagentRBACPolicy:'hex'};
+  var PRODUCTS=D.products||{agentgateway:true};
+  var KSIDE={kagent:true,substrate:true};
+  function side(p){return KSIDE[p]?'kagent':'agentgateway';}
   function statColor(s){return s==='ok'?'#3fe08f':s==='bad'?'#ff5f7a':'#4a5578';}
   var cy=cytoscape({
     container:document.getElementById('cy'),
@@ -571,11 +687,25 @@ HTMLHEAD
       {selector:'node[kind="Gateway"]',style:{'shape':'round-rectangle','width':40,'height':30}},
       {selector:'node[kind="Deployment"]',style:{'shape':'round-rectangle'}},
       {selector:'node[kind="Backend"]',style:{'shape':'diamond','width':30,'height':30}},
-      {selector:'node[kind="GatewayClass"]',style:{'shape':'round-tag','width':34,'height':26}},
+      // plain Kubernetes Service (an agentgateway backendRef, or a 0.10 kagent tool)
+      {selector:'node[kind="Service"]',style:{'shape':'barrel','width':30,'height':22}},
+      {selector:'node[kind="GatewayClass"], node[kind="SandboxConfig"]',style:{'shape':'round-tag','width':34,'height':26}},
       // policies' kind is the CR kind (EnterpriseAgentgatewayPolicy / AgentgatewayPolicy),
       // not "Policy", so the kind→COLOR lookup misses — set their fill by role instead.
       {selector:'node[role="policy"]',style:{'shape':'hexagon','background-color':'#f78c6c'}},
-      // unused config (not reachable from any Gateway) + the anchor it clusters under
+      // kagent + substrate
+      {selector:'node[kind="Agent"], node[kind="SandboxAgent"]',style:{'shape':'star','width':34,'height':34}},
+      {selector:'node[kind="AgentTemplate"]',style:{'shape':'rhomboid','width':34,'height':24}},
+      {selector:'node[kind="Harness"], node[kind="AgentHarness"], node[kind="SandboxTemplate"]',style:{'shape':'cut-rectangle','width':32,'height':24}},
+      {selector:'node[kind="ModelConfig"], node[kind="ModelProviderConfig"]',style:{'shape':'round-triangle','width':30,'height':28}},
+      {selector:'node[kind="RemoteMCPServer"], node[kind="MCPServer"]',style:{'shape':'round-pentagon','width':30,'height':30}},
+      {selector:'node[kind="WorkerPool"]',style:{'shape':'octagon','width':32,'height':32}},
+      {selector:'node[kind="EnterpriseKagentRBACPolicy"]',style:{'shape':'hexagon'}},
+      // a ref that points at nothing
+      {selector:'node[?missing]',style:{'background-opacity':0.25,'border-style':'dashed','border-color':'#ff5f7a','color':'#ff8098'}},
+      // other product's node, pulled into a single-product view by a cross-product edge
+      {selector:'node.bridge',style:{'opacity':0.55}},
+      // unused config (not reachable from any Gateway / Agent) + the anchor it clusters under
       {selector:'node.orphan',style:{'border-color':'#ffb454','border-style':'dashed','border-width':3}},
       {selector:'node[?isUnusedAnchor]',style:{'shape':'round-rectangle','background-color':'#ffb454','background-opacity':0.15,
         'border-color':'#ffb454','border-width':1,'border-style':'dashed','width':18,'height':18,
@@ -589,47 +719,120 @@ HTMLHEAD
         'target-arrow-shape':'triangle','curve-style':'bezier','arrow-scale':.8}},
       {selector:'edge[rel="manages"]',style:{'line-style':'dashed','line-color':'#c792ea','target-arrow-color':'#c792ea'}},
       {selector:'edge[rel="controllerName"]',style:{'line-style':'dashed','line-color':'#80cbc4','target-arrow-color':'#80cbc4'}},
-      {selector:'edge[rel="gatewayClassName"]',style:{'line-color':'#80cbc4','target-arrow-color':'#80cbc4'}},
-      {selector:'edge[rel="pod"]',style:{'line-style':'dotted'}}
+      {selector:'edge[rel="gatewayClassName"], edge[rel="sandboxClass"]',style:{'line-color':'#80cbc4','target-arrow-color':'#80cbc4'}},
+      {selector:'edge[rel="pod"]',style:{'line-style':'dotted'}},
+      {selector:'edge[rel="config"]',style:{'line-style':'dotted','line-color':'#c792ea','target-arrow-color':'#c792ea'}},
+      // cross-product traffic: kagent → agentgateway route, agentgateway backend → kagent
+      {selector:'edge[?cross]',style:{'line-style':'dashed','line-color':'#ff9e64','target-arrow-color':'#ff9e64','color':'#ff9e64','width':2}}
     ],
     layout:{name:'grid'}
   });
-  // Hierarchical layout rooted at the Gateway(s); operates on visible elements only so a
-  // hidden group doesn't leave gaps. Called on load and after any show/hide.
-  function relayout(){
-    var vis=cy.elements(':visible');
-    vis.layout({name:'breadthfirst',directed:false,
-      roots:cy.$('node[kind="Gateway"], node[?isUnusedAnchor]').filter(':visible'),
-      spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
-    cy.fit(vis,40);
+
+  // ── visibility: view (product) × unused toggle × aux toggle ──────────────────
+  var STATE={view:'all',unused:false,aux:false};
+  var SIDES={agentgateway:false,kagent:false};
+  cy.nodes().forEach(function(n){ if(n.data('product')) SIDES[side(n.data('product'))]=true; });
+  var BOTH=SIDES.agentgateway&&SIDES.kagent;
+  function passesToggles(n){
+    if(n.data('isUnusedAnchor')) return STATE.unused;
+    if(n.data('orphan')&&!STATE.unused) return false;
+    if(n.data('aux')&&!STATE.aux) return false;
+    return true;
   }
-  // Unused detection: config (route/backend/policy) not reachable from any Gateway is
-  // applied but not wired in. Flag it and cluster it under a labelled anchor.
+  function applyVisibility(){
+    cy.batch(function(){
+      cy.nodes().removeClass('bridge');
+      var shown={};
+      cy.nodes().forEach(function(n){
+        var inView=STATE.view==='all'||side(n.data('product'))===STATE.view;
+        if(inView&&passesToggles(n)) shown[n.id()]=true;
+      });
+      // single-product view: pull in the far end of each cross-product edge as a bridge
+      if(STATE.view!=='all'){
+        cy.edges('[?cross]').forEach(function(e){
+          var s=e.source(), t=e.target();
+          if(shown[s.id()]&&!shown[t.id()]&&passesToggles(t)){shown[t.id()]=true;t.addClass('bridge');}
+          else if(shown[t.id()]&&!shown[s.id()]&&passesToggles(s)){shown[s.id()]=true;s.addClass('bridge');}
+        });
+      }
+      cy.nodes().forEach(function(n){ if(shown[n.id()]) n.show(); else n.hide(); });
+      cy.edges().forEach(function(e){
+        if(shown[e.source().id()]&&shown[e.target().id()]) e.show(); else e.hide();
+      });
+    });
+    renderLegend();
+  }
+
+  // Hierarchical layout per product side, then the sides placed left→right. Per-side layout keeps
+  // each product's tree readable; cross edges simply span the gap. In a single-product view the
+  // bridge nodes join that side's layout so they sit next to what references them.
+  function relayout(){
+    var vis=cy.nodes(':visible');
+    var groups;
+    if(STATE.view==='all'&&BOTH){
+      groups=[vis.filter(function(n){return side(n.data('product'))==='agentgateway';}),
+              vis.filter(function(n){return side(n.data('product'))==='kagent';})];
+    } else groups=[vis];
+    var x=0;
+    groups.forEach(function(nodes){
+      if(!nodes.length) return;
+      var eles=nodes.union(nodes.edgesWith(nodes).filter(':visible'));
+      // Roots: Gateways (agentgateway) and kagent controllers. Substrate is deliberately NOT a
+      // root — it is kagent's runtime layer, so it lands below the Harnesses that select its
+      // pools (a second root would hoist pools/pods up beside the Agents and tangle the tree).
+      // Substrate-only cluster: fall back to its controller.
+      function ctl(p){return function(n){return n.data('kind')==='Deployment'&&n.data('role')==='controlplane'&&!n.data('aux')&&n.data('product')===p;};}
+      // bridge nodes (the other product's end of a cross edge) are never roots
+      var roots=nodes.filter(function(n){return !n.hasClass('bridge')&&(n.data('kind')==='Gateway'||n.data('isUnusedAnchor')||ctl('kagent')(n));});
+      if(!roots.filter(function(n){return !n.data('isUnusedAnchor');}).length) roots=roots.union(nodes.filter(function(n){return !n.hasClass('bridge')&&ctl('substrate')(n);}));
+      eles.layout({name:'breadthfirst',directed:false,roots:roots.length?roots:undefined,
+        spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
+      var bb=nodes.boundingBox();
+      nodes.shift({x:x-bb.x1,y:-bb.y1});
+      x+=bb.w+220;
+    });
+    cy.fit(cy.elements(':visible'),40);
+  }
+
+  // Unused detection.
+  //  agentgateway: config (route/backend/policy) not reachable from any Gateway — undirected,
+  //    since policies point AT what they attach to.
+  //  kagent: config no Agent (or SandboxTemplate) reaches by following references outward —
+  //    directed, so an unused template that points at a used ModelConfig is still unused.
   function markOrphans(){
-    var reached={}, frontier=cy.nodes('[kind="Gateway"]').toArray();
-    frontier.forEach(function(g){reached[g.id()]=true;});
-    while(frontier.length){
-      frontier.pop().connectedEdges().connectedNodes().forEach(function(m){
-        if(!reached[m.id()]){reached[m.id()]=true;frontier.push(m);}
+    var agw={}, fr=cy.nodes('[kind="Gateway"]').toArray();
+    fr.forEach(function(g){agw[g.id()]=true;});
+    while(fr.length){
+      fr.pop().connectedEdges().filter(function(e){return !e.data('cross');}).connectedNodes().forEach(function(m){
+        if(!agw[m.id()]&&m.data('product')==='agentgateway'){agw[m.id()]=true;fr.push(m);}
       });
     }
-    var orphans=cy.nodes().filter(function(n){
+    var kr={}; fr=cy.nodes('[kind="Agent"], [kind="SandboxAgent"], [kind="SandboxTemplate"]').toArray();
+    fr.forEach(function(a){kr[a.id()]=true;});
+    while(fr.length){
+      fr.pop().outgoers('edge').filter(function(e){return !e.data('cross');}).targets().forEach(function(m){
+        if(!kr[m.id()]){kr[m.id()]=true;fr.push(m);}
+      });
+    }
+    var KORPH={AgentTemplate:1,Harness:1,AgentHarness:1,ModelConfig:1,RemoteMCPServer:1,MCPServer:1,WorkerPool:1};
+    var groups={agentgateway:[],kagent:[]};
+    cy.nodes().forEach(function(n){
       var k=n.data('kind');
-      return (k==='HTTPRoute'||k==='Backend'||n.data('role')==='policy') && !reached[n.id()];
+      if(n.data('product')==='agentgateway'){
+        if((k==='HTTPRoute'||k==='Backend'||k==='Service'||n.data('role')==='policy')&&!agw[n.id()]) groups.agentgateway.push(n);
+      } else if(KSIDE[n.data('product')]&&KORPH[k]&&!kr[n.id()]&&!n.data('missing')) groups.kagent.push(n);
     });
-    if(!orphans.length) return;
-    orphans.addClass('orphan'); orphans.data('orphan',true);
-    cy.add({group:'nodes',data:{id:'__unused',label:'⚠ unused',isUnusedAnchor:true}});
-    orphans.forEach(function(n){cy.add({group:'edges',data:{id:'ue_'+n.id(),source:'__unused',target:n.id(),rel:'unused'}});});
+    Object.keys(groups).forEach(function(p){
+      var o=groups[p]; if(!o.length) return;
+      var anchor='__unused_'+p;
+      cy.add({group:'nodes',data:{id:anchor,label:'⚠ unused',isUnusedAnchor:true,product:p==='kagent'?'kagent':'agentgateway'}});
+      o.forEach(function(n){
+        n.addClass('orphan'); n.data('orphan',true);
+        cy.add({group:'edges',data:{id:'ue_'+n.id(),source:anchor,target:n.id(),rel:'unused'}});
+      });
+    });
   }
-  // Unused config is opt-in so the normal graph stays focused on the active request path.
-  function applyUnused(show){
-    var n=cy.nodes('.orphan').union(cy.nodes('[?isUnusedAnchor]')), e=cy.edges('[rel="unused"]');
-    if(show){n.show();e.show();}else{e.hide();n.hide();}
-  }
-  // Toggle the auxiliary control-plane services (ext-auth / rate-limiter / waf). The core
-  // control plane (enterprise-agentgateway) and the data-plane pod always stay.
-  function applyAux(show){ var a=cy.nodes('[?aux]'); if(show){a.show();}else{a.hide();} }
+
   function esc(s){return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
   function row(k,v){return '<tr><td class="key">'+esc(k)+'</td><td>'+v+'</td></tr>';}
   // Minimal, safe YAML syntax highlighter (best-effort colour; never breaks layout).
@@ -657,40 +860,44 @@ HTMLHEAD
     if(l==='false') return {cls:'bad', text:'not in proxy'};
     return null;
   }
+  function who(n){return esc((n.data('kind')||n.data('role')||'component')+' '+n.data('name'));}
+  var STRUCTURAL={manages:1,pod:1,unused:1,config:1,controllerName:1,gatewayClassName:1};
   function render(n){
     var d=n.data(), det=d.detail||{}, s=d.status||'na';
-    var h='<div class="k">'+esc(d.kind)+'</div><div class="name">'+esc(d.name)+'</div>';
+    var prod=d.product?esc(d.product)+' · ':'';
+    var h='<div class="k">'+prod+esc(d.kind)+'</div><div class="name">'+esc(d.name)+'</div>';
     h+='<span class="badge '+s+'">'+(s==='ok'?'✓ active':s==='bad'?'✗ inactive':'—')+'</span>';
     var ld=loadedLabel(d.loaded);
     if(ld) h+='<span class="badge '+ld.cls+'">'+ld.text+'</span>';
-    if(d.orphan) h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ unused — not reachable from any Gateway (applied, but not wired in)</div>';
+    if(d.orphan) h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ unused — '
+      +(KSIDE[d.product]?'no Agent references this (applied, but nothing uses it)':'not reachable from any Gateway (applied, but not wired in)')+'</div>';
+    if(d.missing) h+='<div class="hint" style="color:#ff8098;margin-top:6px">✗ referenced, but no such object exists</div>';
+    if(n.hasClass('bridge')) h+='<div class="hint" style="margin-top:6px">shown from the '+esc(side(d.product))+' side because a cross-product edge reaches it — switch to “all” for its full context</div>';
     if(d.loaded==='false' && s==='ok')
       h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ CR status is active but this resource is not in the proxy /config_dump</div>';
     h+='<table>'+row('namespace',esc(d.ns||'-'));
     if(d.loaded && d.loaded!=='na')
       h+=row('loaded in proxy', d.loaded==='true'?'yes':'no');
     Object.keys(det).forEach(function(k){
-      var v=det[k]; if(Array.isArray(v)) v=v.length?v.map(esc).join('<br>'):'—';
-      else v=esc(v==null||v===''?'—':v);
+      var v=det[k]; if(v==null) return;
+      if(Array.isArray(v)) v=v.length?v.map(esc).join('<br>'):'—';
+      else v=esc(v===''?'—':v);
       h+=row(k,v);
     });
-    if(d.kind==='Backend'){
-      var refs=n.incomers('edge').filter(function(e){
-        var r=e.data('relation')||e.data('rel');
-        return r==='uses'||r==='backendRef'||r==='targetRef';
+    // who points at this node (excluding structural control-plane edges)
+    var refs=n.incomers('edge').filter(function(e){return !STRUCTURAL[e.data('rel')];});
+    if(refs.length&&d.kind!=='Gateway'){
+      var total=0, by=[];
+      refs.forEach(function(e){
+        var count=Number(e.data('refCount')||1), rel=e.data('relation')||e.data('rel');
+        total+=count;
+        by.push(who(e.source())+' — '+esc(rel+(count>1?' ×'+count:'')));
       });
-      if(refs.length){
-        var total=0, by=[];
-        refs.forEach(function(e){
-          var count=Number(e.data('refCount')||1), src=e.source(), rel=e.data('relation')||e.data('rel');
-          total+=count;
-          by.push(esc((src.data('kind')||src.data('role')||'component')+' '+src.data('name'))
-            +' — '+esc(rel+(count>1?' ×'+count:'')));
-        });
-        h+=row('references',esc(total));
-        h+=row('referenced by',by.join('<br>'));
-      }
+      h+=row('references',esc(total));
+      h+=row('referenced by',by.join('<br>'));
     }
+    var cross=n.outgoers('edge').filter(function(e){return e.data('cross');});
+    if(cross.length) h+=row('cross-product',cross.map(function(e){return esc(e.data('rel'))+' → '+who(e.target());}).join('<br>'));
     h+='</table>';
     h+='<div class="k">kubectl</div><pre id="kc">'+esc(d.kubectl)+'</pre>';
     h+='<button onclick="solomogCopy(\'kc\')">Copy kubectl</button><div class="hint" id="cpm"></div>';
@@ -709,7 +916,7 @@ HTMLHEAD
     var s=DUMP.summary||{}, gws=DUMP.gateways||{}, keys=Object.keys(gws);
     var h='<div class="k">proxy config_dump</div><div class="name">runtime snapshot</div>';
     if(!keys.length){
-      h+='<div class="empty">No /config_dump fetched (DUMP=false, or admin :15000 unreachable). Version may still come from the image tag.</div>';
+      h+='<div class="empty">No /config_dump fetched (no agentgateway, DUMP=false, or admin :15000 unreachable). Version may still come from the image tag.</div>';
       if(D.version) h+='<table>'+row('version',esc(D.version))
         +row('source',esc(D.versionSource||'—'))+'</table>';
       document.getElementById('detail').innerHTML=h;
@@ -766,31 +973,73 @@ HTMLHEAD
     }else fallback();
   };
   cy.on('tap','node',function(e){ if(e.target.data('isUnusedAnchor'))return; render(e.target); });
-  cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML='<div class="empty">Click a node to inspect it, or open the dump panel.</div>';}});
+  var EMPTY='<div class="empty">Click a node to inspect it'+(SIDES.agentgateway?', or open the dump panel.':'.')+'</div>';
+  document.getElementById('detail').innerHTML=EMPTY;
+  cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML=EMPTY;}});
   document.getElementById('show-dump').addEventListener('click',function(){cy.nodes().unselect();renderDump();});
-  // legend — kinds shown with their canvas SHAPE + fill colour; then the plane grouping the
-  // colours encode; then status as a ring (status is the node BORDER on canvas, not the fill).
-  var SHAPE={Gateway:'rrect',GatewayClass:'tag',Deployment:'rrect',Pod:'ellipse',HTTPRoute:'ellipse',Backend:'diamond',Policy:'hex'};
+
+  // legend — only the kinds in the current view, each with its canvas SHAPE + fill colour; then
+  // the plane grouping the colours encode; then status as a ring (status is the node BORDER).
+  var ORDER=['Gateway','GatewayClass','Deployment','Pod','HTTPRoute','Backend','Service','Policy',
+    'Agent','SandboxAgent','AgentTemplate','Harness','AgentHarness','SandboxTemplate','ModelConfig','ModelProviderConfig',
+    'RemoteMCPServer','MCPServer','WorkerPool','SandboxConfig','EnterpriseKagentRBACPolicy'];
   function sw(shape,color){return '<i class="'+shape+'" style="background:'+color+'"></i>';}
   function ring(color){return '<i class="ring" style="border-color:'+color+'"></i>';}
-  var kinds=['Gateway','GatewayClass','Deployment','Pod','HTTPRoute','Backend','Policy'];
-  document.getElementById('legend').innerHTML=
-    kinds.map(function(k){return '<span>'+sw(SHAPE[k],COLOR[k]||'#9fb0d0')+k+'</span>';}).join('')
-    +'<br><b style="color:#8a97b0">planes:</b> '
-    +'<span>'+sw('rrect',COLOR.Gateway)+'data (Gateway, Pod)</span>'
-    +'<span>'+sw('rrect',COLOR.Deployment)+'control (Deployment)</span>'
-    +'<span>'+sw('rrect',COLOR.GatewayClass)+'class</span>'
-    +'<br><b style="color:#8a97b0">status (border):</b> '
-    +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>'
-    +'<span><i class="ring dash" style="border-color:#ffb454"></i>unused</span>'
-    +'<br><b style="color:#8a97b0">references:</b> ×N + thicker line = repeated use';
+  function renderLegend(){
+    var present={}, hasCross=false, hasMissing=false;
+    cy.nodes(':visible').forEach(function(n){
+      if(n.data('isUnusedAnchor')) return;
+      present[n.data('role')==='policy'?'Policy':n.data('kind')]=true;
+      if(n.data('missing')) hasMissing=true;
+    });
+    hasCross=cy.edges('[?cross]').filter(':visible').length>0;
+    var kinds=ORDER.filter(function(k){return present[k];});
+    var h=kinds.map(function(k){return '<span>'+sw(SHAPE[k]||'ellipse',COLOR[k]||'#9fb0d0')+k+'</span>';}).join('')
+      +'<br><b style="color:#8a97b0">planes:</b> '
+      +'<span>'+sw('rrect',COLOR.Gateway)+'data (Gateway, Pod)</span>'
+      +'<span>'+sw('rrect',COLOR.Deployment)+'control (Deployment)</span>'
+      +'<span>'+sw('tag',COLOR.GatewayClass)+'class</span>'
+      +'<br><b style="color:#8a97b0">status (border):</b> '
+      +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>'
+      +'<span><i class="ring dash" style="border-color:#ffb454"></i>unused</span>'
+      +(hasMissing?'<span><i class="ring dash" style="border-color:#ff5f7a"></i>missing ref</span>':'')
+      +'<br><b style="color:#8a97b0">edges:</b> ×N + thicker line = repeated use'
+      +(hasCross?' · <span style="color:#ff9e64">- - cross-product traffic</span>':'');
+    document.getElementById('legend').innerHTML=h;
+  }
+
+  // view switch — only when both sides have something to show
+  function setView(v){
+    STATE.view=v;
+    Array.prototype.forEach.call(document.querySelectorAll('#views button'),function(b){
+      b.className=b.getAttribute('data-view')===v?'on':'';
+    });
+    applyVisibility(); relayout();
+  }
+  // One button per product side that is actually on the cluster (plus "all" when there are
+  // two or more) — an agentgateway-only graph never advertises an empty kagent view. Future
+  // sides (kgateway, istio) slot in here.
+  var VIEWS=[
+    {id:'agentgateway',label:'agentgateway'},
+    {id:'kagent',label:PRODUCTS.kagent?(PRODUCTS.substrate?'kagent · substrate':'kagent'):'substrate'}
+  ].filter(function(v){return SIDES[v.id];});
+  if(VIEWS.length>1){
+    VIEWS.push({id:'all',label:'all'});
+    document.getElementById('views').innerHTML='view '+VIEWS.map(function(v){
+      return '<button data-view="'+v.id+'"'+(v.id===STATE.view?' class="on"':'')+'>'+esc(v.label)+'</button>';
+    }).join('');
+    Array.prototype.forEach.call(document.querySelectorAll('#views button'),function(b){
+      b.addEventListener('click',function(){setView(b.getAttribute('data-view'));});
+    });
+  } else document.getElementById('views').style.display='none';
+  if(!SIDES.agentgateway) document.getElementById('show-dump').style.display='none';
+
   // controls
-  document.getElementById('unused').addEventListener('change',function(e){applyUnused(e.target.checked);relayout();});
-  document.getElementById('aux').addEventListener('change',function(e){applyAux(e.target.checked);relayout();});
+  document.getElementById('unused').addEventListener('change',function(e){STATE.unused=e.target.checked;applyVisibility();relayout();});
+  document.getElementById('aux').addEventListener('change',function(e){STATE.aux=e.target.checked;applyVisibility();relayout();});
   document.getElementById('relayout').addEventListener('click',relayout);
-  markOrphans();     // flag + cluster config not reachable from a Gateway
-  applyUnused(false);// unused config hidden by default
-  applyAux(false);   // aux control-plane services hidden by default
+  markOrphans();      // flag + cluster config nothing uses
+  applyVisibility();  // unused config + aux control-plane services hidden by default
   relayout();
   // deep-link: opening #<node-id> selects that node (shareable link to a resource's panel)
   function pickFromHash(){
@@ -798,18 +1047,22 @@ HTMLHEAD
     if(id==='dump'){renderDump();return;}
     var n=cy.getElementById(id);
     if(n&&n.length){
-      if(n.data('orphan')){document.getElementById('unused').checked=true;applyUnused(true);relayout();}
+      var changed=false;
+      if(n.data('orphan')&&!STATE.unused){document.getElementById('unused').checked=true;STATE.unused=true;changed=true;}
+      if(n.data('aux')&&!STATE.aux){document.getElementById('aux').checked=true;STATE.aux=true;changed=true;}
+      if(STATE.view!=='all'&&side(n.data('product'))!==STATE.view){setView('all');changed=false;}
+      if(changed){applyVisibility();relayout();}
       render(n);n.select();
     }
   }
   window.addEventListener('hashchange',pickFromHash); pickFromHash();
   // resizable side panel — drag the grip; cy re-fits its canvas to the new width
-  var grip=document.getElementById('grip'), side=document.getElementById('side'), dragging=false;
+  var grip=document.getElementById('grip'), sidep=document.getElementById('side'), dragging=false;
   grip.addEventListener('mousedown',function(e){dragging=true;grip.classList.add('drag');document.body.style.userSelect='none';e.preventDefault();});
   window.addEventListener('mousemove',function(e){
     if(!dragging)return;
     var w=Math.max(300,Math.min(window.innerWidth-e.clientX-3, window.innerWidth*0.88));
-    side.style.flexBasis=w+'px'; cy.resize();
+    sidep.style.flexBasis=w+'px'; cy.resize();
   });
   window.addEventListener('mouseup',function(){if(dragging){dragging=false;grip.classList.remove('drag');document.body.style.userSelect='';cy.resize();}});
 })();

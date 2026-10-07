@@ -258,8 +258,9 @@ context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
   and uses a `URLRewrite` filter (ReplacePrefixMatch `/`) so `/httpbin/get` → httpbin's `/get`.
   httpbin is the gateway-agnostic routing smoke test (the only routable sample for kgateway).
 
-### Inspect agentgateway config (`routes` / `graph`)
-Two read-only views over the same CR relationship model (agentgateway only today):
+### Inspect agentgateway / kagent config (`routes` / `graph`)
+Two read-only views over the same CR relationship model (`routes` is agentgateway only; `graph`
+also covers kagent and Agent Substrate):
 - **`routes`** ([scripts/routes.sh](scripts/routes.sh)) — terminal table: Gateway → listeners →
   HTTPRoutes (host/path → backend, attached policies, ACTIVE per `.status`). Deliberately
   **not** from the proxy `/config_dump` — dump only shows *accepted* config, so rejected
@@ -274,6 +275,28 @@ Two read-only views over the same CR relationship model (agentgateway only today
   on PF/curl errors; `DUMP=false` skips the fetch (graph still works; version/loaded degrade).
   Prefer raw PF+curl over requiring `agctl`. Both tasks resolve context via `solomog_context`
   (vind / `.solomog/contexts` / `CONTEXT=`).
+  - **kagent + substrate** come from [scripts/lib/graph/kagent.jq](scripts/lib/graph/kagent.jq),
+    merged onto the same canvas. It is **shape-driven, not group-driven**: one builder reads
+    0.10 (`kagent.dev/v1alpha2`, `spec.declarative`) and 1.0 (`api.kagent.dev/v1alpha3`, and the
+    early alphas that served v1alpha3 under `kagent.dev`: `templateRef`/`harnessRef`), and refs
+    resolve by kind+namespace+name across both groups. Kinds are fetched only when their CRD is
+    served. A ref to nothing becomes a red "missing" node, not a pruned edge.
+  - **One page, view switch** (`agentgateway | kagent · substrate | all`, hidden when only one
+    side exists). Each side gets its own breadthfirst layout, placed left→right. Separate tabs
+    would lose the **cross-product edges** (`cross:true`, dashed orange): a RemoteMCPServer /
+    ModelConfig URL that resolves to an agentgateway Gateway (Service name, status address,
+    `solomog.io/host`) + longest-prefix HTTPRoute, and an agentgateway Service/static backend
+    whose Service selects a kagent/substrate Deployment. A single-product view pulls the far
+    end of each cross edge in as a faded "bridge" node.
+  - **Layout roots are Gateways and kagent controllers only.** Substrate (`ate-controller`) is
+    NOT a root: it is kagent's runtime layer, and as a second root it hoists pools and pods up
+    beside the Agents and tangles the tree. It is a root only on a substrate-only cluster.
+  - **Unused** is per side: agentgateway is undirected from Gateways (policies point at their
+    targets); kagent is DIRECTED from Agents/SandboxTemplates along outgoing refs, so an unused
+    template pointing at a used ModelConfig still counts as unused.
+  - **Large lists go to jq via `--slurpfile <(...)`, never `--argjson`.** On a real EKS cluster
+    the Pods JSON alone is ~700KB and `--argjson` dies with `Argument list too long` (ARG_MAX).
+    Pods are also pre-filtered to the ones drawn (gateway + worker pods).
 
 ### Add-ons (shared UI, Portal & monitoring)
 Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modules

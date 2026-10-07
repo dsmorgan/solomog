@@ -991,21 +991,20 @@ tasks:
       BEDROCK_GUARDRAIL_VERSION: '{{.BEDROCK_GUARDRAIL_VERSION | default ""}}'
 
   graph:
-    desc: "Open an agentgateway config graph in the browser"
+    desc: "Open an agentgateway / kagent config graph in the browser"
     summary: |
-      Snapshot a cluster's agentgateway config as an interactive HTML graph in your browser:
-      Gateway → HTTPRoutes → Backends → Policies, plus the GatewayClass control-plane chain
-      and the proxy pod. Nodes are coloured by kind and plane; unused components and
-      auxiliary services sit behind toggles. Click a node for details and a copy-paste
-      kubectl command. Same relationship model as `solomog routes`.
+      Snapshot a cluster's agentgateway, kagent and Agent Substrate config as an interactive
+      HTML graph in your browser. Graphs whichever products are installed:
+        agentgateway  Gateway → HTTPRoutes → Backends → Policies, plus the control-plane chain
+        kagent        controller → Agents → AgentTemplate / Harness (1.0) or declarative refs
+                      (0.10) → ModelConfigs / MCP servers
+        substrate     Harness → WorkerPool → worker pods + SandboxConfig
+      With both products installed, switch views (agentgateway | kagent | all). Dashed orange
+      edges show cross-product traffic: kagent MCP or model calls that ride an agentgateway route,
+      and routes that front kagent. Click a node for details and a copy-paste kubectl command.
 
-      Also port-forwards each gateway pod's admin port and fetches /config_dump — live proxy
-      version in the subtitle, a loaded/not marker per component, and the dump embedded (Dump
-      button). Soft-fails if the admin port is unreachable. DUMP=false skips it.
-
-      The HTML is self-contained, so it works offline and can be handed off. It opens the
-      file and exits; SERVE=true serves it on a local port instead (better clipboard
-      support), stopped with Enter.
+      For agentgateway, also fetches each gateway pod's /config_dump (version + loaded marker).
+      DUMP=false skips it. The HTML is self-contained. It opens and exits; SERVE=true serves it.
 
       Variables:
         CLUSTER       cluster to graph (vind, or registered external)   REQUIRED — set CLUSTER (or CONTEXT)
@@ -1024,7 +1023,7 @@ tasks:
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
     cmds:
-      - bash scripts/run.sh "Graph agentgateway config → {{.CLUSTER}}" bash scripts/graph.sh {{.CLUSTER}}
+      - bash scripts/run.sh "Graph agentgateway / kagent config → {{.CLUSTER}}" bash scripts/graph.sh {{.CLUSTER}}
     env:
       # CONTEXT override: graph an existing external context (EKS) instead of vind.
       # Empty → vind default vcluster-docker_<cluster>. See scripts/lib/target.sh.
