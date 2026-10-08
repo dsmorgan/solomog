@@ -16,17 +16,23 @@
 #
 # Edge convention: source = the object that holds the reference. Cross-product edges carry
 # cross:true — the page shows them in the "all" view and pulls their far end in as a bridge node.
+# A ref with no target becomes a ghost node (same kind, dashed in the HTML). $fileMode and
+# $honorStatus are "true"|"false" (--arg). File renders ignore .status unless honor is set.
+
+def file_mode: $fileMode == "true";
+def honor: $honorStatus == "true";
 
 def nid: "k:" + ._rtype + ":" + (.metadata.namespace // "") + "/" + .metadata.name;
 def conds: [.status.conditions[]? | select(.type != "UnsupportedFeatures")];
-def kstat: conds as $c
-  | if ($c|length)==0 then "na" elif ($c|all(.status=="True")) then "ok" else "bad" end;
+def kstat: if honor|not then "na" else (conds as $c
+  | if ($c|length)==0 then "na" elif ($c|all(.status=="True")) then "ok" else "bad" end) end;
 def condlines:
+  if honor|not then ["(status not evaluated)"] else
   [.status.conditions[]? | .type + "=" + .status
      + (if .status != "True" and .type != "UnsupportedFeatures"
-        then " — " + (.reason // "") + ": " + (.message // "") else "" end)];
-def ready: (.status.readyReplicas // 0) as $r | (.status.replicas // .spec.replicas // 0) as $w
-  | if $w > 0 and $r == $w then "ok" else "bad" end;
+        then " — " + (.reason // "") + ": " + (.message // "") else "" end)] end;
+def ready: if honor|not then "na" else ((.status.readyReplicas // 0) as $r | (.status.replicas // .spec.replicas // 0) as $w
+  | if $w > 0 and $r == $w then "ok" else "bad" end) end;
 def readytext: ((.status.readyReplicas // 0)|tostring) + "/" + ((.status.replicas // .spec.replicas // 0)|tostring);
 # Pod-template labels ⊇ a Service selector → that Service fronts the Deployment.
 def selects($labels): (.spec.selector // {}) as $s
@@ -145,6 +151,7 @@ $kobjs[0] as $kobjs | $deps[0] as $deps | $pods[0] as $pods | $svcs[0] as $svcs
            id:._nid, label:.metadata.name, kind:$k, role:"kagent", product:$product,
            plane:(if $k == "SandboxConfig" then "class" else null end),
            ns:(if $ns == "" then "(cluster-scoped)" else $ns end), name:.metadata.name,
+           origin:(._source // null),
            status:(if $k == "WorkerPool" then ready elif $k == "SandboxConfig" then "na" else kstat end),
            rtype:._rtype, loaded:"na",
            kubectl:("kubectl get " + ._rtype + " " + .metadata.name + (if $ns == "" then "" else " -n " + $ns end) + " -o yaml"),
@@ -198,7 +205,7 @@ $kobjs[0] as $kobjs | $deps[0] as $deps | $pods[0] as $pods | $svcs[0] as $svcs
         | {data:{ id:("pod:" + .metadata.namespace + "/" + .metadata.name),
             label:("pod …" + (.metadata.name | ltrimstr($wp.metadata.name) | split("-") | last)), kind:"Pod",
             role:"dataplane", plane:"data", product:"substrate", ns:.metadata.namespace, name:.metadata.name,
-            status:(if .status.phase == "Running" then "ok" else "bad" end), rtype:"pod", loaded:"na",
+            status:(if honor|not then "na" elif .status.phase == "Running" then "ok" else "bad" end), rtype:"pod", loaded:"na",
             kubectl:("kubectl get pod " + .metadata.name + " -n " + .metadata.namespace + " -o yaml"),
             detail:{ phase:.status.phase, node:(.spec.nodeName // "-"), workerPool:$wp.metadata.name } }} ]
   ) as $nodes
@@ -278,10 +285,13 @@ $kobjs[0] as $kobjs | $deps[0] as $deps | $pods[0] as $pods | $svcs[0] as $svcs
                kubectl:("kubectl get service " + $p[1] + " -n " + $p[0] + " -o yaml"), detail:{ declared:"Agent tool (Service)" } }}
          else
            (ltrimstr("k:missing:") | split(":")) as $kp | ($kp[1] | split("/")) as $p
-           | {data:{ id:$id, label:("✗ " + $p[1]), kind:$kp[0], role:"kagent", product:"kagent", missing:true,
-               ns:$p[0], name:$p[1], status:"bad", rtype:"missing", loaded:"na",
-               kubectl:("kubectl get " + $kp[0] + " -n " + $p[0] + "   # referenced, but no such object"),
-               detail:{ problem:("referenced " + $kp[0] + " not found in namespace " + $p[0]) } }}
+           | {data:{ id:$id, label:$p[1], kind:$kp[0], role:"kagent", product:"kagent", missing:true, ghost:true,
+               ns:$p[0], name:$p[1], status:"na", rtype:"missing", loaded:"na",
+               origin:(if file_mode then "not in this input" else "not in the cluster" end),
+               kubectl:("# " + (if file_mode then "not in this input" else "not in the cluster" end)
+                        + " — " + $kp[0] + " " + $p[0] + "/" + $p[1]),
+               detail:{ note:(if file_mode then "Referenced, but not in this input"
+                              else "Referenced, but not in the cluster" end) } }}
          end)) as $extra
 
   | { elements: ($nodes + $extra + ($edges | unique_by(.data.id))),

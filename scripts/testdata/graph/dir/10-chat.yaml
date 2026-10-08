@@ -1,0 +1,15 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chat
+  namespace: app
+spec:
+  parentRefs:
+    - name: agw
+      namespace: app
+  rules:
+    - backendRefs:
+        - name: llm
+          namespace: app
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
