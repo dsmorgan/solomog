@@ -18,6 +18,8 @@ fi
 source "$SCRIPT_DIR/scripts/lib/ui.sh"
 # shellcheck source=scripts/lib/validate.sh
 source "$SCRIPT_DIR/scripts/lib/validate.sh"
+# shellcheck source=scripts/lib/runs.sh
+source "$SCRIPT_DIR/scripts/lib/runs.sh"
 
 # Audit log: one compact line per run, in a monthly-rotated file beside the test runs
 # (.solomog/audit/YYYY-MM.log — gitignored). Records timestamp, ok/FAIL, exit code, total
@@ -25,17 +27,13 @@ source "$SCRIPT_DIR/scripts/lib/validate.sh"
 # the run. Populated from TASKS/VARS/AUDIT_TASKS/SECONDS set below.
 AUDIT_TASKS=()
 _solomog_audit() {
-  local rc="$1" status dir month v name cmd line red=()
+  local rc="$1" status dir month v cmd line red=()
   [ "$rc" = "0" ] && status=ok || status=FAIL
   dir="$SCRIPT_DIR/.solomog/audit"
   month="$(date +%Y-%m 2>/dev/null)" || return 0
   mkdir -p "$dir" 2>/dev/null || return 0
   for v in "${VARS[@]}"; do
-    name="${v%%=*}"
-    case "$(printf '%s' "$name" | tr '[:lower:]' '[:upper:]')" in
-      *KEY*|*TOKEN*|*SECRET*|*PASSWORD*|*PASS*) red+=("${name}=***") ;;
-      *) red+=("$v") ;;
-    esac
+    red+=("$(solomog_run_redact_word "$v")")
   done
   cmd="$(printf '%s ' "${TASKS[@]}" "${red[@]}")"; cmd="${cmd% }"
   line="$(date +%Y-%m-%dT%H:%M:%S%z)  ${status}  rc=${rc}  dur=${SECONDS}s  ${cmd}"
@@ -205,6 +203,15 @@ export SOLOMOG_SERIOUS
 # arrived — after earlier installs had already completed.
 if ! solomog_validate_cli; then
   exit 1
+fi
+
+# Record this run and, when another solomog is already going, say so. The
+# second command always continues. `clusters` prints the same information
+# above its table, so it does not also get this note.
+solomog_run_begin "$@"
+solomog_run_arm_exit
+if ! solomog_run_is_cluster_list "${TASKS[@]+"${TASKS[@]}"}"; then
+  solomog_run_note "$(solomog_run_clusters_from_args "$@")" >&2
 fi
 
 solomog_intro "$MOG_MODE"

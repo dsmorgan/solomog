@@ -432,7 +432,9 @@ solomog eks:irsa CLUSTER=dmorgan-agw
 `cluster:list` marks the current kubectl context with `*`. A `~` means kubectl is
 on that same cluster through a different context name (eksctl and
 `aws eks update-kubeconfig` each write their own). Status for EKS is live when
-AWS creds work, otherwise `—`.
+AWS creds work, otherwise `—`. Commands still running in this checkout are
+listed above the table, so an `eks:create` is visible before the cluster is
+registered. Any other command prints that same note and then continues.
 
 Once registered (or with `CONTEXT=`), install/expose/graph/routes use that cluster like
 a local vind one — solomog does not create or network it.
@@ -702,7 +704,7 @@ solomog
 │   ├── versions-update.sh
 │   ├── lib/target.sh           # CLUSTER → kube context (vind / registry / CONTEXT)
 │   ├── lib/hosts.sh            # the one privileged /etc/hosts write + stamped teardown
-│   ├── lib/gateway.sh / lib/envfile.sh / lib/ui.sh
+│   ├── lib/gateway.sh / lib/envfile.sh / lib/ui.sh / lib/runs.sh
 │   ├── lib/vsphere.sh / lib/opnsense.sh   # IP+VIP allocators; DNS=real record upserts
 │   ├── lib/graph/              # cytoscape, kagent model, and CR-file ingest for graph
 │   └── apps/

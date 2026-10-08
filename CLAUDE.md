@@ -782,6 +782,16 @@ call `helmfile`/scripts bare from a task.
 var VALUES (name matches KEY/TOKEN/SECRET/PASSWORD/PASS) are redacted to `***`. It's
 best-effort — never fails the run — and bare `solomog` (the task list) isn't audited.
 
+**In-flight runs.** Those same commands write `.solomog/runs/<pid>` at start
+and remove it on exit (Ctrl-C included; a `kill -9` is dropped on the next
+scan when the pid is dead or its start time no longer matches). A second
+command prints the others to stderr and continues. `solomog clusters` prints
+them above the cluster table instead of that note — an `eks:create` shows up
+there during the 15–20 minutes before the context is registered. When the new
+command names a cluster the other run also names, the note adds
+`same cluster: <name>`. Secret values use the audit redaction.
+Scanners skip `SOLOMOG_RUN_PID`, the wrapper's own pid.
+
 ## Gotchas (learned the hard way)
 
 - **`.env` inline comments after an EMPTY value are not comments — they become the literal
@@ -963,7 +973,8 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
 `bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
 injects fixture task/key lists — no live `task --list` in the assertion cases),
 `bash scripts/test-graph-files.sh` (file-mode `graph` plus ghost nodes; no cluster),
-and `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute).
+`bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute),
+and `bash scripts/test-runs.sh` (in-flight run notice; no cluster).
 
 ## Status / open questions
 

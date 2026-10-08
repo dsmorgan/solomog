@@ -125,6 +125,11 @@ tasks:
       `aws eks update-kubeconfig` each write their own context for one EKS cluster.
       Cluster-free (discovery only).
 
+      Commands still running in this checkout are listed above the table:
+      pid, terminal, how long they have been running, and the command line.
+      Secret-looking values are redacted, and the clusters command itself is
+      omitted. An eks:create appears here before the cluster is registered.
+
       Aliases: clusters:list, clusters, cluster
 
       Variables:
