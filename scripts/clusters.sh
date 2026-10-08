@@ -30,6 +30,8 @@ MODE="${1:-list}"
 . "$REPO_DIR/scripts/lib/target.sh"
 # shellcheck source=lib/hosts.sh
 . "$REPO_DIR/scripts/lib/hosts.sh"
+# shellcheck source=lib/runs.sh
+. "$REPO_DIR/scripts/lib/runs.sh"
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   G=$'\033[32m'; B=$'\033[1m'; D=$'\033[2m'; Y=$'\033[33m'; R=$'\033[0m'
@@ -288,6 +290,9 @@ case "$MODE" in
     ;;
 
   list)
+    # Commands still running in this checkout. An eks:create has no row in the
+    # table until it finishes and registers the context.
+    solomog_run_section || true
     _load_vclusters
     _load_aws
     names="$(_all_names)"
