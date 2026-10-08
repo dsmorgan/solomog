@@ -1,0 +1,93 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: chat
+  namespace: app
+status:
+  parents:
+    - conditions:
+        - type: Accepted
+          status: "True"
+        - type: ResolvedRefs
+          status: "True"
+spec:
+  parentRefs:
+    - name: agw
+      namespace: app
+  rules:
+    - backendRefs:
+        - name: llm
+          namespace: app
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: legacy
+  namespace: app
+spec:
+  parentRefs:
+    - name: istio
+      namespace: app
+  rules:
+    - backendRefs:
+        - name: httpbin
+          namespace: app
+          kind: Service
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: istio
+  namespace: app
+spec:
+  gatewayClassName: istio
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: guard
+  namespace: app
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: missing-route
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bedrock-secret
+  namespace: app
+stringData:
+  accessKey: AKIASECRET
+data:
+  token: c2VjcmV0
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: with-secret
+  namespace: app
+spec:
+  policies:
+    auth:
+      aws:
+        accessKey: AKIAINLINE
+        secretRef:
+          name: bedrock-secret
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: helper
+  namespace: kagent
+spec:
+  type: Declarative
+  declarative:
+    modelConfig: missing-model

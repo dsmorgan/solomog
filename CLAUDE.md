@@ -275,12 +275,24 @@ also covers kagent and Agent Substrate):
   on PF/curl errors; `DUMP=false` skips the fetch (graph still works; version/loaded degrade).
   Prefer raw PF+curl over requiring `agctl`. Both tasks resolve context via `solomog_context`
   (vind / `.solomog/contexts` / `CONTEXT=`).
+  **`INPUT=` graphs CR files instead of a cluster.** One value, a stacked YAML or JSON file
+  or a directory of `.yaml` / `.yml` / `.json` (walked recursively, hidden directories
+  skipped). `graph` detects which. Do not pass `CLUSTER` as well. Status in the files is
+  not used for node color unless `STATUS=exported` (it is still in the raw YAML panel).
+  There is no proxy dump, no loaded marker, and no version unless `VERSION=` is set or a
+  pod image tag is in the files. Object YAML is embedded; secret-looking fields
+  (`data`, `stringData`, `accessKey`, `token`, and similar) are redacted. A connected
+  graph means the files reference each other. It does not mean a controller would accept them.
   - **kagent + substrate** come from [scripts/lib/graph/kagent.jq](scripts/lib/graph/kagent.jq),
     merged onto the same canvas. It is **shape-driven, not group-driven**: one builder reads
     0.10 (`kagent.dev/v1alpha2`, `spec.declarative`) and 1.0 (`api.kagent.dev/v1alpha3`, and the
     early alphas that served v1alpha3 under `kagent.dev`: `templateRef`/`harnessRef`), and refs
-    resolve by kind+namespace+name across both groups. Kinds are fetched only when their CRD is
-    served. A ref to nothing becomes a red "missing" node, not a pruned edge.
+  resolve by kind+namespace+name across both groups. Kinds are fetched only when served
+  (from files, every kind in the input is read). A ref to nothing becomes a ghost node:
+  the same shape and color as that kind, dashed and dimmed, labeled with the referenced
+  name. A Service backend stays solid on a live cluster, because Services are not all
+  listed there. A Gateway that exists but is not an agentgateway class is skipped, not
+  ghosted.
   - **One page, view switch** (`agentgateway | kagent · substrate | all`, hidden when only one
     side exists). Each side gets its own breadthfirst layout, placed left→right. Separate tabs
     would lose the **cross-product edges** (`cross:true`, dashed orange): a RemoteMCPServer /
@@ -948,9 +960,10 @@ best-effort — never fails the run — and bare `solomog` (the task list) isn't
   keep it hermetic via the `VSPHERE_POOL_FILE` / `VSPHERE_INIT_STATE` overrides),
   `bash scripts/test-hosts.sh` (`/etc/hosts` stamp + strip, [scripts/lib/hosts.sh](scripts/lib/hosts.sh);
   fixtures only — no sudo, no write),
-  `bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
-  injects fixture task/key lists — no live `task --list` in the assertion cases),
-  and `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute).
+`bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
+injects fixture task/key lists — no live `task --list` in the assertion cases),
+`bash scripts/test-graph-files.sh` (file-mode `graph` plus ghost nodes; no cluster),
+and `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute).
 
 ## Status / open questions
 

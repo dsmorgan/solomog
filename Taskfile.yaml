@@ -994,20 +994,27 @@ tasks:
     desc: "Open an agentgateway / kagent config graph in the browser"
     summary: |
       Snapshot a cluster's agentgateway, kagent and Agent Substrate config as an interactive
-      HTML graph in your browser. Graphs whichever products are installed:
+      HTML graph in your browser. Pass INPUT= to graph CR files instead of a cluster: one
+      stacked YAML or JSON file, or a directory of them. Refs to objects that are not in the
+      snapshot are drawn as ghosts (dashed, same shape). Status in files is ignored unless
+      STATUS=exported.
+
+      Graphs whichever products are installed on a cluster:
         agentgateway  Gateway → HTTPRoutes → Backends → Policies, plus the control-plane chain
         kagent        controller → Agents → AgentTemplate / Harness (1.0) or declarative refs
                       (0.10) → ModelConfigs / MCP servers
         substrate     Harness → WorkerPool → worker pods + SandboxConfig
       With both products installed, switch views (agentgateway | kagent | all). Dashed orange
-      edges show cross-product traffic: kagent MCP or model calls that ride an agentgateway route,
-      and routes that front kagent. Click a node for details and a copy-paste kubectl command.
+      edges show cross-product traffic. Click a node for details and a copy-paste kubectl command.
 
-      For agentgateway, also fetches each gateway pod's /config_dump (version + loaded marker).
+      For a cluster, also fetches each gateway pod's /config_dump (version + loaded marker).
       DUMP=false skips it. The HTML is self-contained. It opens and exits; SERVE=true serves it.
 
       Variables:
-        CLUSTER       cluster to graph (vind, or registered external)   REQUIRED — set CLUSTER (or CONTEXT)
+        CLUSTER       cluster to graph (vind, or registered external)   set CLUSTER or INPUT
+        INPUT         file or directory of CRs. Not together with CLUSTER
+        STATUS        exported — color an INPUT render from status in the files
+        VERSION       version label on an INPUT render
         OPEN          true | false — open the file in a browser              default true
         SERVE         true — serve on a local port (Enter to stop) instead of opening the file
         OUT           output HTML path                default .solomog/graph/<cluster>-<ts>.html
@@ -1017,8 +1024,8 @@ tasks:
 
       Examples:
         solomog graph CLUSTER=a10
-        solomog graph CLUSTER=a10 OPEN=false
-        solomog graph CLUSTER=a10 SERVE=true
+        solomog graph INPUT=./customer-export
+        solomog graph INPUT=routes.yaml OPEN=false
         solomog graph CLUSTER=a10 DUMP=false
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
@@ -1034,6 +1041,9 @@ tasks:
       PORT: '{{.PORT | default ""}}'
       DUMP: '{{.DUMP | default "true"}}'
       DUMP_TIMEOUT: '{{.DUMP_TIMEOUT | default "15"}}'
+      INPUT: '{{.INPUT | default ""}}'
+      STATUS: '{{.STATUS | default ""}}'
+      VERSION: '{{.VERSION | default ""}}'
 
   export:
     desc: "Export a bundle as a secret-safe hand-off package"

@@ -386,6 +386,11 @@ solomog routes CLUSTER=a1 WIDE=true          # also matchers/filters + failure r
 solomog graph CLUSTER=a1
 solomog graph CLUSTER=a1 OPEN=false          # write HTML only
 solomog graph CLUSTER=a1 DUMP=false          # skip proxy /config_dump (faster; no live version)
+
+# Same graph from CR files. One path: a stacked YAML/JSON file, or a directory of them.
+solomog graph INPUT=./customer-export
+solomog graph INPUT=routes.yaml OPEN=false
+solomog graph INPUT=routes.yaml STATUS=exported   # color nodes from status in the files
 ```
 
 - **`routes`** is built from kubectl CR `.status` only — so it also shows routes that
@@ -398,9 +403,17 @@ solomog graph CLUSTER=a1 DUMP=false          # skip proxy /config_dump (faster; 
   loaded, and embeds the dump (Dump button → summary + download). Soft-fails if the
   admin port is unreachable (falls back to the dataplane image tag for version).
   `DUMP=false` skips the fetch entirely.
+- **`INPUT=`** reads that model from files instead of a cluster. Pass a file or a
+  directory; `graph` detects which. Do not pass `CLUSTER` as well. A reference to an
+  object that is not in the files (or, on a cluster, not in the snapshot) is a ghost:
+  the same shape as that kind, dashed and dimmed. Status in the files does not color
+  the nodes unless `STATUS=exported`. There is no proxy dump. A connected picture means
+  the files point at each other. It does not mean a controller accepted them.
+  `VERSION=` sets the subtitle label. Object YAML is embedded, with secret-looking
+  fields redacted. Review the HTML before you share it.
 
-Both accept a registered external cluster the same way as other tasks
-(`CLUSTER=e2a2` after `eks:create`, or `CONTEXT=…`).
+`routes` and a cluster `graph` accept a registered external cluster the same way as
+other tasks (`CLUSTER=e2a2` after `eks:create`, or `CONTEXT=…`).
 
 ### Clusters & external targets (EKS & vSphere homelab)
 
@@ -691,7 +704,7 @@ solomog
 │   ├── lib/hosts.sh            # the one privileged /etc/hosts write + stamped teardown
 │   ├── lib/gateway.sh / lib/envfile.sh / lib/ui.sh
 │   ├── lib/vsphere.sh / lib/opnsense.sh   # IP+VIP allocators; DNS=real record upserts
-│   ├── lib/graph/              # vendored cytoscape.min.js for the self-contained graph
+│   ├── lib/graph/              # cytoscape, kagent model, and CR-file ingest for graph
 │   └── apps/
 ├── certs/                      # generated shared root CA (gitignored; delete to rotate)
 ├── docs/specs/                 # design specs (vsphere-provisioner.md)

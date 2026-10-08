@@ -20,8 +20,15 @@ set -euo pipefail
 # on an ephemeral local port and opens a browser tab. Optionally enriches with each gateway
 # pod's admin /config_dump (version + which CRs the proxy actually loaded).
 #
+# INPUT= reads CRs from a file or a directory instead of a cluster (stacked YAML, JSON, or
+# a JSON/YAML List). Status in those files is ignored unless STATUS=exported. Refs to objects
+# that are not in the snapshot become ghost nodes (same kind, dashed) — on a cluster too.
+#
 # Usage: graph.sh <cluster>
 # Env:
+#   INPUT         file or directory of CRs. Omit to graph a cluster. Not with CLUSTER/CONTEXT.
+#   STATUS        exported — on an INPUT render, color nodes from status in the files.
+#   VERSION       version label on an INPUT render (the subtitle). Ignored for a cluster.
 #   OPEN          true|false (default true) — open the generated HTML in a browser
 #   SERVE         true (default false) — serve on a local port (Enter to stop) instead of just
 #                 opening the self-contained file. localhost gives native clipboard copy.
@@ -29,6 +36,7 @@ set -euo pipefail
 #   PORT          serve port, SERVE=true only (default: an ephemeral free port)
 #   DUMP          true|false (default true) — port-forward each gateway pod's admin :15000
 #                 and fetch /config_dump (version + loaded enrichment). Soft-fails on error.
+#                 Forced off for INPUT (there is no proxy).
 #   DUMP_TIMEOUT  seconds to wait for port-forward/curl (default 15)
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,28 +45,50 @@ source "$REPO_DIR/scripts/lib/gateway.sh"
 source "$REPO_DIR/scripts/lib/target.sh"
 
 CLUSTER="${1:-}"
-solomog_require_cluster "$CLUSTER" graph
-# Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
-CTX="$(solomog_context "$CLUSTER")"
-# CLUSTER is only a display label from here on (also names the output file); derive
-# one when only CONTEXT= was given (arn:...:cluster/NAME → NAME; vsphere_<n> → <n>).
-CLUSTER="$(solomog_display_name "$CLUSTER" "$CTX")"
+# Capture before the cluster path resets VERSION from the proxy dump. File renders use it
+# as a subtitle label; a cluster graph ignores it.
+REQUESTED_VERSION="${VERSION:-}"
+STATUS_FLAG="${STATUS:-}"
+INPUT="${INPUT:-}"
+FILE_MODE=false
+HONOR_STATUS=true
+if [ -n "$INPUT" ]; then
+  if [ -n "$CLUSTER" ] || [ -n "${CONTEXT:-}" ]; then
+    echo "Error: pass INPUT= or a cluster (CLUSTER/CONTEXT), not both." >&2
+    exit 1
+  fi
+  FILE_MODE=true
+  HONOR_STATUS=false
+  [ "$STATUS_FLAG" = "exported" ] && HONOR_STATUS=true
+  CLUSTER="$(basename "$INPUT")"
+  case "$CLUSTER" in
+    *.yaml|*.yml|*.json) CLUSTER="${CLUSTER%.*}" ;;
+  esac
+else
+  solomog_require_cluster "$CLUSTER" graph
+  # Resolve the context from CLUSTER (registry/vind) or the CONTEXT override. See lib/target.sh.
+  CTX="$(solomog_context "$CLUSTER")"
+  # CLUSTER is only a display label from here on (also names the output file); derive
+  # one when only CONTEXT= was given (arn:...:cluster/NAME → NAME; vsphere_<n> → <n>).
+  CLUSTER="$(solomog_display_name "$CLUSTER" "$CTX")"
+fi
 SERVE="${SERVE:-false}"
 DUMP="${DUMP:-true}"
+[ "$FILE_MODE" = true ] && DUMP=false
 DUMP_TIMEOUT="${DUMP_TIMEOUT:-15}"
 TS="$(date +%Y%m%d-%H%M%S 2>/dev/null || echo graph)"
 OUT="${OUT:-$REPO_DIR/.solomog/graph/${CLUSTER}-${TS}.html}"
 CYTO="$REPO_DIR/scripts/lib/graph/cytoscape.min.js"
 
-if ! _probe="$(kubectl --context "$CTX" get --raw /version 2>&1)"; then
-  echo "Error: can't reach context '$CTX' (is cluster '$CLUSTER' up?)." >&2
-  echo "  kubectl said:" >&2
-  printf '%s\n' "$_probe" | sed 's/^/    /' >&2
-  exit 1
-fi
 [ -f "$CYTO" ] || { echo "Error: vendored graph lib missing: $CYTO" >&2; exit 1; }
 KAGENT_JQ="$REPO_DIR/scripts/lib/graph/kagent.jq"
+GHOSTS_JQ="$REPO_DIR/scripts/lib/graph/ghosts.jq"
+CLASSIFY_JQ="$REPO_DIR/scripts/lib/graph/classify.jq"
+INGEST_RB="$REPO_DIR/scripts/lib/graph/ingest.rb"
 [ -f "$KAGENT_JQ" ] || { echo "Error: graph model missing: $KAGENT_JQ" >&2; exit 1; }
+[ -f "$GHOSTS_JQ" ] || { echo "Error: graph model missing: $GHOSTS_JQ" >&2; exit 1; }
+[ -f "$CLASSIFY_JQ" ] || { echo "Error: graph model missing: $CLASSIFY_JQ" >&2; exit 1; }
+[ -f "$INGEST_RB" ] || { echo "Error: graph model missing: $INGEST_RB" >&2; exit 1; }
 
 # Sanitize raw C0 control bytes (live controllers sometimes write an unescaped newline into
 # a status field → invalid JSON → jq bails). Lossless: valid JSON escapes control chars.
@@ -72,6 +102,86 @@ _tagged() { _items "$1" | jq --arg t "$1" 'map(. + {_rtype:$t})'; }
 # Large lists (pods, deployments, services) go to jq through --slurpfile <(...), never
 # --argjson: on a real cluster they exceed ARG_MAX ("argument list too long").
 _json() { printf '%s' "$1"; }
+
+# ── File render (INPUT= a file or a directory). No kubectl. ─────────────────
+_load_input() {
+  local input="$1" list nfiles classified dups skipped defaulted draw_n
+  if [ -d "$input" ]; then
+    INGEST_ROOT="$(cd "$input" && pwd)"
+    export INGEST_ROOT
+    list="$(mktemp)"
+    find "$INGEST_ROOT" \( -name '.*' -o -name node_modules \) -prune -o -type f \
+      \( -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) -print | LC_ALL=C sort > "$list"
+    nfiles="$(grep -c . "$list" 2>/dev/null || true)"
+    nfiles="${nfiles:-0}"
+    if [ "$nfiles" -eq 0 ]; then
+      rm -f "$list"
+      echo "Error: no .yaml, .yml, or .json files in ${input}" >&2
+      exit 1
+    fi
+    echo "==> Reading ${nfiles} file(s) from '${input}'"
+    DOCS="$(ruby "$INGEST_RB" --files-from "$list")" || { rm -f "$list"; exit 1; }
+    rm -f "$list"
+  elif [ -f "$input" ]; then
+    unset INGEST_ROOT
+    echo "==> Reading '${input}'"
+    DOCS="$(ruby "$INGEST_RB" "$input")" || exit 1
+  else
+    echo "Error: INPUT is not a file or directory: ${input}" >&2
+    exit 1
+  fi
+  classified="$(jq -c -f "$CLASSIFY_JQ" <<EOF
+$DOCS
+EOF
+)" || exit 1
+  dups="$(printf '%s' "$classified" | jq -r '.duplicates[] | "  \(.kind) \(.ns)/\(.name)\n" + ([.sources[] | "    " + .] | join("\n"))')"
+  if [ -n "$dups" ]; then
+    echo "Error: duplicate objects in ${input} (same kind, namespace, and name):" >&2
+    printf '%s\n' "$dups" >&2
+    exit 1
+  fi
+  GW="$(printf '%s' "$classified" | jq -c '.gw')"
+  RT="$(printf '%s' "$classified" | jq -c '.rt')"
+  POL="$(printf '%s' "$classified" | jq -c '.pol')"
+  BE="$(printf '%s' "$classified" | jq -c '.be')"
+  PODS="$(printf '%s' "$classified" | jq -c '.pods')"
+  DEPS="$(printf '%s' "$classified" | jq -c '.deps')"
+  GC="$(printf '%s' "$classified" | jq -c '.gc')"
+  SVCS="$(printf '%s' "$classified" | jq -c '.svcs')"
+  KOBJS="$(printf '%s' "$classified" | jq -c '.kobjs')"
+  defaulted="$(printf '%s' "$classified" | jq -r '.defaulted')"
+  skipped="$(printf '%s' "$classified" | jq -r '.skipped[] | "    \(.kind) ×\(.count)"')"
+  [ "$defaulted" != 0 ] && echo "    ${defaulted} object(s) had no namespace; treated as default"
+  if [ -n "$skipped" ]; then
+    echo "    skipped (not drawn):"
+    printf '%s\n' "$skipped"
+  fi
+  other_gw="$(printf '%s' "$GW" | jq -r '[.[] | select((.spec.gatewayClassName // "") | test("agentgateway") | not) | .metadata.namespace + "/" + .metadata.name + " (" + (.spec.gatewayClassName // "no class") + ")"] | join(", ")')"
+  [ -n "$other_gw" ] && echo "    skipped Gateway (not an agentgateway class): ${other_gw}"
+  echo "    objects: $(printf '%s' "$classified" | jq -r '.objects')  routes=$(printf '%s' "$RT" | jq 'length') backends=$(printf '%s' "$BE" | jq 'length') policies=$(printf '%s' "$POL" | jq 'length')"
+  if [ "$HONOR_STATUS" = true ]; then
+    echo "    coloring nodes from status in the files (exported). That status was not re-evaluated." >&2
+  else
+    echo "    status is not evaluated. A connected graph is not an accepted config." >&2
+  fi
+  echo "    object YAML is embedded in the HTML. Review it before sharing." >&2
+}
+
+if [ "$FILE_MODE" = true ]; then
+  _load_input "$INPUT"
+  HAS_KAGENT=false
+  HAS_SUBSTRATE=false
+  printf '%s' "$KOBJS" | jq -e 'any(.[]; .kind=="Agent" or .kind=="SandboxAgent" or .kind=="AgentTemplate" or .kind=="Harness" or .kind=="AgentHarness" or .kind=="SandboxTemplate" or .kind=="ModelConfig" or .kind=="ModelProviderConfig" or .kind=="RemoteMCPServer" or .kind=="MCPServer" or .kind=="EnterpriseKagentRBACPolicy")' >/dev/null \
+    && HAS_KAGENT=true
+  printf '%s' "$KOBJS" | jq -e 'any(.[]; .kind=="WorkerPool" or .kind=="SandboxConfig")' >/dev/null \
+    && HAS_SUBSTRATE=true
+else
+if ! _probe="$(kubectl --context "$CTX" get --raw /version 2>&1)"; then
+  echo "Error: can't reach context '$CTX' (is cluster '$CLUSTER' up?)." >&2
+  echo "  kubectl said:" >&2
+  printf '%s\n' "$_probe" | sed 's/^/    /' >&2
+  exit 1
+fi
 
 # Installed CRDs, fetched once: product detection, and kagent/substrate kinds are only listed
 # when served (they span two API groups across kagent 0.10 → 1.0).
@@ -104,21 +214,34 @@ HAS_KAGENT=false; HAS_SUBSTRATE=false
 { _has_crd agents.api.kagent.dev || _has_crd agents.kagent.dev; } && HAS_KAGENT=true
 _has_crd workerpools.ate.dev && HAS_SUBSTRATE=true
 
-GWNAMES="$(echo "$GW" | jq -r '[.[]|select(.spec.gatewayClassName|test("agentgateway"))|.metadata.name]|join(",")')"
-HAS_AGW=true; [ -z "$GWNAMES" ] && HAS_AGW=false
-if [ "$HAS_AGW" = false ] && [ "$HAS_KAGENT" = false ] && [ "$HAS_SUBSTRATE" = false ]; then
-  echo "No agentgateway Gateways, kagent, or Agent Substrate on '${CLUSTER}' — nothing to graph." >&2
-  exit 0
-fi
-# No agentgateway Gateway → leave its half empty, so HTTPRoutes / backends that belong to some
-# other gateway (kgateway, Istio) don't surface as "unused agentgateway config".
-if [ "$HAS_AGW" = false ]; then GW="[]"; RT="[]"; POL="[]"; BE="[]"; fi
-EDITION="community"; echo "$GW" | jq -e '.[]|select(.spec.gatewayClassName=="enterprise-agentgateway")' >/dev/null 2>&1 && EDITION="enterprise"
 SVCS='[]'
 if [ "$HAS_KAGENT" = true ] || [ "$HAS_SUBSTRATE" = true ]; then
   # Services map agentgateway backends onto the kagent / substrate Deployments they front.
   SVCS="$(_items services)"
 fi
+fi
+
+GWNAMES="$(echo "$GW" | jq -r '[.[]|select((.spec.gatewayClassName // "")|test("agentgateway"))|.metadata.name]|join(",")')"
+HAS_AGW=true; [ -z "$GWNAMES" ] && HAS_AGW=false
+# A file render with routes, backends, or policies is still a picture when no Gateway
+# was included. On a cluster, those objects without an agentgateway Gateway belong to
+# some other gateway and are left out.
+if [ "$FILE_MODE" = true ] && [ "$HAS_AGW" = false ]; then
+  draw_n="$(jq -s '.[0]+.[1]+.[2] | length' <(_json "$RT") <(_json "$POL") <(_json "$BE"))"
+  [ "$draw_n" != 0 ] && HAS_AGW=true
+fi
+if [ "$HAS_AGW" = false ] && [ "$HAS_KAGENT" = false ] && [ "$HAS_SUBSTRATE" = false ]; then
+  if [ "$FILE_MODE" = true ]; then
+    echo "Error: nothing to graph in '${INPUT}'." >&2
+    exit 1
+  fi
+  echo "No agentgateway Gateways, kagent, or Agent Substrate on '${CLUSTER}' — nothing to graph." >&2
+  exit 0
+fi
+# No agentgateway Gateway on a cluster → leave its half empty, so HTTPRoutes / backends
+# that belong to some other gateway (kgateway, Istio) don't surface as unused agentgateway config.
+if [ "$HAS_AGW" = false ]; then GW="[]"; RT="[]"; POL="[]"; BE="[]"; fi
+EDITION="community"; echo "$GW" | jq -e '.[]|select(.spec.gatewayClassName=="enterprise-agentgateway")' >/dev/null 2>&1 && EDITION="enterprise"
 
 # ── Proxy admin /config_dump (version + loaded enrichment). Soft-fail. ──────────
 # Docs: each gateway pod serves admin on :15000; /config_dump includes build info
@@ -202,12 +325,15 @@ if [ "$DUMP" = "true" ]; then
       echo "    ${gw_ns}/${gw_name} (pod ${pod}): dump unavailable — will fall back" >&2
     fi
   done <<EOF
-$(echo "$GW" | jq -r '.[]|select(.spec.gatewayClassName|test("agentgateway"))|[.metadata.namespace,.metadata.name]|@tsv')
+$(echo "$GW" | jq -r '.[]|select((.spec.gatewayClassName // "")|test("agentgateway"))|[.metadata.namespace,.metadata.name]|@tsv')
 EOF
 fi
 
 # Image-tag fallback when dump didn't yield a version.
-if [ -z "$VERSION" ] && [ "$HAS_AGW" = true ]; then
+if [ "$FILE_MODE" = true ] && [ -n "$REQUESTED_VERSION" ]; then
+  VERSION="$REQUESTED_VERSION"
+  VERSION_SOURCE="given"
+elif [ -z "$VERSION" ] && [ "$HAS_AGW" = true ]; then
   first_gw="$(echo "$GWNAMES" | cut -d, -f1)"
   img_ver="$(_image_version_for_gw "$first_gw")"
   if [ -n "$img_ver" ]; then
@@ -266,18 +392,21 @@ DATA="$(jq -cn \
   --slurpfile pods <(_json "$PODS") --slurpfile deps <(_json "$DEPS") --argjson gc "$GC" \
   --argjson loaded "$LOADED" \
   --arg cluster "$CLUSTER" --arg edition "$EDITION" \
-  --arg version "$VERSION" --arg versionSource "$VERSION_SOURCE" --arg gitRevision "$GIT_REVISION" '
+  --arg version "$VERSION" --arg versionSource "$VERSION_SOURCE" --arg gitRevision "$GIT_REVISION" \
+  --arg honorStatus "$HONOR_STATUS" --arg fileMode "$FILE_MODE" '
   $rt[0] as $rt | $pol[0] as $pol | $be[0] as $be | $pods[0] as $pods | $deps[0] as $deps |
+  def honor: $honorStatus == "true";
   def cond(t): [.status.conditions[]?|select(.type==t).status];
-  def stat(t): cond(t) as $c | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end;
+  def stat(t): if honor|not then "na" else (cond(t) as $c | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end) end;
   def rstat:
+    if honor|not then "na" else (
     ([.status.parents[]?.conditions[]?|select(.type=="Accepted").status]) as $a
     | ([.status.parents[]?.conditions[]?|select(.type=="ResolvedRefs").status]) as $r
-    | if ($a|length)==0 then "na" elif (($a|all(.=="True")) and ($r|all(.=="True"))) then "ok" else "bad" end;
+    | if ($a|length)==0 then "na" elif (($a|all(.=="True")) and ($r|all(.=="True"))) then "ok" else "bad" end) end;
   # Policies use the Gateway-API GEP-713 PolicyStatus shape: conditions live under
   # .status.ancestors[].conditions[] (Accepted + Attached), NOT .status.conditions.
   def pconds: [.status.ancestors[]?.conditions[]?];
-  def pstat: pconds as $c | if ($c|length)==0 then "na" elif ($c|any(.status!="True")) then "bad" else "ok" end;
+  def pstat: if honor|not then "na" else (pconds as $c | if ($c|length)==0 then "na" elif ($c|any(.status!="True")) then "bad" else "ok" end) end;
   def backend_rtype($default):
     (.group // "") as $g | (.kind // "") as $k
     | if $g=="enterpriseagentgateway.solo.io" or $k=="EnterpriseAgentgatewayBackend"
@@ -302,7 +431,7 @@ DATA="$(jq -cn \
       elif (($keys | index($id)) != null) then "true"
       else "false" end;
 
-  ($gw | map(select(.spec.gatewayClassName|test("agentgateway")))) as $gws
+  ($gw | map(select((.spec.gatewayClassName // "")|test("agentgateway")))) as $gws
   | ($gws | map(.metadata.name)) as $gwnames
   | ($gwnames[0] // "agw") as $gw0
 
@@ -318,9 +447,9 @@ DATA="$(jq -cn \
             ns:(.namespace // $pns), name:.name,
             rtype:($ref|backend_rtype("agentgatewaybackends.agentgateway.dev")), cr:false}),
        ($be[] | {key:(._rtype+":"+.metadata.namespace+"/"+.metadata.name),
-                 ns:.metadata.namespace, name:.metadata.name,
+                 ns:.metadata.namespace, name:.metadata.name, origin:(._source // null),
                  cr:true, btype:((.spec|keys|map(select(.!="policies"))|first)//"?"), rtype:._rtype,
-                 status:stat("Accepted"), conds:[.status.conditions[]?|(.type+"="+.status)]}) ]
+                 status:stat("Accepted"), conds:(if honor then [.status.conditions[]?|(.type+"="+.status)] else ["(status not evaluated)"] end)}) ]
      | group_by(.key) | map((map(select(.cr)) | first) // add)) as $backends
 
   # control-plane deployments (enterprise-agentgateway + its sidecar services)
@@ -331,7 +460,7 @@ DATA="$(jq -cn \
   | ($cp | any(.metadata.name=="enterprise-agentgateway")) as $hasCP
 
   | {
-      cluster:$cluster, edition:$edition, gateways:$gwnames,
+      cluster:$cluster, edition:$edition, gateways:$gwnames, fileMode:($fileMode=="true"),
       version:$version, versionSource:$versionSource, gitRevision:$gitRevision,
       elements: (
         # ── Gateway nodes (data plane) ──
@@ -339,18 +468,20 @@ DATA="$(jq -cn \
             id:("gateway:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"Gateway", role:"dataplane", plane:"data", ns:.metadata.namespace, name:.metadata.name,
             status:stat("Programmed"), rtype:"gateway", loaded:"na",
+            origin:(._source // null),
             kubectl:("kubectl get gateway "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
-            detail:{ class:.spec.gatewayClassName, address:(.status.addresses[0].value//"-"),
+            detail:{ class:.spec.gatewayClassName, address:(if honor then (.status.addresses[0].value//"-") else "-" end),
                      listeners:[.spec.listeners[]|(.protocol+"/"+(.port|tostring)+" ("+(.hostname//"*")+")")],
-                     conditions:[.status.conditions[]?|(.type+"="+.status)] } }} ]
+                     conditions:(if honor then [.status.conditions[]?|(.type+"="+.status)] else ["(status not evaluated)"] end) } }} ]
 
         # ── Control-plane deployment nodes (control plane) ──
         + [ $cp[] | {data:{
             id:("deploy:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"Deployment", role:"controlplane", plane:"control", ns:.metadata.namespace, name:.metadata.name,
             aux:(.metadata.name != "enterprise-agentgateway"),
-            status:(if (.status.readyReplicas//0)==(.status.replicas//0) and (.status.replicas//0)>0 then "ok" else "bad" end),
+            status:(if honor|not then "na" elif (.status.readyReplicas//0)==(.status.replicas//0) and (.status.replicas//0)>0 then "ok" else "bad" end),
             rtype:"deploy", loaded:"na",
+            origin:(._source // null),
             kubectl:("kubectl get deploy "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ ready:((.status.readyReplicas//0|tostring)+"/"+(.status.replicas//0|tostring)) } }} ]
 
@@ -358,11 +489,12 @@ DATA="$(jq -cn \
         #   Gateway --gatewayClassName--> GatewayClass --controllerName--> control plane --manages--> Gateway
         + [ $classes[] as $cn | ($gc[]|select(.metadata.name==$cn)) as $gcx | {data:{
             id:("gatewayclass:"+$cn), label:$cn, kind:"GatewayClass", role:"class", name:$cn, ns:"(cluster-scoped)",
-            status:( [$gcx.status.conditions[]?|select(.type=="Accepted").status] as $c
-                     | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end ),
-            rtype:"gatewayclass", loaded:"na", kubectl:("kubectl get gatewayclass "+$cn+" -o yaml"),
+            status:(if honor|not then "na" else ([$gcx.status.conditions[]?|select(.type=="Accepted").status] as $c
+                     | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end) end),
+            rtype:"gatewayclass", loaded:"na", origin:(($gcx // {})._source // null),
+            kubectl:("kubectl get gatewayclass "+$cn+" -o yaml"),
             detail:{ controllerName:($gcx.spec.controllerName//"-"),
-                     conditions:[$gcx.status.conditions[]?|(.type+"="+.status)] } }} ]
+                     conditions:(if honor then [$gcx.status.conditions[]?|(.type+"="+.status)] else ["(status not evaluated)"] end) } }} ]
         + [ $gws[] | {data:{
             id:("e:class:"+.metadata.namespace+":"+.metadata.name), source:("gateway:"+.metadata.namespace+"/"+.metadata.name),
             target:("gatewayclass:"+.spec.gatewayClassName), rel:"gatewayClassName" }} ]
@@ -378,7 +510,8 @@ DATA="$(jq -cn \
         + [ $pods[] | select(.metadata.labels["gateway.networking.k8s.io/gateway-name"] as $g | $g != null and ($gwnames|index($g))) | {data:{
             id:("pod:"+.metadata.namespace+"/"+.metadata.name), label:.metadata.name,
             kind:"Pod", role:"dataplane", plane:"data", ns:.metadata.namespace, name:.metadata.name,
-            status:(if .status.phase=="Running" then "ok" else "bad" end), rtype:"pod", loaded:"na",
+            status:(if honor|not then "na" elif .status.phase=="Running" then "ok" else "bad" end), rtype:"pod", loaded:"na",
+            origin:(._source // null),
             kubectl:("kubectl get pod "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ phase:.status.phase, node:(.spec.nodeName//"-") } }} ]
         + [ $pods[] | (.metadata.labels["gateway.networking.k8s.io/gateway-name"]) as $g
@@ -393,10 +526,11 @@ DATA="$(jq -cn \
             kind:"HTTPRoute", role:"route", ns:.metadata.namespace, name:.metadata.name,
             status:rstat, rtype:"httproute",
             loaded:({ns:.metadata.namespace, name:.metadata.name} | mark_loaded($loaded.routes)),
+            origin:(._source // null),
             kubectl:("kubectl get httproute "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ hostnames:([.spec.hostnames[]?]|if length==0 then ["*"] else . end),
                      paths:([.spec.rules[]?.matches[]?.path.value]|unique|map(select(.!=null))),
-                     conditions:[.status.parents[]?.conditions[]?|(.type+"="+.status)] } }} ]
+                     conditions:(if honor then [.status.parents[]?.conditions[]?|(.type+"="+.status)] else ["(status not evaluated)"] end) } }} ]
         + [ $rt[] | .metadata.namespace as $rns | .metadata.name as $rn
             | .spec.parentRefs[]? | select(.name as $p | $gwnames|index($p))
             | {data:{ id:("e:parent:"+$rns+":"+$rn+":"+.name), source:("httproute:"+$rns+"/"+$rn),
@@ -414,6 +548,7 @@ DATA="$(jq -cn \
             loaded:(if (.rtype // "service")=="service"
                     then ({ns:.ns, name:.name} | mark_loaded($loaded.services) | if .=="false" then "na" else . end)
                     else ({ns:.ns, name:.name} | mark_loaded($loaded.backends)) end),
+            origin:(.origin // null),
             kubectl:(if .cr then ("kubectl get "+(.rtype)+" "+.name+" -n "+.ns+" -o yaml")
                      elif (.rtype // "service")=="service" then ("kubectl get service "+.name+" -n "+.ns+" -o yaml")
                      else ("kubectl get "+(.rtype)+" "+.name+" -n "+.ns+" -o yaml   # referenced, but no such object") end),
@@ -433,10 +568,12 @@ DATA="$(jq -cn \
             kind:.kind, role:"policy", ns:.metadata.namespace, name:.metadata.name,
             status:pstat, rtype:._rtype,
             loaded:({ns:.metadata.namespace, name:.metadata.name} | mark_loaded($loaded.policies)),
+            origin:(._source // null),
             kubectl:("kubectl get "+._rtype+" "+.metadata.name+" -n "+.metadata.namespace+" -o yaml"),
             detail:{ targets:[.spec.targetRefs[]?|(.kind+"/"+.name)],
-                     conditions:(( [pconds[] | .type+"="+.status+(if .status!="True" then " — "+(.reason//"")+": "+(.message//"") else "" end)] )
-                                 | if length==0 then ["(none reported)"] else . end) } }} ]
+                     conditions:(if honor|not then ["(status not evaluated)"] else
+                                 (( [pconds[] | .type+"="+.status+(if .status!="True" then " — "+(.reason//"")+": "+(.message//"") else "" end)] )
+                                 | if length==0 then ["(none reported)"] else . end) end) } }} ]
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | .spec.targetRefs[]?
             | {data:{ id:("e:target:"+$pns+":"+$pn+":"+.kind+":"+.name), source:("policy:"+$pns+"/"+$pn),
@@ -463,9 +600,10 @@ DATA="$(printf '%s' "$DATA" | jq -c '.elements |= map(if (.data.source|not) then
 KDATA='{"elements":[],"objs":{},"kagentVersion":"","kagentEdition":"","substrateVersion":""}'
 if [ "$HAS_KAGENT" = true ] || [ "$HAS_SUBSTRATE" = true ]; then
   KDATA="$(jq -cn -f "$KAGENT_JQ" \
+    --arg fileMode "$FILE_MODE" --arg honorStatus "$HONOR_STATUS" \
     --slurpfile kobjs <(_json "$KOBJS") --slurpfile deps <(_json "$DEPS") --slurpfile pods <(_json "$PODS") \
     --slurpfile svcs <(_json "$SVCS") \
-    --slurpfile gws <(echo "$GW" | jq '[.[]|select(.spec.gatewayClassName|test("agentgateway"))]') \
+    --slurpfile gws <(echo "$GW" | jq '[.[]|select((.spec.gatewayClassName // "")|test("agentgateway"))]') \
     --slurpfile rts <(_json "$RT") --slurpfile bes <(_json "$BE"))"
 fi
 KAGENT_VERSION="$(printf '%s' "$KDATA" | jq -r '.kagentVersion')"
@@ -478,25 +616,36 @@ DATA="$(jq -cn --argjson d "$DATA" --slurpfile k <(_json "$KDATA") \
         products:{agentgateway:$agw, kagent:$kagent, substrate:$substrate},
         kagentVersion:$kv, kagentEdition:$ke, substrateVersion:$sv}')"
 
-NODE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source|not)]|length')"
-EDGE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source)]|length')"
 if [ "$HAS_AGW" = true ]; then
   VER_NOTE="${VERSION:-unknown}"
   [ -n "$VERSION_SOURCE" ] && [ "$VERSION_SOURCE" != "unknown" ] && VER_NOTE="${VER_NOTE} (${VERSION_SOURCE})"
-  echo "    agentgateway: edition=${EDITION}, version=${VER_NOTE}, gateways=${GWNAMES}"
+  echo "    agentgateway: edition=${EDITION}, version=${VER_NOTE}, gateways=${GWNAMES:-none}"
 fi
 [ "$HAS_KAGENT" = true ] && echo "    kagent: edition=${KAGENT_EDITION}, version=${KAGENT_VERSION:-unknown}, agents=$(printf '%s' "$KOBJS" | jq '[.[]|select(.kind=="Agent" or .kind=="SandboxAgent")]|length')"
 [ "$HAS_SUBSTRATE" = true ] && echo "    substrate: version=${SUBSTRATE_VERSION:-unknown}, worker pools=$(printf '%s' "$KOBJS" | jq '[.[]|select(.kind=="WorkerPool")]|length')"
-echo "    ${NODE_N} node(s), ${EDGE_N} edge(s)"
 
-# Prune edges whose endpoints don't exist (e.g. a backendRef to a Service we didn't node-ify
-# as a CR still has a node; but a stray targetRef to a missing route would dangle). Keeps
-# Cytoscape from erroring on edges with unknown source/target.
+# Refs whose target is not in the snapshot become ghost nodes (same kind, dashed in the HTML).
+DATA="$(jq -cn -f "$GHOSTS_JQ" \
+  --arg fileMode "$FILE_MODE" \
+  --slurpfile data <(_json "$DATA") \
+  --slurpfile gw <(_json "$GW") \
+  --slurpfile rt <(_json "$RT") \
+  --slurpfile svcs <(_json "$SVCS"))"
+
+# Prune edges whose endpoints don't exist (a ghost node is added above for a ref that
+# points at nothing; a Gateway that exists but is not agentgateway is left dangling on
+# purpose and dropped here). Keeps Cytoscape from erroring on edges with unknown source/target.
 DATA="$(printf '%s' "$DATA" | jq '
   ([.elements[]|select(.data.source|not)|.data.id]) as $ids
   | .elements |= map(
       (.data.source) as $s | (.data.target) as $t
       | select(($s|not) or (($ids|index($s)) and ($ids|index($t)))))')"
+NODE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source|not)]|length')"
+EDGE_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.source)]|length')"
+GHOST_N="$(printf '%s' "$DATA" | jq '[.elements[]|select(.data.ghost==true)]|length')"
+ghost_note=""
+[ "$GHOST_N" != 0 ] && ghost_note=", ${GHOST_N} ghost(s)"
+echo "    ${NODE_N} node(s), ${EDGE_N} edge(s)${ghost_note}"
 
 # ── Per-node manifests → inlined YAML (raw + cleaned). We already fetched every object, so
 # map each node id to its full object, then render two YAML views: the raw manifest and a
@@ -505,6 +654,16 @@ DATA="$(printf '%s' "$DATA" | jq '
 MANIFESTS="$(jq -n --slurpfile data <(_json "$DATA") --argjson gws "$GW" --slurpfile rts <(_json "$RT") --argjson gcs "$GC" \
   --slurpfile deps <(_json "$DEPS") --slurpfile pods <(_json "$PODS") --slurpfile bes <(_json "$BE") --slurpfile pols <(_json "$POL") \
   --slurpfile kobjs <(printf '%s' "$KDATA" | jq '.objs') '
+  def redact:
+    if type == "object" then
+      with_entries(
+        if ((.value | type) == "string") and (.key | test("^(accessKey|secretKey|sessionToken|apiKey|api_key|token|password|clientSecret|authorization)$"))
+        then .value = "<redacted>"
+        elif ((.key == "data") or (.key == "stringData")) and ((.value | type) == "object")
+        then .value |= with_entries(.value = (if (.value | type) == "object" or (.value | type) == "array" then .value else "<redacted>" end))
+        else .value |= redact end)
+    elif type == "array" then map(redact)
+    else . end;
   $data[0] as $data | $rts[0] as $rts | $deps[0] as $deps | $pods[0] as $pods | $bes[0] as $bes
   | $pols[0] as $pols | $kobjs[0] as $kobjs
   | ($data.elements | map(select(.data.source|not) | .data)) as $nodes
@@ -525,7 +684,8 @@ MANIFESTS="$(jq -n --slurpfile data <(_json "$DATA") --argjson gws "$GW" --slurp
       # stray comma. Strip it from BOTH raw and clean (clean stripped it already); drop the
       # annotations map entirely if it was the only key.
       | if $obj != null then .[$id]=($obj
-            | del(._rtype)
+            | del(._rtype, ._source, .metadata._defaultedNamespace)
+            | redact
             | del(.metadata.annotations."kubectl.kubernetes.io/last-applied-configuration")
             | if ((.metadata.annotations // {}) | length)==0 then del(.metadata.annotations) else . end)
           else . end)')"
@@ -579,8 +739,18 @@ DUMP_PAYLOAD="$(jq -cn --argjson dumps "$DUMPS" --arg version "$VERSION" --arg v
       summary:$summary, gateways:$dumps }
 ')"
 
-# Subtitle: one segment per product present on the cluster.
-SUBTITLE="cluster ${CLUSTER}"
+# Subtitle: one segment per product present. A file render says so, and does not
+# pretend the files were accepted by a controller.
+if [ "$FILE_MODE" = true ]; then
+  SUBTITLE="files ${CLUSTER}"
+  if [ "$HONOR_STATUS" = true ]; then
+    SUBTITLE="${SUBTITLE} · exported status"
+  else
+    SUBTITLE="${SUBTITLE} · status not evaluated"
+  fi
+else
+  SUBTITLE="cluster ${CLUSTER}"
+fi
 [ "$HAS_AGW" = true ] && SUBTITLE="${SUBTITLE} · agentgateway (${EDITION})${VERSION:+ ${VERSION}}"
 [ "$HAS_KAGENT" = true ] && SUBTITLE="${SUBTITLE} · kagent${KAGENT_EDITION:+ (${KAGENT_EDITION})}${KAGENT_VERSION:+ ${KAGENT_VERSION}}"
 [ "$HAS_SUBSTRATE" = true ] && SUBTITLE="${SUBTITLE} · substrate${SUBSTRATE_VERSION:+ ${SUBSTRATE_VERSION}}"
@@ -701,8 +871,8 @@ HTMLHEAD
       {selector:'node[kind="RemoteMCPServer"], node[kind="MCPServer"]',style:{'shape':'round-pentagon','width':30,'height':30}},
       {selector:'node[kind="WorkerPool"]',style:{'shape':'octagon','width':32,'height':32}},
       {selector:'node[kind="EnterpriseKagentRBACPolicy"]',style:{'shape':'hexagon'}},
-      // a ref that points at nothing
-      {selector:'node[?missing]',style:{'background-opacity':0.25,'border-style':'dashed','border-color':'#ff5f7a','color':'#ff8098'}},
+      // a ref whose target is not in the snapshot: same shape and color, dashed and dimmed
+      {selector:'node[?ghost]',style:{'background-opacity':0.35,'border-style':'dashed','border-width':2,'opacity':0.9}},
       // other product's node, pulled into a single-product view by a cross-product edge
       {selector:'node.bridge',style:{'opacity':0.55}},
       // unused config (not reachable from any Gateway / Agent) + the anchor it clusters under
@@ -785,6 +955,12 @@ HTMLHEAD
       // bridge nodes (the other product's end of a cross edge) are never roots
       var roots=nodes.filter(function(n){return !n.hasClass('bridge')&&(n.data('kind')==='Gateway'||n.data('isUnusedAnchor')||ctl('kagent')(n));});
       if(!roots.filter(function(n){return !n.data('isUnusedAnchor');}).length) roots=roots.union(nodes.filter(function(n){return !n.hasClass('bridge')&&ctl('substrate')(n);}));
+      // No Gateway and no controller (a file render of routes or Agents): root on those objects.
+      if(!roots.filter(function(n){return !n.data('isUnusedAnchor');}).length){
+        roots=roots.union(nodes.filter(function(n){
+          return !n.hasClass('bridge')&&!n.data('ghost')&&(n.data('kind')==='HTTPRoute'||n.data('kind')==='Agent'||n.data('kind')==='SandboxAgent');
+        }));
+      }
       eles.layout({name:'breadthfirst',directed:false,roots:roots.length?roots:undefined,
         spacingFactor:1.3,padding:30,avoidOverlap:true,animate:false}).run();
       var bb=nodes.boundingBox();
@@ -819,7 +995,7 @@ HTMLHEAD
     cy.nodes().forEach(function(n){
       var k=n.data('kind');
       if(n.data('product')==='agentgateway'){
-        if((k==='HTTPRoute'||k==='Backend'||k==='Service'||n.data('role')==='policy')&&!agw[n.id()]) groups.agentgateway.push(n);
+        if((k==='HTTPRoute'||k==='Backend'||k==='Service'||n.data('role')==='policy')&&!agw[n.id()]&&!n.data('ghost')) groups.agentgateway.push(n);
       } else if(KSIDE[n.data('product')]&&KORPH[k]&&!kr[n.id()]&&!n.data('missing')) groups.kagent.push(n);
     });
     Object.keys(groups).forEach(function(p){
@@ -871,7 +1047,7 @@ HTMLHEAD
     if(ld) h+='<span class="badge '+ld.cls+'">'+ld.text+'</span>';
     if(d.orphan) h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ unused — '
       +(KSIDE[d.product]?'no Agent references this (applied, but nothing uses it)':'not reachable from any Gateway (applied, but not wired in)')+'</div>';
-    if(d.missing) h+='<div class="hint" style="color:#ff8098;margin-top:6px">✗ referenced, but no such object exists</div>';
+    if(d.ghost||d.missing) h+='<div class="hint" style="margin-top:6px">'+(D.fileMode?'Referenced, but not in this input.':'Referenced, but not in the cluster.')+'</div>';
     if(n.hasClass('bridge')) h+='<div class="hint" style="margin-top:6px">shown from the '+esc(side(d.product))+' side because a cross-product edge reaches it — switch to “all” for its full context</div>';
     if(d.loaded==='false' && s==='ok')
       h+='<div class="hint" style="color:#ffb454;margin-top:6px">⚠ CR status is active but this resource is not in the proxy /config_dump</div>';
@@ -899,8 +1075,12 @@ HTMLHEAD
     var cross=n.outgoers('edge').filter(function(e){return e.data('cross');});
     if(cross.length) h+=row('cross-product',cross.map(function(e){return esc(e.data('rel'))+' → '+who(e.target());}).join('<br>'));
     h+='</table>';
-    h+='<div class="k">kubectl</div><pre id="kc">'+esc(d.kubectl)+'</pre>';
-    h+='<button onclick="solomogCopy(\'kc\')">Copy kubectl</button><div class="hint" id="cpm"></div>';
+    if(D.fileMode){
+      if(!d.ghost && d.origin) h+='<div class="k">source</div><pre id="kc">'+esc(d.origin)+'</pre>';
+    }else{
+      h+='<div class="k">kubectl</div><pre id="kc">'+esc(d.kubectl)+'</pre>';
+      h+='<button onclick="solomogCopy(\'kc\')">Copy kubectl</button><div class="hint" id="cpm"></div>';
+    }
     CUR=(window.SOLOMOG_YAML||{})[d.id]||null;
     if(CUR){
       h+='<div class="tabs">'
@@ -973,7 +1153,7 @@ HTMLHEAD
     }else fallback();
   };
   cy.on('tap','node',function(e){ if(e.target.data('isUnusedAnchor'))return; render(e.target); });
-  var EMPTY='<div class="empty">Click a node to inspect it'+(SIDES.agentgateway?', or open the dump panel.':'.')+'</div>';
+  var EMPTY='<div class="empty">Click a node to inspect it'+((SIDES.agentgateway&&!D.fileMode)?', or open the dump panel.':'.')+'</div>';
   document.getElementById('detail').innerHTML=EMPTY;
   cy.on('tap',function(e){if(e.target===cy){document.getElementById('detail').innerHTML=EMPTY;}});
   document.getElementById('show-dump').addEventListener('click',function(){cy.nodes().unselect();renderDump();});
@@ -990,7 +1170,7 @@ HTMLHEAD
     cy.nodes(':visible').forEach(function(n){
       if(n.data('isUnusedAnchor')) return;
       present[n.data('role')==='policy'?'Policy':n.data('kind')]=true;
-      if(n.data('missing')) hasMissing=true;
+      if(n.data('missing')||n.data('ghost')) hasMissing=true;
     });
     hasCross=cy.edges('[?cross]').filter(':visible').length>0;
     var kinds=ORDER.filter(function(k){return present[k];});
@@ -1002,7 +1182,7 @@ HTMLHEAD
       +'<br><b style="color:#8a97b0">status (border):</b> '
       +'<span>'+ring('#3fe08f')+'active</span><span>'+ring('#ff5f7a')+'inactive</span>'
       +'<span><i class="ring dash" style="border-color:#ffb454"></i>unused</span>'
-      +(hasMissing?'<span><i class="ring dash" style="border-color:#ff5f7a"></i>missing ref</span>':'')
+      +(hasMissing?'<span><i class="ring dash" style="border-color:#9fb0d0"></i>'+(D.fileMode?'not in this input':'not in the cluster')+'</span>':'')
       +'<br><b style="color:#8a97b0">edges:</b> ×N + thicker line = repeated use'
       +(hasCross?' · <span style="color:#ff9e64">- - cross-product traffic</span>':'');
     document.getElementById('legend').innerHTML=h;
@@ -1032,7 +1212,14 @@ HTMLHEAD
       b.addEventListener('click',function(){setView(b.getAttribute('data-view'));});
     });
   } else document.getElementById('views').style.display='none';
-  if(!SIDES.agentgateway) document.getElementById('show-dump').style.display='none';
+  if(!SIDES.agentgateway || D.fileMode) document.getElementById('show-dump').style.display='none';
+
+  // A file render with no Gateway would hide every route behind the unused toggle.
+  if(D.fileMode){
+    var realGw=0;
+    cy.nodes('[kind="Gateway"]').forEach(function(n){ if(!n.data('ghost')) realGw++; });
+    if(!realGw){ STATE.unused=true; document.getElementById('unused').checked=true; }
+  }
 
   // controls
   document.getElementById('unused').addEventListener('change',function(e){STATE.unused=e.target.checked;applyVisibility();relayout();});
