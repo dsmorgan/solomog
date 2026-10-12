@@ -136,21 +136,29 @@ releases:
        OKTA_CLIENT_ID/SECRET only for the simple single-app case. */ -}}
 {{- $cid := env "OAUTH_ISSUER_CLIENT_ID" | default (env "OKTA_CLIENT_ID") }}
 {{- $csec := env "OAUTH_ISSUER_CLIENT_SECRET" | default (env "OKTA_CLIENT_SECRET") }}
+{{- /* Generic-IdP overrides, all blank by default so the Okta wiring above is unchanged.
+       OAUTH_ISSUER_BASE_URL replaces the whole public issuer URL — e.g. an in-cluster
+       http://<gateway svc>:8080/oauth-issuer when the "browser" leg runs inside the cluster.
+       The AUTHORIZE/TOKEN URLs and IDP_NAME point the downstream leg at a non-Okta IdP. */ -}}
+{{- $base := env "OAUTH_ISSUER_BASE_URL" | default (printf "https://%s/oauth-issuer" $host) }}
+{{- $authz := env "OAUTH_ISSUER_AUTHORIZE_URL" | default (printf "%s/v1/authorize" $issuer) }}
+{{- $tokurl := env "OAUTH_ISSUER_TOKEN_URL" | default (printf "%s/v1/token" $issuer) }}
+{{- $idp := env "OAUTH_ISSUER_IDP_NAME" | default "okta" }}
       - controller:
           extraEnv:
             # The exact env var name the controller reads. JSON string; client_secret comes from
             # .env (OKTA_CLIENT_SECRET) so nothing sensitive is committed.
             KGW_OAUTH_ISSUER_CONFIG: |
               {
-                "gateway_config": { "base_url": "https://{{ $host }}/oauth-issuer" },
+                "gateway_config": { "base_url": "{{ $base }}" },
                 "client_config": { "clients": { "{{ $cid }}": "{{ $csec }}" } },
                 "downstream_server": {
-                  "name": "okta",
+                  "name": "{{ $idp }}",
                   "client_id": "{{ $cid }}",
                   "client_secret": "{{ $csec }}",
-                  "authorize_url": "{{ $issuer }}/v1/authorize",
-                  "token_url": "{{ $issuer }}/v1/token",
-                  "redirect_uri": "https://{{ $host }}/oauth-issuer/callback/downstream",
+                  "authorize_url": "{{ $authz }}",
+                  "token_url": "{{ $tokurl }}",
+                  "redirect_uri": "{{ $base }}/callback/downstream",
                   "scopes": ["openid", "profile", "email"]
                 }
               }
