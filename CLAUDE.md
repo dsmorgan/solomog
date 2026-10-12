@@ -48,7 +48,9 @@ These combine freely and are the core mental model:
      ns `agentgateway-system`, license `licensing.licenseKey`). Community uses a separate OSS line.
      CLI-only: `TOKEN_EXCHANGE=true` enables the OBO STS and restarts the `agw` dataplane
      (label `gateway-name=agw` — a custom `NAME=` gateway is not restarted). `OAUTH_ISSUER=true`
-     makes the gateway an OAuth AS at `/oauth-issuer` (needs token exchange + `OKTA_*`).
+     makes the gateway an OAuth AS at `/oauth-issuer` (needs token exchange + `OKTA_*`, or the
+     CLI-only `OAUTH_ISSUER_BASE_URL` / `_IDP_NAME` / `_AUTHORIZE_URL` / `_TOKEN_URL` overrides
+     for another IdP such as in-cluster Keycloak; blank keeps the Okta wiring).
      Related JWKS / callback knobs may live in `.env`; they are inert unless the CLI flag is set.
    - `kagent` = **enterprise**: singleton `management` release in `agentgateway-system`
      plus `kagent-enterprise[-crds]` in ns `kagent` (experimental in solomog);

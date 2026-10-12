@@ -289,6 +289,14 @@ tasks:
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
+      # Generic-IdP overrides for the issuer (blank → the Okta defaults in the helmfile). CLI-only,
+      # like OAUTH_ISSUER, except the client id/secret, which keep their .env fallback.
+      OAUTH_ISSUER_BASE_URL: '{{.OAUTH_ISSUER_BASE_URL | default ""}}'
+      OAUTH_ISSUER_IDP_NAME: '{{.OAUTH_ISSUER_IDP_NAME | default ""}}'
+      OAUTH_ISSUER_AUTHORIZE_URL: '{{.OAUTH_ISSUER_AUTHORIZE_URL | default ""}}'
+      OAUTH_ISSUER_TOKEN_URL: '{{.OAUTH_ISSUER_TOKEN_URL | default ""}}'
+      OAUTH_ISSUER_CLIENT_ID: '{{.OAUTH_ISSUER_CLIENT_ID | default (env "OAUTH_ISSUER_CLIENT_ID") | default ""}}'
+      OAUTH_ISSUER_CLIENT_SECRET: '{{.OAUTH_ISSUER_CLIENT_SECRET | default (env "OAUTH_ISSUER_CLIENT_SECRET") | default ""}}'
       KAGENT_PROVIDER: '{{.KAGENT_PROVIDER | default (env "KAGENT_PROVIDER") | default "openAI"}}'
       KAGENT_MODEL: '{{.KAGENT_MODEL | default (env "KAGENT_MODEL") | default ""}}'
       KAGENT_OLLAMA_HOST: '{{.KAGENT_OLLAMA_HOST | default (env "KAGENT_OLLAMA_HOST") | default ""}}'
@@ -708,6 +716,9 @@ tasks:
                          + OKTA_* in .env. CLI-only. default false.
         OAUTH_ISSUER_HOST   public gateway host for the issuer base_url.
                             default agw.<cluster>.test
+        OAUTH_ISSUER_BASE_URL / _IDP_NAME / _AUTHORIZE_URL / _TOKEN_URL   point the issuer at a
+                            non-Okta downstream IdP (e.g. in-cluster Keycloak). CLI-only.
+                            Blank → https://<OAUTH_ISSUER_HOST>/oauth-issuer and the OKTA_* endpoints.
 
       Related: `agentgateway:ui` adds the Solo UI. See `solomog help stack`.
 
@@ -738,6 +749,14 @@ tasks:
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
+      # Generic-IdP overrides for the issuer (blank → the Okta defaults in the helmfile). CLI-only,
+      # like OAUTH_ISSUER, except the client id/secret, which keep their .env fallback.
+      OAUTH_ISSUER_BASE_URL: '{{.OAUTH_ISSUER_BASE_URL | default ""}}'
+      OAUTH_ISSUER_IDP_NAME: '{{.OAUTH_ISSUER_IDP_NAME | default ""}}'
+      OAUTH_ISSUER_AUTHORIZE_URL: '{{.OAUTH_ISSUER_AUTHORIZE_URL | default ""}}'
+      OAUTH_ISSUER_TOKEN_URL: '{{.OAUTH_ISSUER_TOKEN_URL | default ""}}'
+      OAUTH_ISSUER_CLIENT_ID: '{{.OAUTH_ISSUER_CLIENT_ID | default (env "OAUTH_ISSUER_CLIENT_ID") | default ""}}'
+      OAUTH_ISSUER_CLIENT_SECRET: '{{.OAUTH_ISSUER_CLIENT_SECRET | default (env "OAUTH_ISSUER_CLIENT_SECRET") | default ""}}'
 
   # ─── kagent ──────────────────────────────────────────────────────────────
 
@@ -824,6 +843,9 @@ tasks:
                          + OKTA_* in .env. CLI-only. default false.
         OAUTH_ISSUER_HOST   public gateway host for the issuer base_url.
                             default agw.<cluster>.test
+        OAUTH_ISSUER_BASE_URL / _IDP_NAME / _AUTHORIZE_URL / _TOKEN_URL   point the issuer at a
+                            non-Okta downstream IdP (e.g. in-cluster Keycloak). CLI-only.
+                            Blank → https://<OAUTH_ISSUER_HOST>/oauth-issuer and the OKTA_* endpoints.
 
       Examples:
         solomog agentgateway:ui CLUSTER=aaa
@@ -858,6 +880,14 @@ tasks:
       TOKEN_EXCHANGE_CALLBACK_URL: '{{.TOKEN_EXCHANGE_CALLBACK_URL | default (env "TOKEN_EXCHANGE_CALLBACK_URL") | default (printf "https://ui.agw.%s.test/age/elicitations" (.CLUSTER | default .CLUSTERS | default "" | splitList " " | first))}}'
       OAUTH_ISSUER: '{{.OAUTH_ISSUER | default "false"}}'
       OAUTH_ISSUER_HOST: '{{.OAUTH_ISSUER_HOST | default (printf "agw.%s.test" .CLUSTER)}}'
+      # Generic-IdP overrides for the issuer (blank → the Okta defaults in the helmfile). CLI-only,
+      # like OAUTH_ISSUER, except the client id/secret, which keep their .env fallback.
+      OAUTH_ISSUER_BASE_URL: '{{.OAUTH_ISSUER_BASE_URL | default ""}}'
+      OAUTH_ISSUER_IDP_NAME: '{{.OAUTH_ISSUER_IDP_NAME | default ""}}'
+      OAUTH_ISSUER_AUTHORIZE_URL: '{{.OAUTH_ISSUER_AUTHORIZE_URL | default ""}}'
+      OAUTH_ISSUER_TOKEN_URL: '{{.OAUTH_ISSUER_TOKEN_URL | default ""}}'
+      OAUTH_ISSUER_CLIENT_ID: '{{.OAUTH_ISSUER_CLIENT_ID | default (env "OAUTH_ISSUER_CLIENT_ID") | default ""}}'
+      OAUTH_ISSUER_CLIENT_SECRET: '{{.OAUTH_ISSUER_CLIENT_SECRET | default (env "OAUTH_ISSUER_CLIENT_SECRET") | default ""}}'
       GATEWAY_NS: '{{.GATEWAY_NS | default ""}}'  # empty → script default agentgateway-system
 
   # ─── Gateway exposure (Gateway + TLS + DNS) ───────────────────────────────
