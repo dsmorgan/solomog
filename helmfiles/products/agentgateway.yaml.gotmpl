@@ -78,6 +78,12 @@ releases:
             - "{{ trim . }}"
 {{- end }}
 {{- end }}
+{{- /* TOKEN_EXCHANGE_SKIP_MAY_ACT (CLI-only): with an actor_token, the STS by default requires the
+       subject token's may_act claim to name the actor's sub. true turns that off for EVERY subject
+       validator, so the STS then binds no subject to any actor. */}}
+{{- if eq (env "TOKEN_EXCHANGE_SKIP_MAY_ACT") "true" }}
+          skipMayActClaimValidation: true
+{{- end }}
           subjectValidator:
             validatorType: remote
             remoteConfig:

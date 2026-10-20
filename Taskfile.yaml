@@ -238,6 +238,7 @@ tasks:
         TOKEN_EXCHANGE_JWKS_URL / _API_VALIDATOR   see .env.example
         TOKEN_EXCHANGE_ISSUER / _EXPIRATION / _ALLOWED_SUBJECT_CLAIMS   STS issuer, token
                    lifetime (default 24h), comma-separated claims to copy. CLI-only.
+        TOKEN_EXCHANGE_SKIP_MAY_ACT  true to stop the STS checking may_act on delegation. CLI-only.
         KGATEWAY_ELS_CRD true to also install the EnterpriseListenerSet CRD (only if PRODUCTS
                          includes kgateway; chart defaults it off). CLI-only, default false.
         KGATEWAY_SKIP_SHARED_CRDS  true when agentgateway already owns the shared ext-auth /
@@ -280,6 +281,7 @@ tasks:
       TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'
       TOKEN_EXCHANGE_EXPIRATION: '{{.TOKEN_EXCHANGE_EXPIRATION | default ""}}'
       TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS: '{{.TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS | default ""}}'
+      TOKEN_EXCHANGE_SKIP_MAY_ACT: '{{.TOKEN_EXCHANGE_SKIP_MAY_ACT | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
@@ -711,6 +713,8 @@ tasks:
         TOKEN_EXCHANGE_EXPIRATION  lifetime of minted tokens. CLI-only. default 24h
         TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS  comma-separated subject-token claims the STS
                          copies into the minted token. CLI-only.
+        TOKEN_EXCHANGE_SKIP_MAY_ACT  true to stop the STS requiring a may_act claim that names
+                         the actor (global; delegation only). CLI-only. default false.
         OAUTH_ISSUER     true to enable the eager-auth OAuth issuer (gateway acts as the
                          OAuth AS at /oauth-issuer, brokers to Okta). Needs TOKEN_EXCHANGE=true
                          + OKTA_* in .env. CLI-only. default false.
@@ -740,6 +744,7 @@ tasks:
       TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'
       TOKEN_EXCHANGE_EXPIRATION: '{{.TOKEN_EXCHANGE_EXPIRATION | default ""}}'
       TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS: '{{.TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS | default ""}}'
+      TOKEN_EXCHANGE_SKIP_MAY_ACT: '{{.TOKEN_EXCHANGE_SKIP_MAY_ACT | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
@@ -871,6 +876,7 @@ tasks:
       TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'
       TOKEN_EXCHANGE_EXPIRATION: '{{.TOKEN_EXCHANGE_EXPIRATION | default ""}}'
       TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS: '{{.TOKEN_EXCHANGE_ALLOWED_SUBJECT_CLAIMS | default ""}}'
+      TOKEN_EXCHANGE_SKIP_MAY_ACT: '{{.TOKEN_EXCHANGE_SKIP_MAY_ACT | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR: '{{.TOKEN_EXCHANGE_API_VALIDATOR | default (env "TOKEN_EXCHANGE_API_VALIDATOR") | default ""}}'
       TOKEN_EXCHANGE_API_VALIDATOR_URL: '{{.TOKEN_EXCHANGE_API_VALIDATOR_URL | default (env "TOKEN_EXCHANGE_API_VALIDATOR_URL") | default ""}}'
       TOKEN_EXCHANGE_ELICITATION_SECRET: '{{.TOKEN_EXCHANGE_ELICITATION_SECRET | default (env "TOKEN_EXCHANGE_ELICITATION_SECRET") | default ""}}'
