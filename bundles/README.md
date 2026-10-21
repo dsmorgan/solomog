@@ -68,18 +68,16 @@ Required, and it is a **CLI surface rather than a document**:
   bundle's description.
 - `solomog bundles:show BUNDLE=<name>` prints the **whole file**, indented, untruncated.
 
-So:
+So a README is **a title, a short description, and the commands to run it**, about 10-20 lines:
 
-1. **Keep it to about a screen — roughly 60 lines.** `show` dumps all of it, and a README that
-   scrolls is one nobody reads. Detail goes in `docs/`, linked from the README.
-2. **Line 1 is a heading describing the bundle in one line**, written to fit a `bundles:list`
+1. **Line 1 is a heading describing the bundle in one line**, written to fit a `bundles:list`
    row — a short noun phrase, not a sentence that wraps.
-3. **The rest covers**, in order: how to deploy and test it as `solomog` commands to copy; the
-   few dependency facts worth knowing (credentials needed in `.env`, product version floor,
-   whether it is clash-safe alongside other bundles); and pointers to fuller detail in `docs/`.
-
-A compact status table (covers · needs · versions · clash-safe · verified) carries most of item 3
-in a few lines. Findings, evidence, run sheets and per-test rationale belong in `docs/`.
+2. **Then**, in order: a two-to-four sentence description (including the one prerequisite a
+   reader must know), a sample block of `solomog` commands to apply and test it, and one line
+   pointing at `docs/`.
+3. **Everything else goes in `docs/`** (typically `docs/details.md`): the status table
+   (covers · needs · versions · clash-safe · verified), file and test reference, findings,
+   evidence, run sheets and gotchas. Do not grow the README back.
 
 ```markdown
 # agw-okta-mcp — Okta edge JWT + OBO impersonation to an MCP backend

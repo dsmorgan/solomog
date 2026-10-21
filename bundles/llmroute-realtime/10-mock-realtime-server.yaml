@@ -1,0 +1,164 @@
+# A dependency-free mock of OpenAI's Realtime API, so the bundle needs no OpenAI key and spends
+# no tokens. The system under test is the GATEWAY's WebSocket proxying, not the model, so a
+# server that speaks just enough of the protocol is the right backend.
+#
+# It uses only the Python standard library (hand-rolled RFC 6455 handshake and framing), so the
+# pod needs no egress and no pip install. python:3.12-alpine is multi-arch (arm64 is fine).
+#
+# What it does:
+#   connect              -> session.created, whose body echoes the request path, the Host header
+#                           and whether an Authorization header arrived (the canary the tests
+#                           assert on: it can only come from a request that went through the route)
+#   session.update       -> session.updated
+#   conversation.item.create -> conversation.item.created (remembers the user's text)
+#   response.create      -> response.created, response.output_text.delta, response.done (+usage)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mock-realtime-server
+  namespace: realtime-mock
+data:
+  server.py: |
+    import asyncio, base64, hashlib, json, struct
+
+    GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+    async def read_frame(reader):
+        b1, b2 = await reader.readexactly(2)
+        opcode, masked, n = b1 & 0x0F, b2 & 0x80, b2 & 0x7F
+        if n == 126:
+            n = struct.unpack(">H", await reader.readexactly(2))[0]
+        elif n == 127:
+            n = struct.unpack(">Q", await reader.readexactly(8))[0]
+        mask = await reader.readexactly(4) if masked else b""
+        data = await reader.readexactly(n)
+        if masked:
+            data = bytes(c ^ mask[i % 4] for i, c in enumerate(data))
+        return opcode, data
+
+    def frame(opcode, payload):
+        n = len(payload)
+        head = bytes([0x80 | opcode])
+        if n < 126:
+            head += bytes([n])
+        elif n < 65536:
+            head += bytes([126]) + struct.pack(">H", n)
+        else:
+            head += bytes([127]) + struct.pack(">Q", n)
+        return head + payload
+
+    async def handle(reader, writer):
+        try:
+            head = (await reader.readuntil(b"\r\n\r\n")).decode("latin-1")
+            lines = head.split("\r\n")
+            path = lines[0].split(" ")[1]
+            hdrs = {l.split(":", 1)[0].strip().lower(): l.split(":", 1)[1].strip()
+                    for l in lines[1:] if ":" in l}
+            if hdrs.get("upgrade", "").lower() != "websocket":
+                body = b"mock-realtime: not a websocket upgrade\n"
+                writer.write(b"HTTP/1.1 426 Upgrade Required\r\nContent-Length: %d\r\n\r\n" % len(body) + body)
+                await writer.drain(); return
+            accept = base64.b64encode(hashlib.sha1((hdrs["sec-websocket-key"] + GUID).encode()).digest()).decode()
+            writer.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n"
+                          "Connection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n" % accept).encode())
+
+            async def send(obj):
+                writer.write(frame(1, json.dumps(obj).encode())); await writer.drain()
+
+            await send({"type": "session.created", "event_id": "evt_0",
+                        "session": {"id": "sess_mock", "object": "realtime.session",
+                                    "model": "mock-realtime",
+                                    "mock": {"path": path, "host": hdrs.get("host", ""),
+                                             "auth_header_present": "authorization" in hdrs}}})
+            last_text, n = "", 0
+            while True:
+                opcode, data = await read_frame(reader)
+                if opcode == 8:
+                    writer.write(frame(8, b"")); await writer.drain(); return
+                if opcode == 9:
+                    writer.write(frame(10, data)); await writer.drain(); continue
+                if opcode != 1:
+                    continue
+                n += 1
+                ev = json.loads(data)
+                t = ev.get("type")
+                if t == "session.update":
+                    await send({"type": "session.updated", "event_id": "evt_%d" % n,
+                                "session": ev.get("session", {})})
+                elif t == "conversation.item.create":
+                    item = ev.get("item", {})
+                    for c in item.get("content", []):
+                        last_text = c.get("text", last_text)
+                    await send({"type": "conversation.item.created", "event_id": "evt_%d" % n,
+                                "item": item})
+                elif t == "response.create":
+                    text = "MOCK-REALTIME-CANARY: you said '%s'" % last_text
+                    await send({"type": "response.created", "event_id": "evt_%d" % n,
+                                "response": {"id": "resp_1", "object": "realtime.response",
+                                             "status": "in_progress", "output": []}})
+                    await send({"type": "response.output_text.delta", "event_id": "evt_%d" % n,
+                                "response_id": "resp_1", "item_id": "item_1",
+                                "output_index": 0, "content_index": 0, "delta": text})
+                    await send({"type": "response.done", "event_id": "evt_%d" % n,
+                                "response": {"id": "resp_1", "object": "realtime.response",
+                                             "status": "completed", "output": [],
+                                             "usage": {"total_tokens": 12, "input_tokens": 5,
+                                                       "output_tokens": 7}}})
+        except (asyncio.IncompleteReadError, ConnectionError):
+            pass
+        finally:
+            writer.close()
+
+    async def main():
+        srv = await asyncio.start_server(handle, "0.0.0.0", 8000)
+        async with srv:
+            await srv.serve_forever()
+
+    asyncio.run(main())
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-realtime
+  namespace: realtime-mock
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-realtime
+  template:
+    metadata:
+      labels:
+        app: mock-realtime
+    spec:
+      containers:
+        - name: server
+          image: python:3.12-alpine
+          command: ["python", "-u", "/app/server.py"]
+          ports:
+            - name: ws
+              containerPort: 8000
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            periodSeconds: 2
+          volumeMounts:
+            - name: app
+              mountPath: /app
+      volumes:
+        - name: app
+          configMap:
+            name: mock-realtime-server
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-realtime
+  namespace: realtime-mock
+spec:
+  selector:
+    app: mock-realtime
+  ports:
+    - name: ws
+      port: 8000
+      targetPort: 8000

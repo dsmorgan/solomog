@@ -1,0 +1,51 @@
+# Diagnostic twin of 40-openai-real.yaml.tmpl with the `http.version: HTTP1` pin REMOVED.
+# Test 30 uses it to say, per gateway version, whether the pin is still needed. Everything else
+# (backend, auth, route type) is identical, so the pin is the only variable.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: openai-realtime-nopin
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      openai: {}
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: openai-realtime-nopin
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: enterpriseagentgateway.solo.io
+      kind: EnterpriseAgentgatewayBackend
+      name: openai-realtime-nopin
+  backend:
+    ai:
+      routes:
+        /v1/realtime: Realtime
+    auth:
+      secretRef:
+        name: openai-realtime-secret
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openai-realtime-nopin
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /nopin-realtime
+      backendRefs:
+        - name: openai-realtime-nopin
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "300s"

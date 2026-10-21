@@ -1,0 +1,39 @@
+# The backend under test, plus the policy that tells the gateway the request path is a realtime
+# (WebSocket) API rather than ordinary HTTP.
+#
+# `host`/`port` redirect the openAI provider to the in-cluster mock. To test against real OpenAI,
+# delete host/port, set model to a realtime model (e.g. gpt-4o-realtime-preview), and replace the
+# `backend.auth` in the policy below with `secretRef` pointing at an OpenAI key Secret.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: openai-realtime
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      openai:
+        model: mock-realtime
+      host: mock-realtime.realtime-mock.svc.cluster.local
+      port: 8000
+---
+# `routes` is NOT a field of the backend: it lives in the policy's `backend.ai`. Mapping
+# `/v1/realtime: Realtime` (a path-suffix map; the value is the capitalized route type) is what
+# makes the gateway treat the request as a WebSocket upgrade and proxy frames both ways.
+# The mock needs no upstream API key, so auth passes the client's credentials through unchanged.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: openai-realtime-auth
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: enterpriseagentgateway.solo.io
+      kind: EnterpriseAgentgatewayBackend
+      name: openai-realtime
+  backend:
+    ai:
+      routes:
+        /v1/realtime: Realtime
+    auth:
+      passthrough: {}

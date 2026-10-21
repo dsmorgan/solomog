@@ -1,0 +1,64 @@
+# The REAL OpenAI Realtime route, beside the mock one, so the same gateway proves both.
+#
+#   mock  /v1/realtime            -> in-cluster mock   (no key)
+#   real  /openai-realtime/...    -> api.openai.com    (needs OPENAI_API_KEY in .env)
+#
+# Why a prefix: two routes cannot both own /v1/realtime. The `routes` map is matched by
+# ends-with, so `/v1/realtime` still identifies the API under the prefix, and an AI backend sets
+# the upstream path from the route type, so the prefix is not forwarded to OpenAI.
+#
+# No model is pinned on the provider: the client picks it with ?model= on the WebSocket URL.
+# The gateway injects the upstream key from the Secret; clients send no credentials.
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: openai-realtime-real
+  namespace: agentgateway-system
+spec:
+  ai:
+    provider:
+      openai: {}
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: openai-realtime-real
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: enterpriseagentgateway.solo.io
+      kind: EnterpriseAgentgatewayBackend
+      name: openai-realtime-real
+  backend:
+    ai:
+      routes:
+        /v1/realtime: Realtime
+    # A WebSocket upgrade is an HTTP/1.1 mechanism. Without this pin the TLS connection to
+    # api.openai.com can be negotiated as HTTP/2, the Upgrade headers are lost, and OpenAI
+    # answers 405 "Invalid method for URL (GET /v1/realtime)". The plaintext mock never hit this.
+    http:
+      version: HTTP1
+    auth:
+      secretRef:
+        name: openai-realtime-secret
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openai-realtime-real
+  namespace: agentgateway-system
+spec:
+  parentRefs:
+    - name: %%GATEWAY%%
+      namespace: agentgateway-system
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /openai-realtime
+      backendRefs:
+        - name: openai-realtime-real
+          group: enterpriseagentgateway.solo.io
+          kind: EnterpriseAgentgatewayBackend
+      timeouts:
+        request: "300s"
