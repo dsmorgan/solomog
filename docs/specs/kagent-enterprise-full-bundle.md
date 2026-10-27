@@ -3,7 +3,10 @@
 Status: **Phase 1 built and verified 2026-10-22** (`c707b3e`): 8/8 from a fresh vind cluster in
 2m24s. **Phase 2 built 2026-10-22, uncommitted:** agentevals installs and its API works, but test
 90 fails on a real gap: agentevals alpha11 can't convert the Go runtime's traces, and AGENT_INVOKE
-isn't supported in this build (`bundles/kagent-enterprise-full/docs/findings.md`). Phase 3 (new pins) open.
+isn't supported in this build (`bundles/kagent-enterprise-full/docs/findings.md`). Committed `e27ac4c`.
+The Python runtime can't stand in (image dropped after alpha13, config schema mismatch). Phase 3
+(new pins) open; the chart on `main` has removed the agentevals and kmcp subcharts, so phase 3
+likely removes `45-mcp-tool.sh`'s kmcp half, tests 80 and 90, and the agentevals setup.
 
 As built, versus the proposal below:
 - Open questions settled by default: names `kagent-enterprise-full` and `kef`, mock model only,

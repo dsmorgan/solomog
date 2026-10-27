@@ -29,10 +29,27 @@ on vind with Kubernetes 1.36.5. None of these are filed.
 **Also:** `EvalRuns/Create` with `AGENT_INVOKE` is refused: `only trace_replay is supported in this
 build`. So on alpha11 a Go-runtime agent can't be evaluated either way.
 
-**Not tried:** the Python ADK runtime, which kagent's telemetry docs say writes the ADK keys when
-`ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=true` is in `Harness.spec.env`.
+**The Python runtime isn't a way around it** (tried 2026-10-26). It writes the ADK keys, but it
+can't run on this build:
+- Community kagent stopped publishing the Python `kagent-adk` image after `1.0.0-alpha13`
+  (kagent-dev/kagent#3221); 1.0 ships only the Go runtime plus the Claude and Codex harnesses.
+- With `kagent-adk:1.0.0-alpha13` as a Harness image, the image's default `run` command exits
+  with `Missing argument 'name'`. Overriding `workload.command` to `kagent-adk static` gets
+  further, then the golden actor crashes on the controller's config: `runtime.port` is an
+  integer, `runtime.telemetry.traces` and `runtime.skill_tools` are unknown keys, and `model`,
+  `description` and `instruction` are missing. The Agent ends `GoldenActorCrashed`.
 
-`tests/90-agentevals.sh` reproduces all of this and fails on it.
+**Where it's headed** (2026-10-26):
+- solo-io/enterprise-kagent#429 (open, `Roadmap-worthy`) redesigns the integration on the
+  upstream agentevals gRPC API: the controller sends traces from `genai_spans` as OTLP, and
+  agentevals runs unmodified. Upstream agentevals v0.10.0 (agentevals-dev/agentevals#241)
+  ingests OTel GenAI spans natively, which is what the Go runtime writes.
+- solo-io/enterprise-kagent#459 (open) removes the agentevals values from the chart until #429
+  lands, and the chart on `main` already has no `agentevals` or `kmcp` subchart. Expect both to
+  be gone from the next release.
+- solo-io/enterprise-kagent#246 (open) asks for evals on traces from Substrate agents.
+
+`tests/90-agentevals.sh` reproduces the alpha11 behavior and fails on it.
 
 ## 2. `config.runtimeDefaults.telemetry.captureContent` had no effect on the Go runtime
 
