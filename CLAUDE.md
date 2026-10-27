@@ -359,12 +359,17 @@ module so it can coordinate one Helm release across products:
   `DASHBOARDS="agentgateway"` / `none`. Dashboards are vendored in [dashboards/](dashboards/) and
   loaded as labeled ConfigMaps the Grafana sidecar picks up. New product dashboards: drop the JSON
   in `dashboards/`, add an `install_<product>_dashboards` branch.
-  ⚠ **Known-broken (open):** the agentgateway PodMonitor now selects correctly (on the
-  Gateway API `gateway-name` label — NOT `app.kubernetes.io/name`, which the dataplane pod
-  sets to the *Gateway's own name*), but Prometheus still generates **no podMonitor scrape
-  pool at all** — every active pool is a serviceMonitor — so agentgateway series stay absent.
-  `podMonitorSelector` / `podMonitorNamespaceSelector` are both `{}` and an operator restart
-  changes nothing. Don't re-debug the selector; the defect is downstream of it.
+  The agentgateway PodMonitor selects on the Gateway API `gateway-name` label. The
+  dataplane pod sets `app.kubernetes.io/name` to the Gateway's own name, so a fixed
+  `agentgateway-proxy` value only matches a workshop-named Gateway. Keep the
+  `gateway-name` selector. kube-prometheus-stack leaves `podMonitorSelector` and
+  `podMonitorNamespaceSelector` empty, which selects every PodMonitor. Rechecked
+  on vind (agentgateway v2026.10.0, kube-prometheus-stack 80.4.2, operator v0.87.1):
+  the pool is generated, the proxy `:15020` target is up, and
+  `agentgateway_requests_total` carries `namespace`. The running config can lag
+  the PodMonitor by a minute, so a check in that window looks like a missing pool.
+  install-monitoring.sh applies the monitor, so a later `solomog agentgateway`
+  sync leaves it in place. The control plane's `:9092` port is not scraped.
 
 ### Host-based routing for UIs (vs path-based for apps)
 Apps route **by path** on the shared gateway host (`/openai`, `/httpbin`) — covered by expose's
@@ -1000,7 +1005,5 @@ and `bash scripts/test-install.sh` (clean fast-forward, dirty skip, diverged pul
   existing agentgateway management release using `KAGENT_LICENSE_KEY`, so
   `management_license_key` prefers it, while the product controllers keep their
   separate kagent/agentgateway/Istio keys.
-- **agentgateway metrics don't reach Prometheus** — the PodMonitor selector is fixed but
-  no podMonitor scrape pool is generated (see the `monitoring` add-on note above).
 - Community/upstream chart versions differ from enterprise version lines
   (kgateway, istio) — `versions.env` is pinned to enterprise values by default.
