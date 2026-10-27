@@ -24,8 +24,8 @@ set -euo pipefail
 #                       Non-eks names are refused (use that type's delete, or `solomog teardown`).
 #                       CONTEXT= is the escape hatch for one unregistered kube context.
 #   FORCE               "true" skips the confirmation prompt
-#   EKS_REGION          explicit cluster-region knob (preferred); falls back to AWS_REGION
-#   AWS_REGION          default: derived from the context ARN, else us-east-1
+#   EKS_REGION          used only when the context is not an EKS ARN (the ARN's region wins);
+#   AWS_REGION          then AWS_REGION, then us-east-1
 #   GATEWAY             gateway name (default agw) — informational; all Gateways + LB Services are removed
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -141,9 +141,7 @@ delete_one() {   # args: <cluster>
   local cluster="$1" ctx cluster_name vpc elapsed c1 c2 stack
   ctx="$(solomog_context "$cluster")"
   cluster_name="${ctx##*/}"                       # arn:...:cluster/NAME → NAME (the eksctl name)
-  # region: prefer EKS_REGION, then AWS_REGION, else field 4 of the context ARN (arn:aws:eks:<region>:…)
-  REGION="${EKS_REGION:-${AWS_REGION:-}}"; [ -z "$REGION" ] && REGION="$(printf '%s' "$ctx" | cut -d: -f4)"
-  REGION="${REGION:-us-east-1}"
+  REGION="$(solomog_eks_region "$ctx")"           # the context ARN's region wins over EKS_REGION
   export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 
   echo "==> DELETING EKS cluster '${cluster_name}' in ${REGION} (context ${ctx})"
@@ -202,6 +200,31 @@ delete_one() {   # args: <cluster>
     echo "    (stack deletion is async — check: aws cloudformation describe-stacks --stack-name eksctl-${cluster_name}-cluster)"
   fi
 
+  # Pointed at the wrong region or name, eksctl fails "not found" and the self-heal finds nothing,
+  # so both look like success while the cluster keeps running. Confirm the control plane is gone
+  # or going before deregistering, or the cluster drops out of solomog's view still billing.
+  # eksctl returns once the cluster stack's delete starts, and the control plane reads ACTIVE for
+  # a while after that, so poll rather than read once.
+  local out status elapsed=0
+  while :; do
+    if out="$(aws eks describe-cluster --region "$REGION" --name "$cluster_name" --query cluster.status --output text 2>&1)"; then
+      status="$out"
+    elif printf '%s' "$out" | grep -q ResourceNotFoundException; then
+      status=GONE
+    else
+      status="UNKNOWN ($(printf '%s' "$out" | tail -1))"
+    fi
+    case "$status" in GONE|DELETING) break ;; esac
+    [ $elapsed -ge 180 ] && break
+    sleep 15; elapsed=$((elapsed + 15))
+  done
+  case "$status" in
+    GONE|DELETING) echo "    control plane ${status} in ${REGION}" ;;
+    *) echo "    ✗ cluster ${cluster_name} is ${status} in ${REGION} after the delete — left registered;" >&2
+       echo "      check the region, then re-run eks:delete" >&2
+       return 1 ;;
+  esac
+
   # 4a. The launch template eks:create made for EKS_NESTED_VIRT=true. eksctl doesn't own it, so
   #     deleting the cluster leaves it behind. Absent on clusters made without nested virtualization.
   local lt_name="solomog-${cluster_name}-nested-virt"
@@ -220,6 +243,27 @@ delete_one() {   # args: <cluster>
       --policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy 2>/dev/null || true
     aws iam delete-role --role-name "$ebs_role" 2>/dev/null \
       || echo "    could not delete role ${ebs_role} — remove it by hand"
+  fi
+
+  # 4c. The IRSA role and AgentCore policy eks:irsa created for the gateway proxy. Exact names, not
+  #     a prefix match: cluster "kagent" must not reach "kagent-eks2"'s roles. Absent unless
+  #     eks:irsa ran; a non-default GATEWAY= there needs the same GATEWAY= here.
+  local irsa_role="solomog-${cluster_name}-${GATEWAY:-agw}"
+  local irsa_policy="arn:aws:iam::$(aws sts get-caller-identity --query Account --output text 2>/dev/null):policy/solomog-${cluster_name}-agentcore-invoke"
+  if aws iam get-role --role-name "$irsa_role" >/dev/null 2>&1; then
+    echo "==> deleting IAM role ${irsa_role}"
+    aws iam detach-role-policy --role-name "$irsa_role" --policy-arn "$irsa_policy" 2>/dev/null || true
+    aws iam delete-role --role-name "$irsa_role" 2>/dev/null \
+      || echo "    could not delete role ${irsa_role} — remove it by hand"
+  fi
+  if aws iam get-policy --policy-arn "$irsa_policy" >/dev/null 2>&1; then
+    echo "==> deleting IAM policy ${irsa_policy##*/}"
+    for v in $(aws iam list-policy-versions --policy-arn "$irsa_policy" \
+        --query 'Versions[?!IsDefaultVersion].VersionId' --output text 2>/dev/null); do
+      aws iam delete-policy-version --policy-arn "$irsa_policy" --version-id "$v" 2>/dev/null || true
+    done
+    aws iam delete-policy --policy-arn "$irsa_policy" 2>/dev/null \
+      || echo "    could not delete policy ${irsa_policy##*/} — remove it by hand"
   fi
 
   # 5. Deregister from the context registry.

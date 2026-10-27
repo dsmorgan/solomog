@@ -15,8 +15,8 @@ set -euo pipefail
 #
 # Env:
 #   CLUSTER     (required) registered EKS cluster name, or CONTEXT for an unregistered one
-#   EKS_REGION  explicit cluster-region knob (preferred); falls back to AWS_REGION
-#   AWS_REGION  default: derived from the context ARN, else us-east-1
+#   EKS_REGION  used only when the context is not an EKS ARN (the ARN's region wins);
+#   AWS_REGION  then AWS_REGION, then us-east-1
 #
 # Prereqs: aws CLI creds (solomog aws:refresh, or exported in the shell), eksctl, kubectl, jq.
 
@@ -28,9 +28,7 @@ CLUSTER="${CLUSTER:-}"
 solomog_require_external "$CLUSTER" "eks:storage"
 CTX="$(solomog_context "$CLUSTER")"
 CLUSTER_NAME="${CTX##*/}"                      # arn:...:cluster/NAME → NAME
-REGION="${EKS_REGION:-${AWS_REGION:-}}"
-if [ -z "$REGION" ]; then REGION="$(printf '%s' "$CTX" | cut -d: -f4)"; fi
-REGION="${REGION:-us-east-1}"
+REGION="$(solomog_eks_region "$CTX")"           # the context ARN's region wins over EKS_REGION
 # An EMPTY AWS_REGION (the task's default "") makes the CLI build invalid endpoints, so always export.
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 

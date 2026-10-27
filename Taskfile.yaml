@@ -1676,8 +1676,8 @@ tasks:
         CLUSTER / CLUSTERS  registered EKS cluster name(s), space-separated (required —
                             no default; destructive; one prompt for the whole batch)
         FORCE       true → skip the confirmation prompt (scripted teardown)   default false
-        EKS_REGION  cluster region (preferred)      explicit override
-        AWS_REGION  region (fallback)               default: derived from the context ARN
+        EKS_REGION  region fallback                 used only when the context is not an EKS ARN
+        AWS_REGION  region second fallback          then us-east-1
         GATEWAY     gateway name (default agw)       informational; all Gateways + LB svcs are removed
 
       Examples:
@@ -1710,7 +1710,7 @@ tasks:
       Variables:
         CLUSTER     registered EKS cluster name (required)             e.g. dmorgan-agw
         CONTEXT     override: target an unregistered kube context      e.g. arn:aws:eks:...:cluster/dmorgan-agw
-        EKS_REGION  cluster region (preferred)                         explicit override
+        EKS_REGION  region fallback                                    used only when the context is not an EKS ARN
         AWS_REGION  region (fallback)                                  default: derived from the context ARN
 
       Examples:
@@ -1741,7 +1741,7 @@ tasks:
         CLUSTER     registered EKS cluster name (required)             e.g. dmorgan-agw
         CONTEXT     override: target an unregistered kube context      e.g. arn:aws:eks:...:cluster/dmorgan-agw
         GATEWAY     proxy Deployment name (SA auto-detected)           default agw
-        EKS_REGION  cluster region (preferred)                         explicit override
+        EKS_REGION  region fallback                                    used only when the context is not an EKS ARN
         AWS_REGION  region (fallback)                                  default: derived from the context ARN
         AGENTCORE_RUNTIME_ARN[_2]  runtimes to scope the policy to (from .env; else runtime/* wildcard)
 

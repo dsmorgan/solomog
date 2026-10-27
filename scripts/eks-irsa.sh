@@ -13,8 +13,8 @@ set -euo pipefail
 #   CONTEXT   (required) external EKS kube context, e.g. arn:aws:eks:us-east-1:<acct>:cluster/<name>
 #   CLUSTER   ignored when CONTEXT is set (label only)
 #   GATEWAY   proxy Deployment name (default: agw); its ServiceAccount is auto-detected
-#   EKS_REGION  explicit cluster-region knob (preferred); falls back to AWS_REGION
-#   AWS_REGION  default us-east-1 (or derived from the context ARN)
+#   EKS_REGION  used only when the context is not an EKS ARN (the ARN's region wins);
+#   AWS_REGION  then AWS_REGION, then us-east-1
 #   AGENTCORE_RUNTIME_ARN[_2]  runtime ARNs to scope the invoke policy to (from .env). If unset,
 #                              falls back to a runtime/* wildcard in the account/region.
 #
@@ -36,10 +36,7 @@ CTX="$(solomog_context "$CLUSTER")"
 GW="${GATEWAY:-agw}"
 NS=agentgateway-system
 CLUSTER_NAME="${CTX##*/}"                      # arn:...:cluster/NAME → NAME
-# region: prefer EKS_REGION, then AWS_REGION, else field 4 of the context ARN (arn:aws:eks:<region>:...)
-REGION="${EKS_REGION:-${AWS_REGION:-}}"
-if [ -z "$REGION" ]; then REGION="$(printf '%s' "$CTX" | cut -d: -f4)"; fi
-REGION="${REGION:-us-east-1}"
+REGION="$(solomog_eks_region "$CTX")"           # the context ARN's region wins over EKS_REGION
 # Export it so every `aws` call uses it. The task passes AWS_REGION="" (its `default ""`), and an
 # EMPTY AWS_REGION makes the CLI build "sts..amazonaws.com" (Invalid endpoint) — worse than unset.
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"

@@ -327,6 +327,17 @@ solomog_require_external() {   # args: <cluster> <task-label>
   exit 1
 }
 
+# Echo the region of an EXISTING EKS cluster. Its ARN context (arn:aws:eks:<region>:…) wins: the
+# cluster lives where it was made, and an EKS_REGION/AWS_REGION meant for the next create must not
+# send a delete to the wrong region (eksctl then fails "not found" and the cluster keeps running).
+# Without an ARN (bare CONTEXT=), fall back to EKS_REGION, AWS_REGION, then us-east-1.
+solomog_eks_region() {   # args: <context>
+  case "${1:-}" in
+    arn:aws:eks:*:*) printf '%s' "$1" | cut -d: -f4; return ;;
+  esac
+  printf '%s' "${EKS_REGION:-${AWS_REGION:-us-east-1}}"
+}
+
 # Record a <cluster> → <context> mapping for an external target (e.g. from eks:create). Idempotent:
 # replaces any existing entry for that cluster.
 solomog_register_context() {   # args: <cluster> <context>
