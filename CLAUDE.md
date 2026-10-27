@@ -23,6 +23,11 @@ Two tools, composed:
   overlays, templated repos/versions/licenses.
 
 The `solomog` wrapper just `cd`s to the repo root and `exec task "$@"`.
+`install.sh` is the machine bootstrap: on a clean checkout it fast-forwards the
+tracked branch (a dirty tree skips the pull), then runs
+[scripts/setup.sh](scripts/setup.sh). That script installs the Homebrew tools,
+including vcluster, copies `.env.example` to `.env` when absent, and symlinks
+`~/.local/bin/solomog`. `solomog setup` refreshes tools without pulling.
 
 ### Three orthogonal dimensions
 
@@ -976,7 +981,9 @@ Scanners skip `SOLOMOG_RUN_PID`, the wrapper's own pid.
 injects fixture task/key lists — no live `task --list` in the assertion cases),
 `bash scripts/test-graph-files.sh` (file-mode `graph` plus ghost nodes; no cluster),
 `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute),
-and `bash scripts/test-runs.sh` (in-flight run notice; no cluster).
+`bash scripts/test-runs.sh` (in-flight run notice; no cluster),
+`bash scripts/test-setup.sh` (`.env` copy and `~/.zshrc` PATH line; no brew, no Docker),
+and `bash scripts/test-install.sh` (clean fast-forward, dirty skip, diverged pull; local git only).
 
 ## Status / open questions
 

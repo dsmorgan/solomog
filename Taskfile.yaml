@@ -64,7 +64,22 @@ tasks:
         exit 1
 
   setup:
-    desc: Install Homebrew prereqs and the solomog symlink
+    desc: Install Homebrew tools, ensure .env, and link solomog
+    summary: |
+      Install Homebrew tools (vcluster, task, helmfile, helm, jq, step, mkcert, uv),
+      copy .env.example to .env when .env is missing, and symlink solomog to
+      ~/.local/bin. Idempotent: an existing .env is kept, and a tool already on
+      PATH is not upgraded.
+
+      Does not pull git. bash install.sh fast-forwards a clean checkout, then
+      runs this. A dirty worktree skips the pull and still refreshes tools.
+
+      Cluster-free. Docker Desktop must be running. Homebrew and kubectl are
+      prerequisites (kubectl ships with Docker Desktop).
+
+      Examples:
+        bash install.sh
+        solomog setup
     cmds: [bash scripts/setup.sh]
 
   setup:sudo:

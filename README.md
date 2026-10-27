@@ -15,19 +15,19 @@ homelab provisioner.
 
 ## Prerequisites
 
-These must be present **before** running `bash scripts/setup.sh`:
+Install these before `install.sh`. The script does not install them.
 
 | Dependency | Purpose | Install |
 |---|---|---|
-| **Docker Desktop** | Runs the vcluster containers; the flat-network routing reaches into its VM | https://docs.docker.com/desktop/ |
-| **vcluster** (`vind`) | Creates the local virtual clusters | https://www.vcluster.com/docs |
+| **Docker Desktop** | Runs the vcluster containers; the flat-network routing reaches into its VM. Must be running. | https://docs.docker.com/desktop/ |
 | **kubectl** | Talks to those clusters; ships with Docker Desktop | https://kubernetes.io/docs/tasks/tools/ |
-| **Homebrew** | Installs the remaining tools below | https://brew.sh |
+| **Homebrew** | Installs the tools below | https://brew.sh |
 
-`bash scripts/setup.sh` installs the rest via Homebrew:
+`bash install.sh` installs the rest via Homebrew:
 
 | Tool | Purpose |
 |---|---|
+| `vcluster` (`vind`) | Creates the local virtual clusters |
 | `go-task` (`task`) | Task runner that backs the `solomog` CLI |
 | `helmfile` | Declarative multi-release Helm orchestration |
 | `helm` | Chart installs |
@@ -40,24 +40,39 @@ These must be present **before** running `bash scripts/setup.sh`:
 
 ## Initialize
 
+Docker Desktop is running, and Homebrew is installed. Clone the repo wherever
+you keep source. `install.sh` uses the directory it lives in.
+
 ```bash
-# 1. From the repo root, create your local secrets file
-cp .env.example .env
-#    Later: `solomog env:sync` rebuilds .env from .env.example (keeps your values +
-#    section comments); `solomog env:diff` shows key drift; `solomog env:backup`
-#    snapshots to .solomog/env-backups/ (also auto-runs before aws/gcp refresh).
+git clone https://github.com/dsmorgan/solomog.git
+cd solomog
+bash install.sh
+```
 
-# 2. Add your license key(s) to .env  (see "License keys" below)
-#    For community-only use you can leave these blank.
+That installs the Homebrew tools, copies `.env.example` to `.env` when you do
+not already have one, and symlinks `solomog` to `~/.local/bin`. When that
+directory is off `PATH`, the script adds one marked line to `~/.zshrc`. Open a
+new terminal so the shell picks it up.
 
-# 3. Install prerequisites and link the `solomog` command onto your PATH.
-#    Run the script directly — `task` isn't installed yet, and this installs it.
-bash scripts/setup.sh
-#    This installs the brew tools and symlinks ./solomog -> ~/.local/bin/solomog
-#    If ~/.local/bin isn't on your PATH, add to ~/.zshrc:
-#      export PATH="$HOME/.local/bin:$PATH"
+```bash
+# Later, from the checkout: fast-forward the current branch when the worktree
+# is clean, then refresh tools. From anywhere else, pass the script path.
+bash install.sh
+```
 
-# 4. Verify
+A dirty worktree skips the pull and still refreshes tools. `bash scripts/setup.sh`
+(or `solomog setup`, once `task` is installed) refreshes tools without pulling.
+`SOLOMOG_DEST=/other/path bash install.sh` clones into that directory when it
+is missing or empty.
+
+```bash
+# Add license key(s) to .env  (see "License keys" below)
+# Community-only use can leave these blank.
+# Later: `solomog env:sync` rebuilds .env from .env.example (keeps your values +
+# section comments); `solomog env:diff` shows key drift; `solomog env:backup`
+# snapshots to .solomog/env-backups/ (also auto-runs before aws/gcp refresh).
+
+# Verify
 solomog                 # grouped index (one screen)
 solomog help products   # tasks in a group
 solomog help expose     # per-task variables, defaults, and examples
@@ -65,7 +80,7 @@ solomog help --all      # every task, grouped
 #    `solomog help <task>` is the source of truth for knobs. The wrapper strips
 #    go-task's resolved vars/env trailer so license keys never print.
 
-# 5. Optional, once per machine: passwordless /etc/hosts edits (see below)
+# Optional, once per machine: passwordless /etc/hosts edits (see below)
 solomog setup:sudo
 ```
 
@@ -674,6 +689,7 @@ Two exceptions to the fallback rule:
 
 ```
 solomog
+├── install.sh                  # clone or fast-forward, then scripts/setup.sh
 ├── solomog                     # CLI wrapper → runs `task` from repo root
 ├── Taskfile.yaml               # all scenarios (the `solomog <scenario>` targets)
 ├── CLAUDE.md / AGENTS.md       # architecture + conventions; Cursor Cloud agent notes
