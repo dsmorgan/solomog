@@ -23,8 +23,8 @@ Substrate on a local vind cluster, including the UI with working tracing. The pu
 learning the components, not reproducing a customer. Customer-specific derivatives are made
 later, as private bundles, if needed.
 
-A companion plan returns the private `customer-kagent-eks` bundle to that customer's operating
-model; it lives in that bundle's `docs/plan-realign.md`.
+A companion plan, kept with a private EKS bundle, re-aligns that bundle to one customer's operating
+model.
 
 ## Decisions (agreed 2026-10-22)
 
@@ -39,8 +39,7 @@ model; it lives in that bundle's `docs/plan-realign.md`.
 
 ## Facts gathered for the plan
 
-- **vind prior art.** `bundles/private/customer-kagent-substrate/helpers/vcluster-substrate.yaml`
-  (copied into several private bundles) and the public `bundles/kagent-substrate` README. The file
+- **vind prior art.** A vcluster values file in the private kagent-on-Substrate bundles and the public `bundles/kagent-substrate` README. The file
   holds three things Substrate needs on vind:
   - Apiserver and controller-manager feature gates `ClusterTrustBundle`,
     `ClusterTrustBundleProjection` and `PodCertificateRequest`, plus
