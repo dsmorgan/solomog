@@ -1,7 +1,9 @@
 # Plan: `kagent-enterprise-full` bundle
 
-Status: **Phase 1 built and verified 2026-10-22**: `bundles/kagent-enterprise-full`, 8/8 from a
-fresh vind cluster in 2m24s. Phase 2 (agentevals) and phase 3 (new pins) are open. Uncommitted.
+Status: **Phase 1 built and verified 2026-10-22** (`c707b3e`): 8/8 from a fresh vind cluster in
+2m24s. **Phase 2 built 2026-10-22, uncommitted:** agentevals installs and its API works, but test
+90 fails on a real gap: agentevals alpha11 can't convert the Go runtime's traces, and AGENT_INVOKE
+isn't supported in this build (`bundles/kagent-enterprise-full/docs/findings.md`). Phase 3 (new pins) open.
 
 As built, versus the proposal below:
 - Open questions settled by default: names `kagent-enterprise-full` and `kef`, mock model only,

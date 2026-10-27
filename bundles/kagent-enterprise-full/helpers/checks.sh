@@ -51,6 +51,11 @@ api_open() {
   [ -n "$TOKEN" ] || { pf_stop; echo "  ✗ no admin token from :8085/autoauth/token (is enterprise.oidc.issuer set?)"; return 1; }
 }
 
+# ent METHOD [JSON] → one call to an enterprise API on the controller's :8085 (gRPC-Web, protobuf
+# only) through helpers/grpcweb, which reads the message types from reflection on :8083. Needs
+# api_open. Prints each response message as one JSON line.
+ent() { TOKEN="$TOKEN" "$(grpcweb_bin)" -reflect "$API" -url "http://127.0.0.1:$((PF_BASE + 1))/api" "$@"; }
+
 # turn AGENT TEXT → one turn on a fresh Session of AGENT, with TEXT as the user message. Sets
 # TURN_OUT to the reply and returns helpers/a2a-turn's exit code.
 #
@@ -65,13 +70,15 @@ turn() {
   return "$rc"
 }
 
-# a2a_turn_bin → path to a built helpers/a2a-turn, rebuilt when its source changes, cached under
+# a2a_turn_bin, grpcweb_bin → path to a built helper, rebuilt when its source changes, cached under
 # .solomog/bin so later runs make no network call.
-a2a_turn_bin() {
-  local src="$HELPERS/a2a-turn" repo hash bin
+a2a_turn_bin() { go_bin a2a-turn; }
+grpcweb_bin() { go_bin grpcweb; }
+go_bin() {
+  local src="$HELPERS/$1" repo hash bin
   repo="$(cd "$HELPERS/../../.." && pwd)"
   hash="$(cat "$src/main.go" "$src/go.mod" | shasum | cut -c1-12)"
-  bin="$repo/.solomog/bin/a2a-turn-${hash}"
+  bin="$repo/.solomog/bin/$1-${hash}"
   if [ ! -x "$bin" ]; then
     command -v go >/dev/null || return 1
     mkdir -p "$repo/.solomog/bin"

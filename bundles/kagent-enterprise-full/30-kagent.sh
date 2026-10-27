@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Enterprise kagent into its own namespace, with every component this release ships turned on
-# except agentevals (phase 2).
+# Enterprise kagent into its own namespace, with every component this release ships turned on.
 #
 # What's on, and the value that does it:
+#   agentevals            agentevals.enabled starts the evaluation service (image tag defaults to
+#                         the chart version); controller.agentevals.enabled runs the controller's
+#                         agentevals migrations and turns on its eval API. It keeps its runs in
+#                         PostgreSQL (the agentevals login from 10-postgres.sh) and writes results
+#                         to ClickHouse database agentevals.
 #   UI                    ui.enabled (default true). nginx in front of the SPA, the controller's
 #                         API proxied under /api.
 #   Bundled IdP           enterprise.oidc.issuer left empty. The controller pod gets an `idp`
@@ -14,7 +18,11 @@
 #   Trace export          config.telemetry.traces.endpoint (the controller) and
 #                         config.runtimeDefaults.telemetry.traces.endpoint (every agent runtime),
 #                         both at the collector's OTLP port. Neither is set by default.
+#   Content capture       Not here: config.runtimeDefaults.telemetry.captureContent had no effect on
+#                         the Go runtime at alpha11, so 40-agents.sh sets the env var on the Harness.
 #   kmcp                  kmcp.enabled (default true). Deploys MCPServer resources (45-mcp-tool.sh).
+#   gRPC reflection       config.server.grpcReflection, so grpcurl can list and call the API
+#                         (helpers/api.sh). Off by default.
 #   Substrate             controller.substrate.enabled and a WorkerPool of gVisor workers.
 #
 # And what's deliberately off:
@@ -62,6 +70,8 @@ database:
     ownerConnectionStringSecretRef: {name: kagent-postgres-owner, key: ownerConnectionString}
     readWriteConnectionStringSecretRef: {name: kagent-postgres-readwrite, key: readWriteConnectionString}
 config:
+  server:
+    grpcReflection: true
   telemetry:
     traces:
       endpoint: ${COLLECTOR_URL}
@@ -74,7 +84,12 @@ enterprise:
     type: ClusterIP
 telemetry:
   enabled: true
+agentevals:
+  enabled: true
+  podLabels: {}   # the chart default enrolls it in Istio ambient
 controller:
+  agentevals:
+    enabled: true
   substrate:
     enabled: true
 substrateWorkerPool:

@@ -18,8 +18,9 @@ them. Names are as installed by `kagent-enterprise` `1.0.0-alpha11` and `substra
 
 | Workload | Containers | Ports | What it does |
 |---|---|---|---|
-| `deploy/kagent-controller` | `controller`, `idp` | 8083 API, 8085 IdP | Reconciles Agents, Harnesses and templates; serves the kagent API (gRPC, gRPC-Web, A2A) on 8083; asks Substrate to build and run agents. `idp` is the bundled IdP, rendered only because `enterprise.oidc.issuer` is empty; it issues an admin token to anyone. |
-| `deploy/kagent-ui` | `ui` (nginx and the SPA) | 8080 | Serves the app and `env-config.js`, and proxies `/autoauth/` to the IdP and `/api/` to the controller. The browser calls the API as gRPC-Web under `/api/proxy/cluster/<cluster>/api/`. |
+| `deploy/kagent-controller` | `controller` (8083, 8085, 9090), `idp` (5556) | 8083, 8085 | Reconciles Agents, Harnesses and templates and asks Substrate to build and run agents. 8083 serves the kagent API as native gRPC and A2A. 8085 is the HTTP surface the UI uses: `/autoauth/`, the kagent API as gRPC-Web under `/api/proxy/cluster/<cluster>/api/`, and the enterprise `rpc.*.solo.io` services (evals) as gRPC-Web under `/api/`. `idp` is the bundled IdP, rendered only because `enterprise.oidc.issuer` is empty; it issues an admin token to anyone. |
+| `deploy/kagent-ui` | `ui` (nginx and the SPA) | 8080 | Serves the app and `env-config.js`, and proxies `/autoauth/` and `/api/` to the controller's 8085. |
+| `deploy/kagent-agentevals` | `agentevals` | 8001 API | Runs evaluations the controller hands it, keeps runs in PostgreSQL schema `agentevals` (its own login), and writes results to ClickHouse database `agentevals`. See `docs/findings.md` item 1. |
 | `deploy/kmcp-enterprise-controller-manager` | `manager` | 8443 metrics | Turns an `MCPServer` (`kagent.dev/v1alpha1`) into a Deployment and Service it owns. |
 | `statefulset/solo-enterprise-telemetry-collector` | OpenTelemetry Collector | 4317 OTLP gRPC | Receives traces, metrics and logs from agent runtimes and Substrate, and writes them to ClickHouse. Rendered only with `telemetry.enabled` and `global.cluster`. |
 | `deploy/solo-enterprise-k8sobjects` | OpenTelemetry Collector | 8888 metrics | Watches Kubernetes objects and writes their history to ClickHouse (`otel_k8sobjects_*`). |
@@ -31,11 +32,12 @@ them. Names are as installed by `kagent-enterprise` `1.0.0-alpha11` and `substra
 
 | Table | Written by | Holds |
 |---|---|---|
-| `genai_spans` | collector, from agent runtimes | One row per GenAI span: `invoke_agent`, `generate_content`, `execute_tool`, with agent, namespace, cluster, model and tool names. Prompt and reply text are empty unless content capture is turned on. |
+| `genai_spans` | collector, from agent runtimes | One row per GenAI span: `invoke_agent`, `generate_content`, `execute_tool`, with agent, namespace, cluster, model and tool names. Prompt and reply text are captured because the Harness sets `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT=SPAN_ONLY`. |
 | `genai_turns` | materialized view over spans | One row per turn |
 | `otel_traces_json` | collector | Raw spans |
 | `substrate_actor_lifecycle`, `substrate_actor_requests`, `substrate_actor_state` | collector, from Substrate | Actor events and requests: the dashboard's fleet figures. Empty unless the substrate release sets `otel.endpoint`. |
 | `otel_k8sobjects_*` | `solo-enterprise-k8sobjects` | Kubernetes object history |
+| `agentevals.eval_results` | agentevals result sink | One row per scored case and evaluator |
 
 Query one yourself:
 
@@ -83,6 +85,9 @@ which pool.
 - **The bundled IdP isn't authentication.** Anyone who can reach `/autoauth/token` gets an admin
   token. Setting `enterprise.oidc.issuer` removes it, the `/autoauth/` route, and the UI's
   auto-sign-in.
+- **Calling the enterprise APIs yourself.** `helpers/grpcweb` takes a method and a JSON body, for
+  example `rpc.evals.solo.io.Evaluators/List '{"limit":10}'`; `helpers/checks.sh`'s `ent` wraps it
+  with the port-forward and token.
 - **Tracing is off unless you ask.** `telemetry.enabled` defaults to false, and even with it on, no
   runtime exports traces until `config.runtimeDefaults.telemetry.traces.endpoint` names the
   collector.

@@ -10,6 +10,7 @@
 #              substrate_readwrite_user   substrate_readwrite  substrate (read/write)
 #   kagent     kagent_owner_user          kagent_owner         kagent, enterprise (owner)
 #              kagent_readwrite_user      kagent_readwrite     kagent, enterprise (read/write)
+#              agentevals_user            (none)               agentevals, which it creates itself
 #
 # The owner login applies migrations at startup; the read/write login serves every runtime
 # query. Each side runs the product's own setup SQL, vendored unchanged in helpers/postgres/:
@@ -32,7 +33,7 @@ for ns in "$PG_NS" "$KAGENT_NS"; do
   k create namespace "$ns" --dry-run=client -o yaml | k apply -f - >/dev/null
 done
 
-LOGINS="postgres substrate_owner_user substrate_readwrite_user kagent_owner_user kagent_readwrite_user"
+LOGINS="postgres substrate_owner_user substrate_readwrite_user kagent_owner_user kagent_readwrite_user agentevals_user"
 k get secret postgres-logins -n "$PG_NS" >/dev/null 2>&1 || k create secret generic postgres-logins -n "$PG_NS" >/dev/null
 for u in $LOGINS; do
   if [ -z "$(k get secret postgres-logins -n "$PG_NS" -o jsonpath="{.data.${u}}")" ]; then
@@ -68,7 +69,9 @@ spec:
         - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: postgres-logins, key: postgres}}}
         - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
         ports: [{containerPort: 5432}]
-        readinessProbe: {exec: {command: [pg_isready, -U, postgres]}, periodSeconds: 5}
+        # Over TCP: on first start the image runs a temporary socket-only server for initdb, which a
+        # socket check reports ready just before it restarts.
+        readinessProbe: {exec: {command: [pg_isready, -h, 127.0.0.1, -U, postgres]}, periodSeconds: 5}
         resources:
           requests: {cpu: 250m, memory: 512Mi}
           limits: {memory: 2Gi}
@@ -80,6 +83,11 @@ spec:
       resources: {requests: {storage: 5Gi}}
 EOF
 k rollout status statefulset/postgres -n "$PG_NS" --timeout=300s >/dev/null
+# rollout status can pass on the old probe or during first-start init; wait for a real TCP query.
+for _ in $(seq 1 60); do
+  k exec -n "$PG_NS" postgres-0 -c postgres -- psql -h 127.0.0.1 -U postgres -Atc 'select 1' >/dev/null 2>&1 && break
+  sleep 2
+done
 good "postgres-0 ready"
 
 psql_in() {   # psql_in DB [psql args…] → runs SQL from stdin as the superuser, in one transaction
@@ -120,13 +128,17 @@ psql_in kagent \
   --set=kagent_readwrite_user=kagent_readwrite_user \
   --set=kagent_readwrite_password="$(pw kagent_readwrite_user)" \
   < "$HERE/helpers/postgres/kagent-setup.sql"
-# agentevals_user empty: no agentevals login until phase 2 turns agentevals on.
+# agentevals can't assume a role and creates its own schema, so the enterprise setup gives it a
+# login of its own, NOINHERIT, with CONNECT and CREATE on the database.
 psql_in kagent \
   --set=kagent_owner_role=kagent_owner \
   --set=kagent_readwrite_role=kagent_readwrite \
   --set=enterprise_schema=enterprise \
-  --set=agentevals_user= \
+  --set=agentevals_user=agentevals_user \
+  --set=agentevals_password="$(pw agentevals_user)" \
   < "$HERE/helpers/postgres/kagent-enterprise-setup.sql"
 secret "$KAGENT_NS" kagent-postgres-owner ownerConnectionString "$(dsn kagent_owner_user kagent)"
 secret "$KAGENT_NS" kagent-postgres-readwrite readWriteConnectionString "$(dsn kagent_readwrite_user kagent)"
-good "kagent: schemas kagent and enterprise; Secrets kagent-postgres-owner and -readwrite in ${KAGENT_NS}"
+# The chart mounts this Secret's connectionString as agentevals' urlFile (agentevals.extraVolumes).
+secret "$KAGENT_NS" agentevals-postgres connectionString "$(dsn agentevals_user kagent)"
+good "kagent: schemas kagent and enterprise; Secrets kagent-postgres-owner, -readwrite and agentevals-postgres in ${KAGENT_NS}"

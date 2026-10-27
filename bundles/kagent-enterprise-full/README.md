@@ -22,12 +22,11 @@ bash bundles/kagent-enterprise-full/helpers/ui.sh kef            # http://localh
 
 | | |
 |---|---|
-| covers | kagent controller, UI, bundled IdP, ClickHouse, telemetry collector, kmcp, Substrate (native podcert, gVisor), PostgreSQL with two logins per product |
+| covers | kagent controller, UI, bundled IdP, ClickHouse, telemetry collector, kmcp, agentevals, Substrate (native podcert, gVisor), PostgreSQL with two logins per product |
 | needs | `KAGENT_LICENSE_KEY` and `AGENTGATEWAY_LICENSE_KEY` (Substrate's router runs agentgateway) in `.env`; Go for the turn tests; about 6 CPU and 10 GiB free in Docker |
 | versions | kagent Enterprise `1.0.0-alpha11`, substrate-enterprise `0.5.0-alpha4-da3c2e5` (`KEF_*` in `helpers/env.sh`) |
 | clash-safe | no: owns the cluster |
-| verified | 2026-10-22 on vind (Kubernetes 1.36.5): 8/8 from a fresh cluster, `vind:create apply test` chained, 2m24s |
-| not yet | agentevals (phase 2) |
+| verified | 2026-10-22 on vind (Kubernetes 1.36.5): 8/9 from a fresh cluster, chained, 2m29s. `90` fails on a real gap: agentevals can't evaluate the Go runtime's traces (`docs/findings.md`) |
 
 ## Tests
 
@@ -35,7 +34,8 @@ bash bundles/kagent-enterprise-full/helpers/ui.sh kef            # http://localh
 refused · `30-golden` Agents Ready · `40-turn` a turn through the mock model · `50-ui` the UI's
 nginx: app, `env-config.js`, token, and an API call as the browser makes it · `60-tracing` spans,
 turns and Substrate events in ClickHouse · `70-mcp-tool` a tool call to the kmcp server ·
-`80-kmcp` MCPServer Ready, owned children, tools discovered.
+`80-kmcp` MCPServer Ready, owned children, tools discovered · `90-agentevals` evaluators, eval sets
+and configs, and a trace replay (fails on alpha11, see `docs/findings.md`).
 
 ## Layout
 
@@ -45,9 +45,13 @@ turns and Substrate events in ClickHouse · `70-mcp-tool` a tool call to the kmc
 | `05-ca-bootstrap.sh` | The CA and JWT pools Substrate mounts and no chart creates |
 | `10-postgres.sh` | PostgreSQL with owner and read/write logins for Substrate and kagent |
 | `20-substrate.sh` | `substrate-crds`, `substrate-podcert`, `substrate` |
-| `30-kagent.sh` | `kagent-enterprise-crds`, `kagent-enterprise` with UI, IdP, ClickHouse, collector, kmcp |
+| `30-kagent.sh` | `kagent-enterprise-crds`, `kagent-enterprise` with UI, IdP, ClickHouse, collector, kmcp, agentevals |
 | `35-mock-model.sh` | OpenAI-compatible mock model |
 | `40-agents.sh` | ModelConfig, Harness, AgentTemplate, and Agent `assistant` |
 | `45-mcp-tool.sh` | MCPServer (kmcp), RemoteMCPServer, and Agent `toolcall` |
 
+`helpers/` holds the vcluster file, `ui.sh`, and two Go clients the tests build: `a2a-turn` (turns
+over gRPC) and `grpcweb` (the enterprise APIs, which are gRPC-Web only).
+
 `docs/components.md` explains what each component is, where it runs, and who talks to whom.
+`docs/findings.md` lists what didn't work and why.

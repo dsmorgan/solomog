@@ -30,6 +30,13 @@ spec:
   kagent: {}
   workload:
     image: ${KEF_ADK_IMAGE}
+  # Prompts and replies go into the GenAI spans: the tracing pages show them, and agentevals needs
+  # them, because alpha11 evaluates recorded traces only and a trace without content yields no
+  # invocations to score. config.runtimeDefaults.telemetry.captureContent: true in the chart had no
+  # effect on this runtime; the runtime's own override does. It stores user text, so it's off by
+  # default in the product.
+  env:
+  - {name: OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT, value: SPAN_ONLY}
   substrate:
     workerPoolRef:
       name: ${POOL}
