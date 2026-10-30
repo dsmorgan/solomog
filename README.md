@@ -42,9 +42,11 @@ Install these before `install.sh`. The script does not install them.
 
 ## Quickstart
 
+> **Note:** This section is the shortest path to a working gateway. For more detail, read the sections after it, starting with [Initialize](#initialize).
+
 Install agentgateway, expose it, and check that a request succeeds. Do the shared setup once. The community example needs no license key. The enterprise example does.
 
-Each example is the same three steps: one install command that includes the bundle, a curl, then `solomog test`. Run the curl and the test after the gateway is ready. A test in the install command starts the curl while the gateway is still coming up. If either check fails while the gateway is starting, run it again.
+Each example is the same three steps: one install command that includes the bundle, a curl, then `solomog test`. Three read-only commands follow: `routes`, `graph`, and `explain` show what you built without changing it. Run the curl and the test after the gateway is ready. A test in the install command starts the curl while the gateway is still coming up. If either check fails while the gateway is starting, run it again.
 
 The two examples use different cluster names, so you can keep both. Remove one with `solomog teardown CLUSTER=lab` (or `CLUSTER=lab-ent`).
 
@@ -78,6 +80,14 @@ solomog agentgateway expose apps:utils apply ROUTE=true EDITION=community BUNDLE
 # Wait a few seconds for the rollout to complete.
 curl --fail-with-body -sS "https://agw.lab.test/httpbin/get"
 solomog test BUNDLE=example CLUSTER=lab
+
+# Print each Gateway, its routes, and whether each route is active.
+solomog routes CLUSTER=lab
+# Open the same config as an interactive graph in your browser.
+solomog graph CLUSTER=lab
+# Print the helm and kubectl steps a customer runs to build this setup.
+# Runs nothing.
+solomog explain agentgateway expose apps:utils ROUTE=true EDITION=community CLUSTER=lab
 ```
 
 That creates cluster `lab`, installs community agentgateway, and exposes Gateway `agw` at `https://agw.lab.test`. `expose` installs the mkcert CA on this Mac, so that HTTPS name is trusted. `apps:utils` routes httpbin at `/httpbin`. `apply` adds the [example](bundles/example/README.md) bundle (a namespace, ConfigMap, and Secret). The curl returns httpbin's JSON for `/get`. `test` runs that bundle's checks.
@@ -91,6 +101,14 @@ solomog agentgateway expose apps:utils apply ROUTE=true EDITION=enterprise BUNDL
 # Wait a few seconds for the rollout to complete.
 curl --fail-with-body -sS "https://agw.lab-ent.test/healthz"
 solomog test BUNDLE=agw-directresponse CLUSTER=lab-ent
+
+# Print each Gateway, its routes, and whether each route is active.
+solomog routes CLUSTER=lab-ent
+# Open the same config as an interactive graph in your browser.
+solomog graph CLUSTER=lab-ent
+# Print the helm and kubectl steps a customer runs to build this setup.
+# Runs nothing.
+solomog explain agentgateway expose apps:utils ROUTE=true EDITION=enterprise CLUSTER=lab-ent
 ```
 
 `EDITION=enterprise` is the default. The example sets it so this run stays distinct from the community one.
