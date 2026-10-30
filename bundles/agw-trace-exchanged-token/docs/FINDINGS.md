@@ -1,6 +1,6 @@
 # Findings
 
-## v2026.7.1-patch.0 (the customer's version) — 6/6, 2026-09-02, cluster `xtok`
+## v2026.7.1-patch.0 — 6/6, 2026-09-02, cluster `xtok`
 
 | Question | Result |
 |---|---|
@@ -33,8 +33,8 @@ cache hit makes **no call to the authorization server**, so there is no token re
 snapshot.
 
 Anyone reproducing this must force a cache miss — a fresh subject token is a new cache key.
-`helpers/capture-trace.sh` now always fetches a new one. Told to a customer as "run a trace and
-look for the token response", this will fail roughly as often as it succeeds, and the failure
+`helpers/capture-trace.sh` now always fetches a new one. Given as advice ("run a trace and
+look for the token response"), this will fail roughly as often as it succeeds, and the failure
 looks like the feature is missing rather than warm.
 
 ### Trace stages seen, in order
@@ -59,5 +59,5 @@ _not yet run — same bundle, change only the version pin_
   "it cannot be observed *continuously*, only in an interactive trace". Still worth building —
   a live trace is not an audit trail, and it cannot show the upstream header — but the urgency
   drops and the framing in the issue needs correcting.
-- **The customer answer changes** from "not on your shape" to "yes, with `agctl proxy trace`,
+- **The answer changes** from "not on your shape" to "yes, with `agctl proxy trace`,
   and mind the cache".

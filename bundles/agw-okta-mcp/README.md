@@ -174,4 +174,3 @@ TOKEN_EXCHANGE_JWKS_URL=https://<okta-domain>/oauth2/default/v1/keys
 - [OKTA-SETUP.md](OKTA-SETUP.md) — Detailed Okta console steps
 - [SNOWFLAKE-SETUP.md](SNOWFLAKE-SETUP.md) — Detailed Snowflake SQL steps + semantic view / MCP server config
 - [ELICITATION-MODE-NOTES.md](ELICITATION-MODE-NOTES.md) — Why `mode` must be omitted for token injection to work
-- Plan: `agentgateway-mcp-pov-plan.md`

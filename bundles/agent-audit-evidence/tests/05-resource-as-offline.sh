@@ -20,7 +20,7 @@
 # looking at anything else. If this is green and test 20 is red, the problem is Okta or the gateway
 # wiring, not leg 2.
 #
-# Runs via `uv` (no system pip — PEP 668), per the CLAUDE.md bundle idiom. Does not skip on missing
+# Runs via `uv` (no system pip — PEP 668), per the AGENTS.md bundle idiom. Does not skip on missing
 # XAA_* config: it has no dependency on it.
 set -euo pipefail
 

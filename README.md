@@ -781,7 +781,8 @@ solomog
 ├── install.sh                  # clone or fast-forward, then scripts/setup.sh
 ├── solomog                     # CLI wrapper → runs `task` from repo root
 ├── Taskfile.yaml               # all scenarios (the `solomog <scenario>` targets)
-├── CLAUDE.md / AGENTS.md       # architecture + conventions; Cursor Cloud agent notes
+├── AGENTS.md                   # agent guidance: architecture, conventions, gotchas
+├── skills/                     # reusable agent skills (see skills/README.md)
 ├── .env / .env.example         # secrets + template (.env gitignored; env:sync aligns them)
 ├── versions.env                # pinned product versions
 ├── scripts/
@@ -836,4 +837,4 @@ solomog
     └── utils/                  # httpbin/curl/netshoot
 ```
 
-See [CLAUDE.md](CLAUDE.md) for architecture details and how to extend this repo.
+See [AGENTS.md](AGENTS.md) for architecture details and how to extend this repo.

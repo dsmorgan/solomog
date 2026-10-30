@@ -1,15 +1,1023 @@
 # AGENTS.md
 
-Architecture, conventions, and how-to-extend details live in [CLAUDE.md](CLAUDE.md)
-and [README.md](README.md) — read those first. This file only adds guidance for
-running the codebase inside a **Cursor Cloud** agent VM (Linux), which differs from
-the tool's native target (macOS + Docker Desktop).
+Guidance for AI coding agents working in this repo (Claude Code, Cursor, Codex, and any other
+client that reads `AGENTS.md`). Read this before making changes. Reusable agent skills live in
+[skills/](skills/); see [skills/README.md](skills/README.md) to install them.
 
-## Cursor Cloud specific instructions
+## What this is
+
+`solomog` automates standing up local **vcluster (vind)** Kubernetes environments
+with Solo.io products preinstalled, for a Customer Solutions Architect's testing /
+validation / customer-issue-reproduction work. It is **not** production tooling —
+favor clarity, modularity, and easy extension over robustness.
+
+User context: David Morgan, CSA at Solo.io. Runs vind on Docker Desktop (macOS).
+Primary products: agentgateway, kgateway, Istio (ambient + sidecar).
+
+## Architecture
+
+Two tools, composed:
+
+- **Taskfile** ([Taskfile.yaml](Taskfile.yaml)) is the CLI surface. Every
+  `solomog <x>` is a `task` target. It handles orchestration, env wiring, cluster
+  lifecycle, and calls scripts.
+- **Helmfile** does the Helm work — release sequencing, per-environment value
+  overlays, templated repos/versions/licenses.
+
+The `solomog` wrapper just `cd`s to the repo root and `exec task "$@"`.
+`install.sh` is the machine bootstrap: on a clean checkout it fast-forwards the
+tracked branch (a dirty tree skips the pull), then runs
+[scripts/setup.sh](scripts/setup.sh). That script installs the Homebrew tools,
+including vcluster, copies `.env.example` to `.env` when absent, and symlinks
+`~/.local/bin/solomog`. `solomog setup` refreshes tools without pulling.
+
+### Three orthogonal dimensions
+
+These combine freely and are the core mental model:
+
+1. **Product** — `istio`, `gloo-mesh`, `kgateway`, `gloo-gateway`, `agentgateway`, `kagent`.
+   One self-contained helmfile module each in [helmfiles/products/](helmfiles/products/).
+   - `istio` = **enterprise**: Solo managed Istio via the **Gloo Operator**
+     (`gloo-operator` OCI chart, ns `gloo-mesh`, license `manager.env.SOLO_ISTIO_LICENSE_KEY`)
+     plus a `ServiceMeshController` CR (rendered by `charts/managed-istio`; `dataplaneMode`
+     Ambient/Sidecar from `ISTIO_MODE`, `version` = Istio version). **community**: upstream
+     Istio Helm charts (base/istiod/+cni/ztunnel). Both apply Gateway API CRDs via a presync hook.
+   - `kgateway` = **enterprise kgateway** (kgateway 2.3.x, OCI charts `enterprise-kgateway[-crds]`,
+     ns `kgateway-system`, license `licensing.licenseKey`) / upstream kgateway in community.
+     CLI-only: `KGATEWAY_ELS_CRD=true` also installs the `EnterpriseListenerSet` CRD (chart
+     default is off); `KGATEWAY_SKIP_SHARED_CRDS=true` skips the ext-auth / rate-limit / WAF
+     CRDs when agentgateway already owns them. `PRODUCTS="kgateway agentgateway"` in one run
+     still installs kgateway first, so skip-shared only helps the *other* order (agentgateway
+     already on the cluster, then kgateway).
+   - `gloo-gateway` = **Gloo Gateway** (gloo-ee/gloo 1.21.x, classic Helm repos, ns `gloo-system`,
+     license top-level `license_key`). A *different product* from kgateway — do not merge them.
+   - `agentgateway` = **enterprise agentgateway** (CalVer OCI charts `enterprise-agentgateway[-crds]`,
+     ns `agentgateway-system`, license `licensing.licenseKey`). Community uses a separate OSS line.
+     CLI-only: `TOKEN_EXCHANGE=true` enables the OBO STS and restarts the `agw` dataplane
+     (label `gateway-name=agw` — a custom `NAME=` gateway is not restarted). `OAUTH_ISSUER=true`
+     makes the gateway an OAuth AS at `/oauth-issuer` (needs token exchange + `OKTA_*`, or the
+     CLI-only `OAUTH_ISSUER_BASE_URL` / `_IDP_NAME` / `_AUTHORIZE_URL` / `_TOKEN_URL` overrides
+     for another IdP such as in-cluster Keycloak; blank keeps the Okta wiring).
+     Related JWKS / callback knobs may live in `.env`; they are inert unless the CLI flag is set.
+   - `kagent` = **enterprise**: singleton `management` release in `agentgateway-system`
+     plus `kagent-enterprise[-crds]` in ns `kagent` (experimental in solomog);
+     **community**: stable upstream `kagent[-crds]` OCI charts. Both use bundled
+     PostgreSQL for short PoVs. `prepare-kagent.sh` validates the provider and creates
+     Enterprise JWT/OIDC secrets. Enterprise kagent is standalone for evaluation;
+     its production security path composes with ambient Istio + Enterprise agentgateway.
+     Auth defaults to the chart's bundled auto-IdP (the documented quickstart);
+     `KAGENT_OIDC_ISSUER` opts into a real IdP and then also requires `SOLO_UI_OIDC_*`.
+     `SOLO_UI_OIDC_*` on its own must NOT imply kagent OIDC — it needs a separately
+     registered kagent client, so an unrelated cluster's `.env` would otherwise make
+     `solomog kagent` unrunnable. `KAGENT_AUTOAUTH=true` is a CLI-only escape hatch
+     that forces the bundled IdP for one run.
+     **AUTO_AUTH_ENABLED side effect (0.5.4, unverified on 0.5.5):** the chart derives
+     `autoAuthEnabled` from `oidc.issuer == ""`, and that flag both picks the bundled
+     issuer *and* sets `AUTO_AUTH_ENABLED=true` on the controller Deployment. Solomog
+     must name the issuer (`solo-enterprise-ui.agentgateway-system…`) because the chart
+     default is derived from the management release namespace (`kagent` in the
+     quickstart; solomog shares one release in `agentgateway-system`). Naming it to
+     fix the namespace therefore also suppresses `AUTO_AUTH_ENABLED`, so the
+     controller runs in "external OIDC" mode while pointed at the bundled IdP. There
+     is no values-level fix — `namespaceOverride` would break the Postgres DSN.
+     Runtime impact is unconfirmed; do not "fix" it by emptying `oidc.issuer`.
+   - `gloo-mesh` = optional Gloo Mesh Enterprise mgmt plane. Repo unverified (TODO); not used
+     by any default scenario. Distinct from the Gloo Operator above.
+2. **Edition** — `enterprise` (default) or `community`. A helmfile *environment*.
+   Selects chart repos and whether license keys apply.
+3. **Istio mode** — `ambient` (default) or `sidecar`. Passed as `ISTIO_MODE` env,
+   selects which `values/istio/<mode>/values.yaml` overlay loads and whether
+   CNI+ztunnel are installed.
+
+### Composition flow (single cluster)
+
+`solomog stack PRODUCTS="..." CLUSTER=...` → [scripts/stack.sh](scripts/stack.sh):
+1. Resolve the kube context via `solomog_context` (`CONTEXT` → `.solomog/contexts` →
+   `vcluster-docker_<cluster>`). `CLUSTER` has no silent default.
+2. `vind-create.sh` — create the cluster (docker driver, default config) + connect.
+   Skipped when the target is external (install-only).
+3. Enterprise kagent: warn if the API server is outside Kubernetes 1.32–1.36
+   (does not fail — the evaluation path stays usable on newer vind images).
+4. `gen-certs.sh` — only if `istio` or `gloo-mesh` is requested.
+5. For each product in **`CANONICAL_ORDER`** (`istio gloo-mesh kgateway
+   gloo-gateway agentgateway kagent`), if requested:
+   - kagent: run `prepare-kagent.sh` first (provider + JWT/OIDC secrets)
+   - `helmfile sync -f products/<p>.yaml.gotmpl -e $EDITION --kube-context $CTX`
+   - enterprise agentgateway + `TOKEN_EXCHANGE=true`: restart the `agw` dataplane
+   `stack.sh` exports `SOLO_CONTEXT` / `SOLO_CLUSTER` / `SOLO_NETWORK` so helmfile
+   hooks (e.g. gloo-gateway's Gateway API CRD bootstrap) target the right cluster.
+
+Single-product tasks (`istio:*:single`, `kgateway`, `agentgateway`, `kagent`, etc.) are thin
+shortcuts that call `stack.sh` with a fixed product list. A blank vcluster (no products)
+is the optional `solomog vind:create` task — `stack` still requires `PRODUCTS` and still
+creates the cluster itself.
+
+**Enterprise kagent compatibility guard:** kagent 0.5.x documents Kubernetes
+1.32–1.36, Gateway API 1.5.0, agentgateway 2026.7.0, and Istio 1.26–1.29.
+Solomog's general defaults differ. Standalone Enterprise kagent is an
+allowed evaluation topology; agentgateway composition warns on unverified pins;
+an Istio+kagent run is rejected unless `ISTIO_VERSION` is in 1.26–1.29. Do not
+add a “full secure stack” shortcut until the combination is exercised.
+
+### Multi-cluster
+
+Cross-cluster Istio is orchestrated by [scripts/mesh.sh](scripts/mesh.sh), which
+**reuses the `istio` product module** — it creates the clusters, generates one
+shared root CA across all of them (`gen-certs.sh`), wires flat pod routing
+(`networking.sh`) when applicable, then runs the istio module against each cluster
+context with per-cluster `SOLO_CLUSTER` / `SOLO_NETWORK` / `ISTIO_VERSION`.
+- `flat` topology → all clusters share network `solomog`; `networking.sh flat` routes the
+  whole peer subnets between the Docker bridges (pods talk pod-IP → pod-IP directly).
+- `gateway` topology → per-cluster network; `mesh-eastwest.sh` exposes an `istio-eastwest`
+  gateway per cluster + links every pair (declarative kubectl, replicating `istioctl
+  multicluster expose|link` — no Solo istioctl dependency), and `networking.sh gateway`
+  routes **only to each peer's east-west gateway `/32`** (discovered live; tighter than flat,
+  faithful to real multi-network). Comes up peered end-to-end.
+- **Host routing is ephemeral** (lives in the Docker Desktop VM) — a Docker restart wipes it and
+  silently disconnects the mesh, though the clusters/Istio/gateways/certs survive. Recover with
+  `solomog net:repair CLUSTERS="…"` (auto-detects flat vs gateway from the live clusters; no
+  stored state) — not a full task re-run.
+- Per-cluster Istio version overrides (`ISTIO_VERSION_CLUSTER_TWO`, `_THREE`) give
+  mixed-version meshes; mesh.sh maps `cluster-two` → `ISTIO_VERSION_CLUSTER_TWO`.
+- **Registered external clusters (vsphere) mesh too — gateway topology only**: same
+  `istio:ambient:multi-gateway CLUSTERS="s6 s7"` task; mesh.sh uses the registered
+  clusters as-is (they must pre-exist; vind+external mixing refused — vind LB IPs are
+  Mac-local; flat refused — it needs Docker-bridge routing) and there's NO host
+  routing at all: east-west gateways sit on real MetalLB IPs, nothing decays, no
+  net:repair. mesh.sh exports `ISTIO_PLATFORM=k3s` (CNI paths) for vsphere targets
+  and `ISTIO_MULTI_NETWORK=true` for gateway topology (community istiod needs
+  `AMBIENT_ENABLE_MULTI_NETWORK`/`_BAGGAGE` to register the east-west class).
+  **Community vs enterprise east-west differs** (mesh-eastwest.sh handles both):
+  upstream's class is `istio-east-west` (auto-detected vs Solo's `istio-eastwest`),
+  its remote peers use trust-domain cluster.local + both listeners (15008+15012),
+  and upstream cross-cluster *discovery* is remote secrets (istio-reader kubeconfig
+  per peer, built with plain kubectl — the ambient e/w gateway cannot expose istiod);
+  istio-system carries the `topology.istio.io/network` label. ztunnel always gets
+  `multiCluster.clusterName` + `global.network` (chart default "Kubernetes" is
+  REJECTED by istiod — this was latently broken for community ambient everywhere).
+
+## Conventions
+
+- **`CLUSTER` is the one knob; context resolution lives in [scripts/lib/target.sh](scripts/lib/target.sh).**
+  `solomog_context <cluster>` resolves: `CONTEXT` env override → the external registry
+  `.solomog/contexts` (a `<cluster>\t<context>` map that `eks:create` / `vsphere:create` write via
+  `solomog_register_context`) → the vind default **`vcluster-docker_<cluster-name>`** (the docker
+  driver's naming). So a registered external cluster (e.g. EKS `CLUSTER=dmorgan-agw`) is used
+  exactly like a vind one; `CONTEXT=` is only for an unregistered context. `solomog_is_external
+  <cluster>` is true when `CONTEXT` is set or the cluster is registered — solomog then only
+  installs onto it (never vind-creates/networks it). Single-cluster tasks have **no
+  default cluster name** (`solomog_require_cluster` fails if both `CLUSTER` and `CONTEXT` are
+  empty). New context-consuming scripts must resolve via `solomog_context`, never hardcode
+  `vcluster-docker_`. The Docker *network* is `vcluster.<name>` — different; only networking.sh
+  uses the network name.
+- **EKS IRSA** (`solomog eks:irsa`) gives the agentgateway proxy a keyless AWS identity
+  (IAM role via the cluster OIDC provider) so it can SigV4 to AgentCore without the ≤12h
+  env-injected SSO creds. EKS only; mutates IAM + the proxy SA/Deployment. Idempotent.
+  Needs `eksctl` and AWS creds (same as `eks:create`).
+- **`CLUSTER` and `CLUSTERS` are interchangeable aliases** across all tasks. Single
+  tasks resolve `{{.CLUSTER | default .CLUSTERS | default "<def>" | splitList " " | first}}`
+  (first name); multi tasks resolve `{{.CLUSTERS | default .CLUSTER | default "<defs>"}}`
+  (whole list). The `solomog` wrapper **warns** when a multi-name list is passed to
+  single-cluster tasks (they still use only the first name — no silent fan-out).
+  Mesh orchestration (`istio:*:multi-*`) is phase-based inside `mesh.sh`, not
+  wrapper fan-out of `expose`/`apps`/`apply`. To repeat a single-cluster chain on
+  each member: `for c in a b; do solomog expose apps:utils ROUTE=true CLUSTER=$c; done`.
+  New cluster-scoped tasks should follow the same first-vs-full pattern so the
+  singular/plural slip stays harmless; when adding a multi-cluster task, also add
+  it to `_solomog_task_takes_cluster_list` in the wrapper so the warning stays accurate.
+- **Vanilla vind is `solomog vind:create CLUSTER=<name>`.** Docker-driver vcluster, no
+  Solo products, no Gateway API CRDs. Optional — `stack` and the product shortcuts still
+  create the cluster themselves and still require `PRODUCTS`. The collision guard (refuse
+  a name already registered as EKS / vsphere / standalone) lives in
+  [scripts/vind-create-cli.sh](scripts/vind-create-cli.sh) only; do not put it in
+  [scripts/vind-create.sh](scripts/vind-create.sh) (`stack` / `mesh` call that script
+  directly).
+- **`teardown` is type-agnostic destroy; `*:delete` is type-specific.** `solomog teardown`
+  (alias `delete`) requires `CLUSTER=` / `CLUSTERS=` — it never defaults to all clusters —
+  classifies each name (`solomog_cluster_type` in [scripts/lib/target.sh](scripts/lib/target.sh):
+  vind / vsphere / eks) and dispatches. Mixed lists are fine. `vind:delete` /
+  `vsphere:delete` / `eks:delete` refuse the wrong type. All prompt unless `FORCE=true`.
+  vind and vsphere also drop stamped `/etc/hosts` lines for each name (`hosts:clean`
+  is the same function without destroying the cluster).
+- **License resolution** is centralized in
+  [helmfiles/environments/default.yaml.gotmpl](helmfiles/environments/default.yaml.gotmpl):
+  `<product>_license_key` = product-specific env var `| default SOLO_LICENSE_KEY`.
+  Never re-implement this per module — just reference the resolved value.
+- **Shared environments** live in [helmfiles/commons.yaml](helmfiles/commons.yaml);
+  product modules pull them in via `bases: [../commons.yaml]`. Define new
+  environment overlays there, not per-module.
+- **Versions** are pinned in [versions.env](versions.env), surfaced into helmfiles
+  as `.Values.<product>_version`. Per-cluster Istio overrides
+  (`ISTIO_VERSION_CLUSTER_TWO/THREE`) enable mixed-version testing.
+- Helmfile env values files are **gotmpl-rendered before YAML parsing** — nested
+  quotes like `"{{ env "X" }}"` are fine there (but NOT in plain YAML).
+
+## How to extend
+
+### Add a new product
+1. Create `helmfiles/products/<name>.yaml.gotmpl` with `bases: [../commons.yaml]`, a
+   `repositories:` block (gate enterprise/community with
+   `{{ if eq .Environment.Name "enterprise" }}`), and `releases:`.
+2. Add license resolution to `default.yaml.gotmpl` if it needs a key; reference
+   `.Values.<name>_license_key`.
+3. Add the chart repo URLs to `enterprise.yaml` / `community.yaml.gotmpl`.
+4. Add `<name>` to `CANONICAL_ORDER` in [scripts/stack.sh](scripts/stack.sh) in the
+   correct dependency position.
+5. Optionally add a shortcut task in [Taskfile.yaml](Taskfile.yaml).
+6. Add a `values/<name>/values.yaml` for tunables.
+
+### Gateway exposure & app routing
+- **`expose`** ([scripts/expose.sh](scripts/expose.sh)) is the product-agnostic gateway
+  layer: it creates the `Gateway` (http:8080 + https:443/TLS), an mkcert TLS secret, and
+  writes the vcluster LoadBalancer IP into `/etc/hosts` (sudo — see the one-command rule
+  below). vcluster auto-provisions
+  the LB as an haproxy container (`vcluster.lb.<cluster>.<gw>.<ns>`) and the Gateway's
+  `status.addresses[0].value` is the reachable IP. `PRODUCT` seeds name/ns defaults:
+  `agentgateway` → gw `agw` / ns `agentgateway-system`; `kgateway` → gw `kgw` /
+  ns `kgateway-system`. `CLASS` is resolved from the GatewayClass on the cluster
+  (edition-aware: `enterprise-*` or community `agentgateway`/`kgateway`) via
+  [scripts/lib/gateway.sh](scripts/lib/gateway.sh). When `PRODUCT` is unset, expose.sh
+  **auto-detects** it the same way (both/neither → agentgateway). The Taskfile must
+  therefore pass `PRODUCT` empty (not a default) so the script can detect.
+  NAME/NAMESPACE/CLASS/HOST individually overridable. App `GATEWAY` default is `agw`
+  (the agentgateway apps route there) — keep it in sync with the gw name.
+  expose stamps the reachable hostname on the Gateway as the **`solomog.io/host`
+  annotation** — routes.sh (header display) and test-bundle.sh (`$HOST` default) read
+  it; new consumers should read the annotation, not re-derive hostnames.
+  Hostname defaults to `<NAME>.<CLUSTER>.test` — always use **`.test`** (RFC 6761), never
+  `.local` (mDNS/Bonjour collision → slow resolution); the cluster component keeps the host
+  unique across clusters. **DNS mode:** vind and vsphere-without-`DNS=real` use mkcert +
+  `/etc/hosts`; `DNS=real` (vsphere) upserts a flat `SOLOMOG_DOMAIN` record + Certwarden
+  LE cert; EKS uses the public LB hostname (no `/etc/hosts`). Branch on LB semantics
+  (`solomog_is_vsphere`), not `solomog_is_external`.
+- **App routing is an opt-in `ROUTE` flag**, not a separate task: each app always creates
+  its backend, and adds its `HTTPRoute` only when `ROUTE=true`, on a per-app default
+  `ROUTE_PATH` (`/openai`, `/mcp`, `/httpbin`). This keeps "gateway + apps + routes" a single
+  CLI call via task chaining (`solomog expose apps:a apps:b ROUTE=true`) with no path
+  collisions, since each app owns its default path. **Never name the path var `PATH`** — it
+  clobbers the shell `$PATH`; use `ROUTE_PATH`.
+- **`mock-openai`/`mcp-stripe` are agentgateway-only** (route to an `EnterpriseAgentgatewayBackend`,
+  so `GATEWAY` defaults to `agw`). **Workloads live in their own namespace** (`mock-openai`,
+  `stripe-mock` — overridable via `APP_NS`), NOT in `agentgateway-system`. The gateway-*config*
+  objects (the `EnterpriseAgentgatewayBackend`, schema/secret ConfigMaps, and HTTPRoute) stay in
+  `agentgateway-system` with the gateway, so the route→backend ref is same-namespace (no
+  ReferenceGrant); the backend reaches the workload by FQDN (`<svc>.<APP_NS>.svc.cluster.local`)
+  cross-namespace. Keep new AI/MCP apps on this split. **`apps:utils` routes httpbin as a plain Service backend**,
+  so it works on *any* gateway — it auto-detects the gateway name/ns (agw/kgw) like expose,
+  and uses a `URLRewrite` filter (ReplacePrefixMatch `/`) so `/httpbin/get` → httpbin's `/get`.
+  httpbin is the gateway-agnostic routing smoke test (the only routable sample for kgateway).
+
+### Inspect agentgateway / kagent config (`routes` / `graph`)
+Two read-only views over the same CR relationship model (`routes` is agentgateway only; `graph`
+also covers kagent and Agent Substrate):
+- **`routes`** ([scripts/routes.sh](scripts/routes.sh)) — terminal table: Gateway → listeners →
+  HTTPRoutes (host/path → backend, attached policies, ACTIVE per `.status`). Deliberately
+  **not** from the proxy `/config_dump` — dump only shows *accepted* config, so rejected
+  routes vanish; CR conditions are the source that surfaces what's *not* active.
+- **`graph`** ([scripts/graph.sh](scripts/graph.sh)) — same edges as Cytoscape elements in a
+  self-contained HTML file (Gateway / control-plane / pods → routes → backends → policies;
+  unused + aux toggles; per-node raw/clean YAML). By default (`DUMP=true`) also port-forwards
+  each gateway dataplane pod's admin port on an **ephemeral local port** (never hardcode
+  host `:15000`) and `curl`s `/config_dump`: subtitle gets the live proxy **version**
+  (`.version.version`; image-tag fallback if unreachable), nodes get `loaded` yes/no from
+  dump name sets, and the dump is embedded (`Dump` button → counts + download). Soft-fail
+  on PF/curl errors; `DUMP=false` skips the fetch (graph still works; version/loaded degrade).
+  Prefer raw PF+curl over requiring `agctl`. Both tasks resolve context via `solomog_context`
+  (vind / `.solomog/contexts` / `CONTEXT=`).
+  **`INPUT=` graphs CR files instead of a cluster.** One value, a stacked YAML or JSON file
+  or a directory of `.yaml` / `.yml` / `.json` (walked recursively, hidden directories
+  skipped). `graph` detects which. Do not pass `CLUSTER` as well. Status in the files is
+  not used for node color unless `STATUS=exported` (it is still in the raw YAML panel).
+  There is no proxy dump, no loaded marker, and no version unless `VERSION=` is set or a
+  pod image tag is in the files. Object YAML is embedded; secret-looking fields
+  (`data`, `stringData`, `accessKey`, `token`, and similar) are redacted. A connected
+  graph means the files reference each other. It does not mean a controller would accept them.
+  - **kagent + substrate** come from [scripts/lib/graph/kagent.jq](scripts/lib/graph/kagent.jq),
+    merged onto the same canvas. It is **shape-driven, not group-driven**: one builder reads
+    0.10 (`kagent.dev/v1alpha2`, `spec.declarative`) and 1.0 (`api.kagent.dev/v1alpha3`, and the
+    early alphas that served v1alpha3 under `kagent.dev`: `templateRef`/`harnessRef`), and refs
+  resolve by kind+namespace+name across both groups. Kinds are fetched only when served
+  (from files, every kind in the input is read). A ref to nothing becomes a ghost node:
+  the same shape and color as that kind, dashed and dimmed, labeled with the referenced
+  name. A Service backend stays solid on a live cluster, because Services are not all
+  listed there. A Gateway that exists but is not an agentgateway class is skipped, not
+  ghosted.
+  - **One page, view switch** (`agentgateway | kagent · substrate | all`, hidden when only one
+    side exists). Each side gets its own breadthfirst layout, placed left→right. Separate tabs
+    would lose the **cross-product edges** (`cross:true`, dashed orange): a RemoteMCPServer /
+    ModelConfig URL that resolves to an agentgateway Gateway (Service name, status address,
+    `solomog.io/host`) + longest-prefix HTTPRoute, and an agentgateway Service/static backend
+    whose Service selects a kagent/substrate Deployment. A single-product view pulls the far
+    end of each cross edge in as a faded "bridge" node.
+  - **Layout roots are Gateways and kagent controllers only.** Substrate (`ate-controller`) is
+    NOT a root: it is kagent's runtime layer, and as a second root it hoists pools and pods up
+    beside the Agents and tangles the tree. It is a root only on a substrate-only cluster.
+  - **Unused** is per side: agentgateway is undirected from Gateways (policies point at their
+    targets); kagent is DIRECTED from Agents/SandboxTemplates along outgoing refs, so an unused
+    template pointing at a used ModelConfig still counts as unused.
+  - **Large lists go to jq via `--slurpfile <(...)`, never `--argjson`.** On a real EKS cluster
+    the Pods JSON alone is ~700KB and `--argjson` dies with `Argument list too long` (ARG_MAX).
+    Pods are also pre-filtered to the ones drawn (gateway + worker pods).
+
+### Add-ons (shared UI, Portal & monitoring)
+Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modules
+in [helmfiles/addons/](helmfiles/addons/), usually installed by their own scripts.
+The shared management chart is also consumed by the Enterprise kagent product
+module so it can coordinate one Helm release across products:
+- **Shared Solo UI** — `agentgateway:ui` is the same compound pattern as
+  `kgateway:with-istio`: the task installs the product then enables agentgateway
+  in [scripts/install-agentgateway-ui.sh](scripts/install-agentgateway-ui.sh).
+  Enterprise kagent enables `products.kagent` from its product module. Both use
+  exactly **one `management` release** (`helm_repo_solo_enterprise`, release
+  `management`, ns `agentgateway-system`) with `reuseValues: true`, so either
+  install order preserves the other product. `prepare-kagent.sh` and the UI
+  installer reject a management chart found under any other Helm release; a
+  second instance causes cluster-scoped CRD ownership conflicts. When kagent is
+  already installed, the agentgateway UI script also preserves management OIDC;
+  changing only the UI's issuer would crash-loop kagent discovery. `prepare-kagent.sh`
+  enforces the mirror image: an auto-IdP kagent sync onto a release already carrying an
+  external `oidc.issuer` is rejected (it would log the agentgateway UI out), naming the
+  two ways out — set `KAGENT_OIDC_ISSUER` to join that IdP, or `KAGENT_AUTOAUTH=true` to
+  deliberately reset the whole release to chart defaults.
+  **CRDs are bundled** in the chart
+  (its `management-crds` subchart, enabled by default) — do NOT add a separate `management-crds`
+  release; the workshop's split + `enabled=false` is a long-lived-cluster CRD-lifecycle pattern
+  that buys nothing for ephemeral vclusters. **Enterprise only.** The tracing CR
+  (`EnterpriseAgentgatewayPolicy`) is applied by the agentgateway UI
+  script after sync, targeting the gateway by name (default `agw`) so it attaches once `expose` runs.
+- **`portal`** — Solo Portal (developer portal). Separate task on purpose: today it needs
+  Solo Enterprise for kgateway (SEFK) on the cluster, but keeping it out of `kgateway` /
+  `CANONICAL_ORDER` leaves room to attach it to other Solo products later.
+  [scripts/install-portal.sh](scripts/install-portal.sh) + [helmfiles/addons/portal.yaml.gotmpl](helmfiles/addons/portal.yaml.gotmpl)
+  install `portal-crds` + `portal` (ns `portal-system`, same OCI registry as SEFK), then apply a
+  starter `PortalParameters` (in-memory) + `Portal`. **Own license** (`PORTAL_LICENSE_KEY` →
+  `SOLO_LICENSE_KEY`; version `PORTAL_VERSION` in versions.env). **Enterprise only.** Demo
+  frontend / httpbin ApiProduct / gateway routes live in the `portal-httpbin` bundle
+  (`solomog expose apply BUNDLE=portal-httpbin PRODUCT=kgateway`).
+- **`monitoring`** — Prometheus + Grafana (kube-prometheus-stack, OSS, **edition-agnostic**),
+  ns `monitoring`. Cross-cutting (not under a product) because one stack serves all products.
+  [scripts/install-monitoring.sh](scripts/install-monitoring.sh) **auto-detects products** from
+  GatewayClasses (like `expose`) and layers on their PodMonitor + Grafana dashboard; override with
+  `DASHBOARDS="agentgateway"` / `none`. Dashboards are vendored in [dashboards/](dashboards/) and
+  loaded as labeled ConfigMaps the Grafana sidecar picks up. New product dashboards: drop the JSON
+  in `dashboards/`, add an `install_<product>_dashboards` branch.
+  The agentgateway PodMonitor selects on the Gateway API `gateway-name` label. The
+  dataplane pod sets `app.kubernetes.io/name` to the Gateway's own name, so a fixed
+  `agentgateway-proxy` value only matches a workshop-named Gateway. Keep the
+  `gateway-name` selector. kube-prometheus-stack leaves `podMonitorSelector` and
+  `podMonitorNamespaceSelector` empty, which selects every PodMonitor. Rechecked
+  on vind (agentgateway v2026.10.0, kube-prometheus-stack 80.4.2, operator v0.87.1):
+  the pool is generated, the proxy `:15020` target is up, and
+  `agentgateway_requests_total` carries `namespace`. The running config can lag
+  the PodMonitor by a minute, so a check in that window looks like a missing pool.
+  install-monitoring.sh applies the monitor, so a later `solomog agentgateway`
+  sync leaves it in place. The control plane's `:9092` port is not scraped.
+
+### Host-based routing for UIs (vs path-based for apps)
+Apps route **by path** on the shared gateway host (`/openai`, `/httpbin`) — covered by expose's
+`*.HOST` wildcard line, no per-app `/etc/hosts` entry. UIs route **by sub-host** at `/`
+([scripts/route-host.sh](scripts/route-host.sh)): `ui.agw.<cluster>.test`, `grafana.agw.<cluster>.test`.
+Reason: the Solo UI and Grafana both assume they own their base path, so a prefix-stripping
+rewrite breaks their assets — give each its own host instead.
+**The Solo UI is ONE SPA serving every product under a route prefix** — `/ke/` kagent,
+`/age/` agentgateway, `/ie/` istio — gated client-side by the `PRODUCT_*_ENT_ENABLED` env
+vars the management chart renders from `products.<p>.enabled`. Bare `/` redirects to the
+first *enabled* product, and a prefix whose product is disabled REDIRECTS rather than 404s,
+so browsing to the wrong one looks exactly like "that product isn't installed". Those vars
+reach the browser via `/env-config.js`, which the frontend serves `no-store` but the SPA
+reads **once per page load** — so after enabling a product, an already-open tab keeps the
+old product set indefinitely. Diagnose by comparing `curl -s localhost:4000/env-config.js`
+against `window.environmentVariables.PRODUCT_<X>_ENT_ENABLED` in the console; a hard reload
+is the fix. Install paths must always name the product prefix, never bare `/`.
+- The sub-host is **nested under expose's wildcard cert** (`*.agw.<cluster>.test`), so TLS is free —
+  no new cert. The expose Gateway sets no listener `hostname` and allows routes from all namespaces,
+  so it accepts any sub-host. **DNS mode follows the gateway**: route-host.sh reads expose's
+  `solomog.io/host` annotation — a `.test` base nests (`ui.agw.<c>.test`, /etc/hosts), a DNS=real
+  base flattens (`ui-agw-<c>.<domain>` — still one label, same `*.<domain>` LE cert; record
+  upserted via the OPNsense API). Don't derive sub-host names any other way.
+- **Every `/etc/hosts` write goes through `solomog_hosts_set`** ([scripts/lib/hosts.sh](scripts/lib/hosts.sh))
+  — scripts and bundle hooks alike (hooks get `SOLOMOG_LIB` for exactly this). It is the repo's
+  **only** privileged operation, and deliberately ONE exactly-matchable command,
+  `sudo /usr/bin/tee /etc/hosts` (absolute path — sudo resolves a bare `tee` through the caller's
+  PATH), with the dedup done unprivileged beforehand. That is what `solomog setup:sudo`
+  ([scripts/setup-sudo.sh](scripts/setup-sudo.sh)) grants NOPASSWD in `/etc/sudoers.d/solomog`, so
+  unattended runs never stall on a password — and the installer *generates* the rule from the same
+  `$SOLOMOG_HOSTS_TEE` the write uses, so the two cannot drift. A hook-local `tee -a`/`sed -i`
+  variant would fall outside the rule and start prompting again (this is why the portal-httpbin
+  hook was migrated). New privileged needs: extend that one fragment, don't sprinkle `sudo`.
+  Each written line is stamped `# solomog cluster=<CLUSTER>` (`CLUSTER` is required).
+  `vind:delete` / `vsphere:delete` / `hosts:clean` call `solomog_hosts_unset_cluster`,
+  which drops **only** exact-stamp lines — unmarked leftovers, including other `*.test`
+  names, stay and are printed. Same ownership idea as the OPNsense DNS=real descr
+  prefix. A sidecar ledger under `.solomog/` is the wrong source of truth (`/etc/hosts`
+  is machine-wide). Re-run expose (or any `solomog_hosts_set`) to restamp a legacy
+  unmarked line so the next teardown can remove it.
+- **`/etc/hosts` has no wildcard support**, so each sub-host needs its own explicit line. Ordering is
+  handled both ways: `route-host.sh` adds the line immediately if the gateway already exists, and
+  `expose.sh` **backfills** entries for any sub-host HTTPRoute already attached to its gateway (jq over
+  `httproute -A`, matching hostnames ending in `.$HOST`). So `agentgateway:ui expose ROUTE=true` works
+  regardless of which runs first.
+- The HTTPRoute lives in the **Service's** namespace (same-namespace backendRef → no ReferenceGrant),
+  while its `parentRef` points at the gateway in `agentgateway-system`.
+
+### Custom config bundles (the escape hatch)
+For bespoke / customer-repro config not worth generalizing into a product or app, use a
+**bundle**: a directory of manifests under `bundles/<name>/` applied in order by
+[scripts/apply-bundle.sh](scripts/apply-bundle.sh) via `solomog apply BUNDLE=<name> CLUSTER=…`.
+
+**[bundles/README.md](bundles/README.md) is the authoring convention and the source of truth
+for bundle *layout*** — read it before creating or restructuring one. What follows here is the
+machinery behind it (what to change in `apply-bundle.sh` / `test-bundle.sh`), not a substitute.
+- **Hybrid git layout**: `bundles/<name>/` is committed; `bundles/private/<name>/` is
+  gitignored (sensitive config) and **overrides** a committed bundle of the same name.
+- **Only the bundle root is applied.** apply-bundle.sh lists top-level entries and keeps
+  `.yaml` / `.yml` / `.yaml.tmpl` / `.sh` — a directory never matches. So the standard
+  subdirs (`tests/`, `docs/`, `custref/`, `helpers/`) are structurally un-appliable; that
+  is what makes `helpers/` safe for scripts that must not run at apply time. `agentcore/`
+  is a **reserved** name — `agentcore:list`/`:env`/`:shell` discover projects with
+  `find bundles -name agentcore.json -path '*/agentcore/*'`. Don't add a root-level file
+  filter that would break either property.
+- **Ordering**: `LC_ALL=C` byte sort, zero-padded numeric prefixes. Padding — not `sort -V`,
+  which BSD/macOS sort lacks — is what guarantees sequence.
+- **Templating**: `.yaml.tmpl` is rendered through a `sed` allow-list of `%%TOKEN%%`
+  placeholders; plain `.yaml` applies verbatim. `%%TOKEN%%` (NOT `$VAR`/envsubst) is
+  deliberate — it can't clash with a `$` in a manifest and needs no gettext dep.
+  **Adding a token means two edits**: `render()` in apply-bundle.sh *and* the
+  leftover-token error's "Supported tokens" list. A leftover `%%FOO%%` is a hard error,
+  and the check scans the whole file **including comments**, so never write a literal
+  `%%WORD%%` in a `.tmpl` unless it's a real token (this bit the example bundle once).
+  `.env`-sourced tokens (the `%%BEDROCK_GUARDRAIL_*%%` pair) have **no default** and are
+  substituted only when non-empty, so an unset one trips that error rather than rendering
+  an empty value the CRD rejects less legibly. The current token table is in bundles/README.md.
+- **Executable hooks**: a `.sh` file is *run* (not applied) at its sorted position — the
+  escape hatch for imperative steps, mainly secrets sourced from `.env` so the value never
+  lands in a committed file. Hooks inherit the env + `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` +
+  **`SOLOMOG_LIB`** (`scripts/lib` — source shared helpers like `hosts.sh` from there rather
+  than re-implementing them or walking `../..`, which differs for `bundles/private/<name>`;
+  cwd = bundle dir) and are **skipped under DRY_RUN** (an arbitrary script can't be assumed
+  side-effect free).
+- **No prune, idempotent**: `kubectl apply` only; removing a file never deletes a resource.
+  `DRY_RUN=true` → `--dry-run=server` (real validation; needs a live cluster, and a CR that
+  depends on an earlier file's namespace/CRD will fail under dry-run since nothing's written).
+- **`BUNDLE` and `BUNDLES` are interchangeable** (like `CLUSTER`/`CLUSTERS`), and either
+  may name **several** bundles space-separated — `solomog apply BUNDLES="llmroute-vertex
+  llmroute-bbr" CLUSTER=…` applies them left-to-right (stop on first error), same for
+  `test`. The Taskfile folds both vars into the `BUNDLE` env (`{{.BUNDLES | default
+  .BUNDLE}}`); apply-bundle.sh / test-bundle.sh loop over the list (one run-dir per bundle
+  for tests, with a combined tally). `bundles:show` stays single-bundle (discovery).
+- `bundles:list` / `bundles:show` (via [scripts/bundles.sh](scripts/bundles.sh)) are
+  cluster-free discovery; `solomog bundles:list FILTER=<substr>` filters names
+  (case-insensitive, literal). Do not use `MATCH=` here — go-task reserves
+  `.MATCH` for wildcard captures. `FILTER` is CLI-only (a value in `.env` would
+  silently shrink every list). `apply` is framed through `run.sh` like other leaf tasks.
+- **Export** (`solomog export BUNDLE=<name>`, [scripts/export-bundle.sh](scripts/export-bundle.sh))
+  is a cluster-free, secret-safe hand-off of one bundle's *declarative* config. Phase 1:
+  `.yaml` / rendered `.yaml.tmpl` go into `manifests/`; `.sh` hooks are **not** executed
+  (copied to `manual-steps/` and listed in the package README). Also writes `env.example`
+  (vars the bundle needs, secrets flagged), `PREREQUISITES.md`, best-effort
+  `install/values.yaml`, and a README. A backstop scans the package for real `.env`
+  values and redacts leaks. Default output: `.solomog/exports/<bundle>-<ts>/`.
+- **Testing**: `tests/*.sh` run by `solomog test BUNDLE=…`
+  ([scripts/test-bundle.sh](scripts/test-bundle.sh)) in sorted order. **A test is just the
+  command(s)** — the runner execs the file and judges pass/fail by exit code, with no
+  scaffolding. It exports `CONTEXT`/`CLUSTER`/`GATEWAY`/`HOST` and inherits `.env`, so tests
+  substitute with plain shell vars (`$HOST`), never `%%TOKEN%%` — that's what keeps them
+  copy-pasteable for a customer. Runs are captured to `.solomog/test-runs/<bundle>-<ts>/`
+  (gitignored). `apply` globs files only, so `tests/` is never applied. Authoring conventions
+  (self-skip, assert the thing not the status code, cheap-control-first ordering) are in
+  bundles/README.md — don't reintroduce response-parsing scaffolding in examples.
+  - **Python-based tests**: the runner only globs/execs `*.sh`, so a Python test is a `.sh`
+    that shells out. Don't `pip install` (system Python is PEP 668 externally-managed) — run
+    via **`uv run --with <dep> --python 3.x`** (ephemeral, cached, isolated deps; `uv` is a
+    setup.sh prerequisite). Two gotchas that look like product bugs:
+    - **TLS.** uv-managed Python uses certifi, NOT the macOS keychain, so HTTPS to the mkcert
+      gateway fails with `CERTIFICATE_VERIFY_FAILED`. Add `--with truststore` and
+      `import truststore; truststore.inject_into_ssl()` so TLS uses the OS trust store (where
+      `mkcert -install`, run by `expose`, put the CA). See `bundles/mcp-in-cluster/tests/`.
+    - **Pin the MCP SDK: `--with 'mcp<2'`.** `mcp` 2.0.0 renamed `streamablehttp_client`, so a
+      bare `--with mcp` resolves to a new major and the test dies on import — a fresh failure in
+      a test that passed yesterday, with nothing in the bundle changed. Repo is mid-migration:
+      `grep -rl -- "--with mcp" bundles/` still finds unpinned callers. Pin any new one.
+
+### Standalone agentgateway (no cluster at all)
+A different **shape** from everything else in solomog, not just another product. Standalone
+agentgateway is one self-contained binary: no control plane, no xDS, no CRDs, and the proxy
+needs no Kubernetes API access. So `solomog standalone` runs it as a plain **Docker
+container** against a local config file, and never touches a cluster.
+[standalone/README.md](standalone/README.md) is the authoring convention; the machinery is
+[scripts/standalone.sh](scripts/standalone.sh).
+
+- **Why Docker, not vind.** A cluster would add a vcluster, an haproxy LB, `/etc/hosts` (sudo)
+  and mkcert for a gateway that needs none of it, and it would blur into `agentgateway:ui`.
+  The Helm chart does exist and is published (`enterprise-agentgateway-standalone`, tags
+  v2026.8.0+, under the `helm_repo_agentgateway` URL already in `enterprise.yaml`) — a
+  Deployment + ConfigMap + Service + SA, no CRDs and no RBAC. Adding it later is a normal
+  product module; it is deliberately NOT the first path.
+- **Config format is `LocalConfig`, not CRDs.** `standalone/<name>/config.yaml`. This is why
+  standalone is a sibling tree to `bundles/` rather than a bundle flavor: bundles are
+  kubectl manifests, and neither schema converts to the other.
+- **`NAME` is the config; `INSTANCE` is the running thing** (defaults to `NAME`). When they
+  differ, the config is copied to `.solomog/standalone/<INSTANCE>/` and mounted from there —
+  two instances must never share one config dir, since both would write `config.yaml` and
+  `data.db`. A scratch instance is re-seeded only when its copy is absent, so re-running
+  resumes rather than clobbering. Actions that address a running instance (`stop`, `delete`,
+  `logs`) take `INSTANCE` and accept `NAME` as an alias.
+- **The user-facing names are `CONFIG` and `CLUSTER`**, aliased onto `NAME`/`INSTANCE` in each
+  task's `env:` block; all four stay accepted. `CLUSTER` is the identity you invent and later
+  address, `CONFIG` describes what goes in it — the same split as `CLUSTER` plus
+  `PRODUCTS`/`EDITION` for a real cluster. It also closes a seam: `CLUSTER` was already how
+  `cluster:list`, `cluster:show` and `teardown` reached an instance, so only the `standalone:*`
+  tasks spoke a different language. The scripts keep `NAME`/`INSTANCE` internally — the
+  accurate words for what they select — so aliasing costs one template chain, not a code path.
+  - **`CONFIG` needs a `vars:` declaration to pass the wrapper's preflight.**
+    `_solomog_validate_load_keys` harvests names from `env:`/`vars:` KEYS, and `CONFIG` appears
+    only on the right-hand side of the alias chains, so `CONFIG=llm` would be rejected as
+    unknown. One `CONFIG:` key on the `standalone` task registers it globally (the preflight is
+    not per-task). `CLUSTER` needs nothing — already a key on the cluster tasks.
+  - **A chained run cannot cross the wires.** `solomog agentgateway CLUSTER=aaa standalone
+    CONFIG=llm` hands one global `CLUSTER` to both, but `refuse_cluster_name_collision` rejects
+    a `CLUSTER` that names a tracked cluster, so the instance is never named after it.
+- **Instances are REGISTERED, in `.solomog/standalone-instances`** (helpers in
+  [scripts/lib/target.sh](scripts/lib/target.sh): `solomog_is_standalone`,
+  `solomog_register_standalone`, `solomog_unregister_standalone`, `solomog_standalone_names`).
+  That registry is what makes standalone a first-class target rather than an isolated island:
+  `solomog_cluster_type` returns `standalone`, `cluster:list` shows a row (Context column =
+  `docker/<container>`, since no kube context exists), and `teardown` classifies and destroys
+  it. A registry file — not live Docker discovery — because `teardown` must classify a name
+  even when Docker is down, or it would mistake an instance for a vcluster and run the wrong
+  destroy. Checked AFTER the contexts registry (a real cluster always wins a name) and BEFORE
+  the vind fallback. `run` refuses a name already tracked as a cluster, so the sets stay
+  disjoint. **The file is `standalone-instances`, not `standalone`** — `.solomog/standalone/`
+  is the scratch state directory, and one path cannot be both (this collided in development).
+- **In `cluster:list` / `cluster:show` the TYPE cell is dark purple** (256-colour 97, the same
+  slot as `ui.sh`'s `_SM_DIM`, so the tool keeps one palette), and the STATUS stays uncoloured
+  like every other type. Colour marks *what the row is*, not how it is doing — a standalone row
+  is the odd one out because it is not a cluster, and that is a property of its type. Two rules
+  this encodes: no `_*_status` function may return escape codes (the list awk sizes the Status
+  column with `length($6)`, so colour there silently inflates the width), and colour is applied
+  by padding to width FIRST and wrapping after, because `printf "%-*s"` counts escape bytes as
+  width. `cluster:show` on a standalone instance prints config/ports/ui/tracked and stops —
+  `current`/`certs`/`hosts` are kube- and mesh-specific, and four `none`s read as something
+  missing rather than something inapplicable.
+- **`stop` vs `delete` mirrors the cluster verbs.** `stop` removes only the container; the
+  registry entry, config, and state stay, so re-running resumes. `delete` makes the instance
+  stop existing: container, registry entry, and runtime state — but NOT the config under
+  `standalone/`, which is source, not state (tearing down a cluster does not delete your
+  helmfiles either). It prints the `rm -rf` for the config rather than running it. Prompts
+  unless `FORCE=true`, and `teardown` passes `FORCE=true` after its own batch prompt.
+- **The UI is the gateway's OWN, compiled into the binary.** Do not confuse it with the Solo
+  Enterprise UI *management chart* that `agentgateway:ui` installs onto a cluster.
+  Three placements, all real: omit the `ui` key → admin interface only; `ui: {}` → also
+  attaches to the gateway named `default` (the schema auto-attaches when `ui.gateways` is
+  omitted); `ui.gateways: <name>` → a named gateway.
+- **`ADMIN_ADDR=0.0.0.0:15000` is mandatory and solomog sets it.** The default `adminAddr`
+  binds the *container's* loopback, so `-p 15000:15000` would publish a port nothing listens
+  on, and the image is distroless (no shell) so there is no in-container workaround. The env
+  var takes precedence over `config.adminAddr`, which is how solomog forces it without
+  editing your config file.
+- **Ports: probe, increment, and retry the real check.** Container ports come from
+  `gateways.*.port` in the config (listeners share the gateway's port — they split on
+  hostname — so that is the complete set). Each host port is probed from its start value
+  upward for `PORT_TRIES` (default 25) attempts, then the run is retried up to 5 times one
+  port higher if Docker's own allocation check loses the race. Probing alone is a TOCTOU
+  race; Docker's check is the one that counts. Restarting the same NAME removes its own
+  container first, so it reclaims its previous ports rather than drifting upward.
+- **`BIND` defaults to `127.0.0.1`, deliberately.** Docker's own default is `0.0.0.0`, which
+  would put the UI on the LAN. `BIND=0.0.0.0` opts in; the probe then tests that address,
+  since a listener on `0.0.0.0:4000` also blocks `127.0.0.1:4000`.
+- **Secrets are `$VAR`, expanded from the environment** — `shellexpand::full` over the whole
+  file before parsing ([crates/agentgateway/src/config.rs](https://github.com/solo-io/agentgateway-enterprise/blob/main/crates/agentgateway/src/config.rs)).
+  So `.env` → `docker -e` → `$VAR` in the config, with no templating layer. standalone.sh
+  scans for the references and passes exactly those through.
+  **An unset one aborts the whole config load** and the gateway's error does not name it, so
+  standalone.sh pre-flights and names it. The scan mirrors the gateway's own preprocessing
+  exactly — it strips the literal `# yaml-language-server: $schema` substring first, which is
+  the ONLY `$`-bearing comment the gateway makes safe. Any other `$IDENT` anywhere, comments
+  and regexes included, must exist; trailing `$` and `$$` are fine.
+- **`--validate-only` is a free, cluster-free, license-free gate.** `standalone:validate`
+  runs it, and `standalone` runs it as a pre-flight so a bad config fails readably instead of
+  as a crash-looping container. It earns its keep: the LiteLLM importer can emit configs the
+  gateway rejects (an `azure` provider with `baseUrl` but no `azureResourceName`).
+- **`import` has one source, `litellm`.** standalone.sh normalizes the importer's relative
+  `sqlite://data.db` to `sqlite:///config/data.db` — the container's working directory is `/`,
+  so the relative form would put SQLite state inside the container and lose it on `docker rm`.
+- **The config dir is mounted READ-WRITE on purpose.** With `config.storage.mode: file` the UI
+  writes edits back into `config.yaml`, so they land in `git diff` — that is how you build a
+  config by clicking. `standalone/*/data.db*` is gitignored. A config that declares no
+  `config.database` creates no SQLite file at all. **A UI save DISCARDS comments** — the writer
+  re-emits the file from the parsed structure and only re-adds the `$schema` hint, so a
+  documented example loses its prose. Copy to a scratch name before clicking around.
+  Config changes **hot-reload** (the gateway watches the file; `state_manager loaded config
+  from File(...)`), in both directions — verified by POSTing `/api/config` and by editing the
+  file back.
+- **The UI writes generated state into the config dir.** Enabling LLM cost tracking pulls a
+  ~180KB `base-costs.json` beside `config.yaml` and adds `config.modelCatalog: [{file: …}]`.
+  Both are gitignored / kept out of the committed examples. A dangling `modelCatalog` file
+  reference is NOT fatal (verified): `--validate-only` passes, and at runtime the gateway logs
+  `model catalog load failed; will load when the files become valid`, watches the path, and
+  serves normally. So a fresh clone is fine.
+- **UI backend API, for scripted checks:** the internal `ui` route serves `/ui` plus
+  `/api/runtime`, `/api/config` (GET the live config, POST to replace it — no PUT/PATCH),
+  `/api/cel`, `/api/logs`, `/api/costs`. `/config_dump` on the admin port shows the resolved
+  binds/listeners/routes, which is how to confirm a config actually loaded.
+- **Version pin is `AGENTGATEWAY_STANDALONE_VERSION`, separate from `AGENTGATEWAY_VERSION`.**
+  Standalone landed in 2026.8.0 and has no equivalent on the SemVer line, so pinning
+  `AGENTGATEWAY_VERSION=v2.3.3` to mirror a customer env must not drag standalone to a release
+  where it does not exist. **No `v` prefix** — the image line is unprefixed, the chart line is
+  prefixed (chart `v2026.8.2` = image `2026.8.2`).
+- **License: required, no grace period, and NO `SOLO_LICENSE_KEY` fallback.** The standalone
+  verifier accepts only Solo's 2-segment header-stripped form and needs a `product` claim;
+  `SOLO_LICENSE_KEY` and `KGATEWAY_LICENSE_KEY` are ancient product-less keys that fail with
+  `malformed claims`. So standalone.sh requires `AGENTGATEWAY_LICENSE_KEY` and says why —
+  inheriting the usual `| default SOLO_LICENSE_KEY` chain would turn a missing key into a
+  confusing crash. Mint one if needed:
+  `cd ../licensing/tools && go run cmd/genlicense/main.go -product agentgateway -enterprise -days 365`.
+- **`ui`/`llm`/`mcp` are ATTACH-or-PORT, and their default ports collide with the usual
+  gateway port.** Each either attaches to a gateway (explicit `gateways:`, or omitted →
+  auto-attach to one named `default`, per `apply_implicit_default_gateway`) or becomes its own
+  listener on `<section>.port` — `DEFAULT_LLM_PORT` is **4000**, `DEFAULT_MCP_PORT` **3000**.
+  `llm.gateways` and `llm.port`/`llm.tls` are mutually exclusive. **The UI onboarding wizard
+  writes a port rather than attaching**, so "Enable LLM" fails to save on any config whose
+  gateway is on 4000 — including the gateway's OWN bootstrapped config (verified by POSTing
+  `/api/config` against a self-bootstrapped instance: 500, `port 4000 is configured by both
+  gateways.default and llm`). A product defect, not ours. All `standalone/` examples therefore
+  declare all three capabilities attached. standalone.sh's port discovery mirrors the
+  auto-attach rules so a top-level `llm.port`/`mcp.port` IS published — but only at start; a
+  port the UI adds mid-run needs a re-run to publish.
+- **No `stdio` MCP targets.** Distroless image: no shell, no node, no `npx`. `--validate-only`
+  accepts one (schema check only); it fails at request time. Use an HTTP target on
+  `host.docker.internal`.
+
+### Credentials & `.env` plumbing
+Not bundle-specific, though bundles are the main consumer: cloud backends read short-lived
+tokens out of `.env`, and these tasks keep them fresh.
+- **`solomog gcp:refresh`** ([scripts/gcp-refresh.sh](scripts/gcp-refresh.sh))
+  re-fetches a GCP token (`gcloud auth print-access-token`) into `.env` as `GCP_ACCESS_TOKEN`
+  (general GCP token, not Vertex-specific) — ONLY updates `.env`; re-run the bundle to push it
+  into the cluster secret. Writes are **in-place** (via [scripts/lib/envfile.sh](scripts/lib/envfile.sh))
+  so the key stays in its `.env.example` section — never appended at EOF. A timestamped backup
+  lands under `.solomog/env-backups/` first. `solomog gcp:refresh apply BUNDLE=… CLUSTER=…` works
+  *because the wrapper runs each task as its own `task` invocation* and go-task re-reads dotenv per
+  invocation, so `apply` sees the freshly written token. (A raw `task gcp:refresh apply` in one
+  process reads `.env` once — would miss it.) Token is short-lived (~1h); re-run manually when
+  a backend 401s.
+- **`solomog aws:refresh`** ([scripts/aws-refresh.sh](scripts/aws-refresh.sh)) is the **same
+  pattern for AWS Bedrock**: SSO issues temporary creds (access key + secret + session token,
+  ≤12h), so it runs `aws configure export-credentials` (and `aws sso login` first if the
+  session is stale) and updates the three `AWS_*` vars in place. `AWS_PROFILE` (set in
+  `.env`) picks the SSO profile; `AWS_SSO_SESSION` (default `SOlo`) names the session for the
+  login fallback. Bundle `bundles/llmroute-bedrock/` consumes them via a `policies.auth.aws.secretRef`
+  secret (keys `accessKey`/`secretKey`/`sessionToken`). Creds are short-lived (≤12h) — re-run
+  manually when a route 401/403s. Same dotenv-reread chaining: `solomog aws:refresh apply BUNDLE=llmroute-bedrock CLUSTER=…`.
+  **Reading AWS creds back out of `.env` goes through `solomog_aws_env_load`**
+  ([scripts/lib/target.sh](scripts/lib/target.sh)) — never `export "$(grep ^KEY= .env)"`.
+- **`solomog agentcore:env` / `agentcore:shell` take the OPPOSITE cred posture on purpose**
+  ([scripts/agentcore-env.sh](scripts/agentcore-env.sh)): the `agentcore` CLI runs in the user's
+  interactive shell, which never reads `.env`, so they resolve creds through the **SSO profile
+  only** (auto-refreshing from the SSO cache) and *unset* all four static vars — stale statics
+  outrank the profile in the credential chain and 403 everything. They also pin each project's
+  own region (from its `agentcore/aws-targets.json`) and its project dir. Projects are DISCOVERED
+  (any dir holding `agentcore/agentcore.json`) — never hardcode a bundle/project/runtime name in
+  these scripts; they must stay generic across users, since the projects themselves usually live
+  in gitignored `bundles/private/`. `agentcore:list` enumerates them and is **verified against AWS
+  by default** (local `deployed-state.json` is written only by `agentcore deploy`, so alone it
+  reports out-of-band deletions as live); `agentcore:prune` reconciles stale state.
+  `agentcore:env` prints shell-eval-able exports on
+  **stdout with every human word on stderr**, so it must bypass both run.sh framing and the
+  wrapper's banners (which print to stdout) — the `solomog` wrapper special-cases it beside `help`
+  and execs `task -s`.
+  Every key in `.env.example` carries a trailing `# comment`, and the raw line exports the
+  comment as part of the value (`The config profile (AdministratorAccess-…  # e.g. solo-sso …)
+  could not be found`). It also unsets any AWS var that is *empty* rather than exporting `""`:
+  a blank `AWS_REGION` (a documented `.env` state, exported by go-task) makes every region-less
+  call die with `Invalid endpoint: https://sts..amazonaws.com`. Pair it with `solomog_aws_ok`
+  (soft identity probe) or `solomog_aws_preflight` (same, but exits with the fix hint).
+- **`.env` hygiene**: `.env.example` is the canonical layout (sections + comments).
+  `solomog env:sync` rebuilds `.env` from the example while overlaying your values;
+  `solomog env:diff` reports key drift (names only); `solomog env:backup` snapshots to
+  `.solomog/env-backups/` (also auto on refresh/sync). Prefer sync after pulling example changes
+  rather than hand-editing section order.
+### vSphere homelab provisioner (optional capability)
+A third cluster provisioner beside vind and EKS: real k3s clusters on David's home
+vCenter 7.0.3. **Spec is the source of truth**: [docs/specs/vsphere-provisioner.md](docs/specs/vsphere-provisioner.md)
+(architecture, decisions record, phases). The short version:
+- **Isolation contract** (do not break): all vsphere logic lives in
+  `taskfiles/vsphere.yaml` (an `optional: true` include — the root Taskfile carries
+  only the includes block), `scripts/vsphere-*.sh` + `scripts/lib/vsphere.sh`,
+  `terraform/vsphere-*`, and `helmfiles/addons/metallb.yaml.gotmpl` (deliberately
+  self-contained — no commons bases, repo URL inline). OpenTofu is lazy-checked
+  (the eksctl precedent) — NEVER add it to setup.sh; uv is lazy-checked too but is
+  ALREADY a setup.sh prerequisite (bundle testing) — leave it there. Missing
+  `VSPHERE_*` config fails every vsphere task fast. There is no feature flag; the
+  preflight is the flag.
+- **Registry seam**: `vsphere:create` registers `<cluster> → vsphere_<cluster>` in
+  `.solomog/contexts`, after which every task works via `CLUSTER=` like any external
+  cluster. `solomog_is_vsphere` (lib/target.sh) identifies them — LB semantics branch
+  on it, lifecycle branches on `solomog_is_external`.
+- **State**: OpenTofu, one workspace per cluster (`terraform/vsphere-k3s/`), state
+  gitignored, lock files committed. Node-IP allocator in `.solomog/vsphere/ippool`
+  (roles `server`/`agent-N`). LB VIPs: each cluster reserves a contiguous **slice**
+  of `VSPHERE_LB_POOL` at create (`vsphere_alloc_lb_slice`, `VSPHERE_LB_SLICE_SIZE`
+  default 4, rows `lb-0..N`) and its MetalLB IPAddressPool carries ONLY that slice —
+  independent MetalLBs given the same pool all pick the SAME VIP (service-identity
+  hash) and ARP-battle, so partitioning at create is required; within its slice
+  MetalLB auto-assigns freely (no pinning — removed with spec decision 13; the
+  DNS=real upsert tracks VIP changes). ⚠ Keep the pool free of live hosts —
+  MetalLB does no liveness check and a foreign device ARP-battles the VIP.
+  `vsphere:delete` also deletes the cluster's DNS=real records from OPNsense
+  (matched on the descr expose stamps; best-effort).
+- **Snapshots & power**: `vsphere-snapshot.py` (pyvmomi via `uv run --with pyvmomi`,
+  wrapped by `vsphere_vm_tool`) does take/revert/stop/start/status — vCenter 7.0.3
+  has no REST snapshot API and the tofu provider can't revert or power-cycle.
+  Baselines are memory-less (revert = clean cold boot, no suspend clock jump);
+  stop/start = graceful guest shutdown / power-on (pause-resume, state preserved),
+  vs snapshot/reset = savepoint-restore (discards back to baseline).
+- **Tests**: `bash scripts/test-vsphere-lib.sh` (fixtures, no vCenter needed; keep it
+  hermetic via the `VSPHERE_POOL_FILE`/`VSPHERE_INIT_STATE` overrides).
+
+### Add a new scenario
+Add a task in `Taskfile.yaml`. For single-cluster combos, delegate to `stack.sh`.
+For new cross-cluster topologies, write a dedicated helmfile.
+
+**Task variables MUST be wired through the task's `env:` block.** A go-task CLI var
+(`solomog x FOO=bar`) is NOT exported to the command's environment unless the task lists
+`FOO: '{{.FOO | default ""}}'` in `env:` — so a script that reads `${FOO:-default}` without
+that wiring silently ignores the override (this is exactly how `HTTP_PORT`/`GATEWAY_NS` were
+dead despite being documented). When a script documents an `Env:` knob, the calling task must
+wire it. Use `default ""` and let the script supply the real default, so there's one source
+of truth for the default value.
+
+**A task's `env:` default CANNOT override a value already sitting in `.env`.** go-task
+resolves the template var `.FOO` from dotenv *before* the task's own `default "..."`
+expression ever runs — so if `.env` sets `FOO=true`, then `FOO: '{{.FOO | default "false"}}'`
+still yields `true` when no CLI arg is passed (verified empirically). There is no template
+trick to make a task "CLI-only" while the same var is also dotenv-sourced. For a setting
+that must never silently persist across clusters/sessions (e.g. `TOKEN_EXCHANGE` — enabling
+it globally would crash-loop the controller on any *other* cluster lacking Keycloak), the
+**only** fix is to not define it in `.env`/`.env.example` at all, and give the task's `env:`
+entry a hardcoded default (`default "false"`, no `env "..."` fallback). Settings that are
+inert without that master flag (`TOKEN_EXCHANGE_JWKS_URL`, `_API_VALIDATOR`) can still safely
+use the `default (env "...")` fallback pattern and persist in `.env`.
+
+**Per-task help (`solomog help <task>`)** surfaces each task's variables/defaults/examples
+via go-task's `summary:` field (the wrapper runs `task --summary`). Keep the `summary:` in
+sync with the script's `Env:` header when you add/change a knob. ⚠️ **Never expose
+`task --summary` output raw** — go-task appends the task's *resolved* `vars:`/`env:` blocks,
+which include `.env` SECRET VALUES (license keys, tokens). The `solomog` wrapper strips that
+trailer with an awk filter (drops everything from a `^vars:`/`^env:` line until the next
+`^task:`); summaries therefore must not begin a line with a bare `vars:`/`env:` (use
+`Variables:`). If you change the help path, preserve that filter.
+
+**Keep a `summary:` to about one screen** — roughly 30 lines, so `solomog help <task>` fits a
+terminal without scrolling. Not a hard limit, but a wall of text is worse than a short answer
+plus a pointer. The median summary is ~15 lines. What belongs: one or two sentences on what
+the task does, the `Variables:` table, and `Examples:`. What does not: the reasoning behind a
+default, gotchas, and product behavior — those go to `standalone/README.md`,
+`bundles/README.md`, or this file, and the summary links there in one line. Write it in
+[Google developer documentation style](https://developers.google.com/style): answer first,
+second person, present tense, active voice.
+
+**Framing + timing live at two levels.** The `solomog` wrapper owns the run: it splits
+the command line into task names vs `KEY=VALUE` globals, **preflights the whole line**
+(unknown tasks and unknown `KEY=` names fail before any task runs — `monitor` never
+reaches `expose`), then runs each task as its own `task` invocation (this is why
+dotenv re-reads between tasks — see gcp:refresh), times each, stops on first failure,
+and prints ONE grand-total summary plus start/end 🗿 banter. `SOLOMOG_ALLOW_UNKNOWN_VARS=true`
+(CLI, prefix, or `.env`) downgrades unknown KEY names to warnings; unknown tasks still
+fail. Version *values* are not pre-checked. Leaf tasks must go through
+`scripts/run.sh "<title>" <command...>`, which prints a step delimiter only
+(timing/summary are the wrapper's job — don't add per-task summaries there). `stack.sh` /
+`mesh.sh` frame their own multi-step progress + a content summary (what was built). Don't
+call `helmfile`/scripts bare from a task.
+
+**Run audit log.** The wrapper appends one compact line per run to
+`.solomog/audit/YYYY-MM.log` (monthly rotation, gitignored, beside `test-runs/`):
+`<ISO-ts>  <ok|FAIL>  rc=<n>  dur=<n>s  <tasks + vars>  [per-task=Ns …]`. Secret-looking
+var VALUES (name matches KEY/TOKEN/SECRET/PASSWORD/PASS) are redacted to `***`. It's
+best-effort — never fails the run — and bare `solomog` (the task list) isn't audited.
+
+**In-flight runs.** Those same commands write `.solomog/runs/<pid>` at start
+and remove it on exit (Ctrl-C included; a `kill -9` is dropped on the next
+scan when the pid is dead or its start time no longer matches). A second
+command prints the others to stderr and continues. `solomog clusters` prints
+them above the cluster table instead of that note — an `eks:create` shows up
+there during the 15–20 minutes before the context is registered. When the new
+command names a cluster the other run also names, the note adds
+`same cluster: <name>`. Secret values use the audit redaction.
+Scanners skip `SOLOMOG_RUN_PID`, the wrapper's own pid.
+
+## Gotchas (learned the hard way)
+
+- **`.env` inline comments after an EMPTY value are not comments — they become the literal
+  value.** go-task's dotenv parser strips a trailing `# comment` only when a real value
+  precedes it (`FOO=true    # comment` → `true`, confirmed). But `FOO=    # comment` (empty
+  value) yields the literal string `"# comment"` as `$FOO` — this crash-looped the
+  agentgateway controller once (`TOKEN_EXCHANGE_JWKS_URL=            # default: http://...`
+  became the JWKS URL, producing `unsupported protocol scheme ""`). Fix: quote genuinely-empty
+  defaults — `FOO=""    # comment` parses to a true empty string with the comment intact
+  (verified). Every `VAR=<empty> # comment` line in `.env.example` uses this `=""` form; keep
+  new ones consistent.
+- **Scripts must stay bash 3.2 compatible.** macOS ships bash 3.2.57, and Taskfile
+  runs scripts via `bash scripts/...` which resolves to it. Avoid bash 4+ features:
+  no `mapfile`/`readarray` (use `while IFS= read -r`), no `${var,,}`/`${var^^}`
+  (use `[[ "$x" =~ ^[Yy] ]]` or `tr`), and guard empty arrays before `"${a[@]}"`
+  under `set -u`.
+- **Teardown requires an explicit CLUSTER list.** `solomog teardown` (and `delete` /
+  `vind:delete` / `vsphere:delete` / `eks:delete`) never defaults to all clusters —
+  omit `CLUSTER=` / `CLUSTERS=` and the command fails listing known names. Hand-made
+  vclusters are still never auto-targeted; naming one explicitly is on you.
+  `vind-teardown.sh` prunes stale `.solomog/clusters` entries as a side effect.
+- **Taskfile is plain YAML, not gotmpl.** A flow sequence containing a template,
+  e.g. `cmds: [bash x.sh {{.VAR}}]`, breaks the YAML parser because `{{` opens an
+  inline mapping. Use block style:
+  ```yaml
+  cmds:
+    - bash x.sh {{.VAR}}
+  ```
+- **Helmfiles and env-values files that use templating MUST end in `.gotmpl`.**
+  Helmfile v1 does not template plain `.yaml` (it parses them as literal YAML, so
+  `{{ env "X" }}` both fails to render and breaks parsing via nested quotes). All
+  `helmfiles/products/*.yaml.gotmpl` and the templated env files
+  (`default.yaml.gotmpl`, `community.yaml.gotmpl`) carry the extension; static files
+  (`enterprise.yaml`, `commons.yaml`, `apps/*.yaml`) stay `.yaml`. Scripts reference
+  modules by their full `.yaml.gotmpl` name.
+- **`bases:` env-values paths resolve relative to the *consuming* helmfile**, not the
+  base file. That's why `commons.yaml` uses `../environments/...` (the modules live
+  in `helmfiles/products/`).
+- **OCI repo URLs must be scheme-less when `oci: true`** — helmfile prepends `oci://`
+  itself, so an `oci://` in the URL produces `oci://oci://...`. Classic HTTP Helm
+  repos (Gloo Gateway) keep their `https://`.
+- **vcluster docker driver: defaults only, and `connect` registers the context.**
+  vcluster 0.35 removed the `controlPlane.distro.k3s` config (k8s is the embedded
+  default) — passing it fails with `unknown field "k3s"` and the create retries for
+  ~3 min before dying. So vind-create.sh passes **no config file**. Also
+  `vcluster create --connect=false` does NOT add a kube context; you must run
+  `vcluster connect <name>` afterward (it writes `vcluster-docker_<name>` and
+  switches the active context). Custom pod/service CIDRs aren't available on this
+  driver (they need `privateNodes.enabled`).
+- **Images must be multi-arch (arm64).** The clusters run on Apple Silicon, so
+  amd64-only images crash with `exec format error` in a crash loop. The original
+  `kennethreitz/httpbin` is amd64-only — replaced with `mccutchen/go-httpbin` (Go,
+  multi-arch, listens on 8080 → Service maps 80→8080). Vet any new image for an
+  arm64 variant (`docker manifest inspect <img> | grep arm64`).
+- **Inter-cluster host routing is ephemeral** — the DOCKER-USER rules live in the Docker Desktop
+  VM and vanish on a Docker restart, silently disconnecting any multi-cluster mesh (flat or
+  gateway). Re-apply with `solomog net:repair CLUSTERS="…"`. The routing goes in **DOCKER-USER**,
+  not a private nft table: an nft table's `accept` can't override Docker's inter-bridge isolation
+  `DROP` (both are base chains on the forward hook, DROP wins), but FORWARD hits DOCKER-USER first
+  and an ACCEPT there is terminal.
+- **Certs must exist before Istio installs.** `stack.sh` and `mesh.sh` order
+  `gen-certs` first; preserve that ordering. One shared root CA is reused across all
+  clusters in a mesh — delete `certs/` to rotate.
+- **The `management` chart is a singleton.** Enterprise kagent and
+  `agentgateway:ui` both target release `management` in `agentgateway-system`
+  with `reuseValues: true`; neither may render false values for the other
+  product. Never install `kagent-mgmt` separately — the bundled cluster-scoped
+  CRDs cause Helm ownership conflicts. Both install paths reject a management
+  release found under another name/namespace.
+- **Enterprise kagent is an evaluation path, not a default secure stack.** It is
+  resource-heavy (Solo recommends 2 vCPU / 8 GB; ClickHouse requests 3 GB) and
+  0.5.4 embedded upstream beta10 (0.5.5 publishes no appVersion — unconfirmed).
+  Its production matrix is narrower than the repo defaults; keep the stack
+  compatibility checks and do not silently install Istio/agentgateway as kagent
+  dependencies. The checks still encode the 0.5.4 ranges — revalidate for 0.5.5.
+- **`gloo-mesh` in community mode is a no-op** (Gloo Mesh Enterprise has no OSS
+  build) — the module emits `releases: []`. Don't add community repos for it.
+- **Chart coordinates are not duplicated here — don't reintroduce a version table.**
+  Versions live in [versions.env](versions.env); registry URLs, chart names, namespaces,
+  and the docs link each was verified against live in
+  [enterprise.yaml](helmfiles/environments/enterprise.yaml) and
+  [community.yaml.gotmpl](helmfiles/environments/community.yaml.gotmpl), one commented
+  block per product. All are verified except the `gloo-mesh` mgmt plane (`TODO`). A copy
+  in this file just means a version bump needs two edits and silently drifts.
+  Two consequences worth knowing without opening those files:
+  - **agentgateway CalVer vs SemVer changes CRD validation.** On the CalVer line an
+    `EnterpriseAgentgatewayBackend` `policies` block may hold just `auth`; on 2.3.x the
+    stricter CEL rule also demands a non-empty `policies.ai`. So a Solo workshop manifest
+    written for CalVer fails to validate on a 2.3.x customer-mirror pin until you add one
+    — this is why the `bundles/llmroute` backends carry `modelAliases`/`promptCaching`.
+    CalVer is a naming scheme, **not** an LTS/latest/unstable channel; see versions.env.
+  - **kagent installs kmcp and a bundled PostgreSQL in both editions.** Enterprise also
+    enables kagent on the singleton `management` release and needs the JWT/OIDC secrets
+    `scripts/prepare-kagent.sh` creates.
+- Enterprise and community are on **different version lines** for kgateway,
+  agentgateway, and kagent. `community.yaml.gotmpl` overrides their product versions
+  from `*_COMMUNITY_VERSION` env vars — don't assume one version fits both editions.
+- All Gateway-API-based products (istio, kgateway, agentgateway) install the
+  **upstream Gateway API CRDs** via a `presync` hook (`kubectl apply --server-side`,
+  version from `gateway_api_version`). This is separate from each product's own
+  `-crds` chart.
+- `kgateway` (enterprise kgateway) vs `gloo-gateway` (Gloo Gateway) are **distinct
+  products** with different charts, namespaces, and license value paths. An earlier
+  draft conflated them — keep them separate.
+- The **Gloo Operator** (part of the `istio` product) vs **Gloo Mesh Enterprise**
+  (`gloo-mesh` mgmt-plane product) are also distinct — both happen to use the
+  `gloo-mesh` namespace. Don't conflate them.
+- Enterprise Istio is operator-managed, so there are **no istio base/istiod/cni/
+  ztunnel Helm releases** in that path — the `ServiceMeshController` CR drives it.
+  Only the community path installs those charts directly.
+- **App/addon scripts must resolve their kube context via `solomog_context`** —
+  seven task call sites once passed a hardcoded `vcluster-docker_<CLUSTER>` arg and
+  broke on every registered external cluster (EKS and vsphere alike). The scripts
+  now resolve `CLUSTER`/`CONTEXT` themselves (positional context arg kept only for
+  back-compat); new cluster-touching scripts must do the same.
+- **vSphere/OVA gotchas** (see the spec for detail): VMs cloned from the Ubuntu OVA
+  need a `cdrom { client_device = true }` block or every day-2 tofu plan fails
+  ("requires a client CDROM device"); the CD-ROM is IDE so it can't hot-add — VMs
+  created without it need one powered-off apply. cloud-init rides the **guestinfo**
+  datasource only because no vApp properties are set on the clone — don't add any.
+  The OVA is **amd64** (homelab vSphere), the opposite of the arm64 rule for vind
+  images. vCenter TLS: prefer `VSPHERE_CACERT` (verified custom CA) over
+  `VSPHERE_ALLOW_UNVERIFIED_SSL`.
+- **expose branches on LB semantics, not lifecycle**: vsphere targets take the
+  local path (mkcert + `/etc/hosts` — a MetalLB VIP is a private IP) via
+  `solomog_is_vsphere`; only hostname-LB clouds (EKS) take the external path. Don't
+  gate exposure behavior on `solomog_is_external`.
+- **bash 3.2 chokes on an apostrophe inside a `${VAR:?message}` word** (parses it
+  as an opening quote → "unexpected EOF"). Keep `:?` messages apostrophe-free.
+- **A trailing `[ cond ] && cmd` is a function's return value.** Under `set -e`, that idiom as
+  the LAST statement in a function leaks a non-zero status when the condition is false and
+  kills the caller — while the same line mid-function is exempt (bash does not apply `set -e`
+  to a non-final command in an `&&` list). It reads as a harmless one-liner and fails only in
+  the branch you did not test. Use an explicit `if`, and end such functions with `return 0`.
+  Bit `list_configs_indented` in standalone.sh.
+- **go-task's embedded shell is mvdan/sh, not bash — and it panics on POSIX character
+  classes in a `case` pattern.** `case $x in *[![:space:]]*)` crashes the whole `task`
+  process with a Go regexp panic, not a shell error. Inline `cmds:` blocks are the exposed
+  surface; solomog scripts are safe because they run under `bash scripts/…`. Keep real shell
+  work in a script and inline `cmds:` trivial.
+- **Don't escape nested quotes inside an unquoted `cmds:` string.** `{{.X | default \"y\"}}`
+  in a YAML plain scalar keeps the backslash, and go-task's template parser rejects it
+  (`unexpected "\\" in operand`). Put the expression in a task `vars:` entry and reference
+  the var from `cmds:`.
+- **`LINES` and `COLUMNS` are bash's own variables** (terminal geometry), the same trap as
+  `GROUPS`. Never use one as a script knob — an inherited value silently outranks the
+  caller's intent. `standalone:logs` uses `TAIL_LINES`.
+- **A help GROUP that shares a task's name used to hide that task's own summary.**
+  `solomog_help_dispatch` checks group before task, so `solomog help standalone` rendered only
+  the group listing — with no topic name left to reach the task's `Variables:` block by. Same
+  for `setup`. It reads as a task with no documented parameters. Dispatch now appends the
+  same-named task's summary below the listing (`_solomog_help_task_body`, split out of
+  `solomog_help_task_summary` so the append carries no second "Related:" footer), and the
+  group's `see` footers must not repeat what that summary already says. Naming a new group
+  after a task is safe; check `solomog help <name>` shows both halves.
+
+## Validating changes without a cluster
+
+- YAML-lint the Taskfile (it's pure YAML):
+  `ruby -ryaml -e "YAML.load_stream(File.read('Taskfile.yaml'))"`
+- **Fast module check (no cluster, no chart pull)** — validates templating, env
+  resolution, and repo/chart construction:
+  ```bash
+  set -a; source versions.env; set +a
+  export SOLO_CONTEXT=vcluster-docker_cluster-one SOLO_CLUSTER=cluster-one ISTIO_MODE=ambient
+  helmfile -e community -f helmfiles/products/<mod>.yaml.gotmpl build
+  ```
+  (`build` resolves everything but does not pull; `template` additionally pulls and
+  renders the charts — use it to confirm chart names/versions actually exist.)
+- A plain YAML parser will (correctly) reject the unrendered `{{ }}` in `.gotmpl`
+  files — use `helmfile build`, not a YAML linter, for those.
+- **Hermetic unit tests** (fixtures, no cluster, no vCenter, no secrets — run after
+  touching the libraries they cover):
+  `bash scripts/test-envfile.sh` (in-place `.env` rewriting, [scripts/lib/envfile.sh](scripts/lib/envfile.sh)),
+  `bash scripts/test-vsphere-lib.sh` (IP/VIP allocators, [scripts/lib/vsphere.sh](scripts/lib/vsphere.sh);
+  keep it hermetic via the `VSPHERE_POOL_FILE` / `VSPHERE_INIT_STATE` overrides),
+  `bash scripts/test-hosts.sh` (`/etc/hosts` stamp + strip, [scripts/lib/hosts.sh](scripts/lib/hosts.sh);
+  fixtures only — no sudo, no write),
+`bash scripts/test-validate.sh` (CLI preflight, [scripts/lib/validate.sh](scripts/lib/validate.sh);
+injects fixture task/key lists — no live `task --list` in the assertion cases),
+`bash scripts/test-graph-files.sh` (file-mode `graph` plus ghost nodes; no cluster),
+`bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute),
+`bash scripts/test-runs.sh` (in-flight run notice; no cluster),
+`bash scripts/test-setup.sh` (`.env` copy and `~/.zshrc` PATH line; no brew, no Docker),
+and `bash scripts/test-install.sh` (clean fast-forward, dirty skip, diverged pull; local git only).
+
+## Status / open questions
+
+- **Multi-network (`gateway`) east-west wiring** is automated by `mesh-eastwest.sh`
+  (expose + link, declarative) + `networking.sh gateway` (routing) — the mesh comes up peered.
+  Validated on Docker Desktop / vind with a 2-cluster ambient mesh (`istioctl multicluster
+  check` → all ✅). N>2 is a full remote-peer mesh (every cluster links every other);
+  `istio:*:multi-3-gateway` is the task. A live 3-cluster gateway mesh has not been
+  confirmed here.
+- **`gloo-mesh` mgmt-plane repo** is the last unverified chart coordinate.
+- Confirm whether enterprise products use **distinct** license keys or one shared
+  Gloo license (design supports both; per-product env vars fall back to SOLO_LICENSE_KEY).
+- Confirm combined-management entitlement behavior: Solo's kagent docs upgrade an
+  existing agentgateway management release using `KAGENT_LICENSE_KEY`, so
+  `management_license_key` prefers it, while the product controllers keep their
+  separate kagent/agentgateway/Istio keys.
+- Community/upstream chart versions differ from enterprise version lines
+  (kgateway, istio) — `versions.env` is pinned to enterprise values by default.
+
+## Cursor Cloud agent VM
+
+This section applies only when running inside a **Cursor Cloud** agent VM (Linux), which
+differs from the tool's native target (macOS + Docker Desktop).
 
 `solomog` is a CLI (go-task + helmfile) that stands up local **vcluster (vind)**
 Kubernetes clusters and installs Solo.io products onto them. Standard commands are in
-[README.md](README.md) / [CLAUDE.md](CLAUDE.md); `solomog` (no args) lists every task.
+[README.md](README.md) and this file; `solomog` (no args) lists every task.
 
 The system tools (`docker`, `kubectl`, `helm`, `helmfile` v1, `task`, `vcluster`,
 `step`, `mkcert`, `uv`, plus the `helm-diff` plugin and a `k3s` binary) are already
@@ -89,5 +1097,5 @@ explicitly for bundles (there's no gateway on the node-less cluster to auto-dete
 - `.env` is optional for community/dev use (go-task ignores a missing dotenv); create it
   with `cp .env.example .env` (or `solomog env:sync`). Enterprise product installs need real
   Solo license keys in `.env` — and those installs can't complete here anyway (see above).
-- This VM is `x86_64`; CLAUDE.md's "images must be arm64" note is a macOS/Apple-Silicon
+- This VM is `x86_64`; the "images must be arm64" gotcha above is a macOS/Apple-Silicon
   concern and does not apply here.

@@ -407,7 +407,7 @@ Error: failed to perform "FetchReference" on source:
 ```
 
 Enterprise kagent is published from a different registry path, so the community line simply
-has no 0.5.6. This is the hook-level twin of the rule in `CLAUDE.md` that a task's `env:`
+has no 0.5.6. This is the hook-level twin of the rule in `AGENTS.md` that a task's `env:`
 default cannot override a value already in `.env`.
 
 Bundle knobs are therefore namespaced (`SUBSTRATE_KAGENT_VERSION`, `SUBSTRATE_VERSION`,

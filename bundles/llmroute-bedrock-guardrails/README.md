@@ -101,7 +101,7 @@ never fail.
 
 ## Not built yet
 
-- **The customer repro needs a NON-Bedrock upstream.** With Bedrock upstream the guardrail rides
+- **Reproducing the reported bugs needs a NON-Bedrock upstream.** With Bedrock upstream the guardrail rides
   the invocation (see Verified behavior), so the gateway never calls ApplyGuardrail and never
   rebuilds the request — which is precisely where the reported bugs live. Reproducing them takes
   an Anthropic (or other non-Bedrock) backend, where out-of-band ApplyGuardrail is the only

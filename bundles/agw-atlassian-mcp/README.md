@@ -190,4 +190,3 @@ Both routes coexist on the same cluster: Phase 1 is the user-friendly OAuth disc
 
 - [OKTA-SETUP.md](OKTA-SETUP.md) — Detailed Okta console steps for both apps
 - [ATLASSIAN-SETUP.md](ATLASSIAN-SETUP.md) — Atlassian site setup and interactive elicitation walkthrough
-- Plan: `agentgateway-mcp-pov-plan.md`
