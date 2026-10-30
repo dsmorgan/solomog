@@ -2,7 +2,7 @@
 
 simple add on to enable /healthz endpoint that always returns status: ok
 
-Enterprise only. The route attaches to Gateway `agw`, so run it after `solomog agentgateway expose` on an enterprise cluster. The [Quickstart](../../README.md#enterprise) does that, then runs the test.
+Enterprise only. The route attaches to Gateway `agw`. The [Quickstart](../../README.md#enterprise) applies this bundle in the install command, curls `/healthz`, then runs `solomog test` once the gateway is ready.
 
 ```bash
 solomog bundles:show BUNDLE=agw-directresponse
