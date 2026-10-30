@@ -97,7 +97,7 @@ That creates cluster `lab`, installs community agentgateway, and exposes Gateway
 Set `AGENTGATEWAY_LICENSE_KEY` in `.env` first. `SOLO_LICENSE_KEY` also satisfies this install. See [License keys](#license-keys).
 
 ```bash
-solomog agentgateway expose apps:utils apply ROUTE=true EDITION=enterprise BUNDLE=agw-directresponse CLUSTER=lab-ent
+solomog agentgateway expose apps:utils apply ROUTE=true BUNDLE=agw-directresponse CLUSTER=lab-ent
 # Wait a few seconds for the rollout to complete.
 curl --fail-with-body -sS "https://agw.lab-ent.test/healthz"
 solomog test BUNDLE=agw-directresponse CLUSTER=lab-ent
@@ -108,10 +108,8 @@ solomog routes CLUSTER=lab-ent
 solomog graph CLUSTER=lab-ent
 # Print the helm and kubectl steps a customer runs to build this setup.
 # Runs nothing.
-solomog explain agentgateway expose apps:utils ROUTE=true EDITION=enterprise CLUSTER=lab-ent
+solomog explain agentgateway expose apps:utils ROUTE=true CLUSTER=lab-ent
 ```
-
-`EDITION=enterprise` is the default. The example sets it so this run stays distinct from the community one.
 
 `apply` runs with the install. It adds an HTTPRoute at `/healthz` and a directResponse policy that returns `{"status":"ok"}`. The curl prints that JSON. `test` runs [bundles/agw-directresponse/tests/10-healthz.sh](bundles/agw-directresponse/tests/10-healthz.sh), which curls the same URL. The policy is an enterprise CR, so this bundle applies to the enterprise cluster.
 
