@@ -75,6 +75,7 @@ Leave the license keys in `.env` blank.
 
 ```bash
 solomog agentgateway expose apps:utils apply ROUTE=true EDITION=community BUNDLE=example CLUSTER=lab
+# Wait a few seconds for the rollout to complete.
 curl --fail-with-body -sS "https://agw.lab.test/httpbin/get"
 solomog test BUNDLE=example CLUSTER=lab
 ```
@@ -87,6 +88,7 @@ Set `AGENTGATEWAY_LICENSE_KEY` in `.env` first. `SOLO_LICENSE_KEY` also satisfie
 
 ```bash
 solomog agentgateway expose apps:utils apply ROUTE=true EDITION=enterprise BUNDLE=agw-directresponse CLUSTER=lab-ent
+# Wait a few seconds for the rollout to complete.
 curl --fail-with-body -sS "https://agw.lab-ent.test/healthz"
 solomog test BUNDLE=agw-directresponse CLUSTER=lab-ent
 ```
