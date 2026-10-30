@@ -15,6 +15,8 @@ homelab provisioner.
 
 ## Prerequisites
 
+This assumes a Mac running a recent macOS.
+
 Install these before `install.sh`. The script does not install them.
 
 | Dependency | Purpose | Install |
@@ -38,7 +40,60 @@ Install these before `install.sh`. The script does not install them.
 
 ---
 
+## Quickstart
+
+Install agentgateway, expose it, and check that a request succeeds. Do the shared setup once. The community example needs no license key. The enterprise example does.
+
+The two examples use different cluster names, so you can keep both. Remove one with `solomog teardown CLUSTER=lab` (or `CLUSTER=lab-ent`).
+
+### Shared setup
+
+Docker Desktop is running. Clone the repo and install the CLI:
+
+```bash
+git clone https://github.com/dsmorgan/solomog.git
+cd solomog
+bash install.sh
+```
+
+Open a new terminal so `~/.local/bin` is on `PATH`. Then:
+
+```bash
+solomog setup
+solomog setup:sudo
+```
+
+`bash install.sh` installs the tools, copies `.env.example` to `.env` when you do not have one, and links `solomog`. `solomog setup` refreshes those tools without pulling. `setup:sudo` prompts once so a later `expose` can write `/etc/hosts` without stopping for a password. What the installer does on a later run is under [Initialize](#initialize). The sudo grant is under [Passwordless /etc/hosts](#passwordless-etchosts-one-time).
+
+### Community
+
+Leave the license keys in `.env` blank.
+
+```bash
+solomog agentgateway expose apps:utils ROUTE=true EDITION=community CLUSTER=lab
+curl --fail-with-body -sS "https://agw.lab.test/httpbin/get"
+```
+
+That creates cluster `lab`, installs community agentgateway, and exposes Gateway `agw` at `https://agw.lab.test`. `expose` installs the mkcert CA on this Mac, so that HTTPS name is trusted. `apps:utils` routes httpbin at `/httpbin`. The curl returns httpbin's JSON for `/get`.
+
+### Enterprise
+
+Set `AGENTGATEWAY_LICENSE_KEY` in `.env` first. `SOLO_LICENSE_KEY` also satisfies this install. See [License keys](#license-keys).
+
+```bash
+solomog agentgateway expose apps:utils ROUTE=true EDITION=enterprise CLUSTER=lab-ent
+solomog apply test BUNDLE=agw-directresponse CLUSTER=lab-ent
+```
+
+`EDITION=enterprise` is the default. The example sets it so this run stays distinct from the community one.
+
+`apply` adds an HTTPRoute at `/healthz` and a directResponse policy that returns `{"status":"ok"}`. `test` runs [bundles/agw-directresponse/tests/10-healthz.sh](bundles/agw-directresponse/tests/10-healthz.sh), which curls `https://agw.lab-ent.test/healthz`. A passing run prints that JSON. The policy is an enterprise CR, so this bundle applies to the enterprise cluster.
+
+---
+
 ## Initialize
+
+The [Quickstart](#quickstart) is the first-run path. This section is what that setup does, and how you refresh it later.
 
 Docker Desktop is running, and Homebrew is installed. Clone the repo wherever
 you keep source. `install.sh` uses the directory it lives in.
@@ -121,7 +176,7 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
 
 ## Assumptions
 
-- **macOS + Docker Desktop.** Inter-cluster routing
+- **A Mac running a recent macOS, plus Docker Desktop.** Inter-cluster routing
   ([scripts/networking.sh](scripts/networking.sh)) injects rules into the Docker
   Desktop Linux VM. Those rules are **ephemeral** — after a Docker Desktop restart,
   recover with `solomog net:repair CLUSTERS="…"` (clusters / Istio / certs survive).
@@ -183,6 +238,8 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
 ---
 
 ## Usage
+
+For a first agentgateway cluster, follow the [Quickstart](#quickstart).
 
 ### Single cluster — compose any products
 
