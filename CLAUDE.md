@@ -40,7 +40,7 @@ These combine freely and are the core mental model:
      plus a `ServiceMeshController` CR (rendered by `charts/managed-istio`; `dataplaneMode`
      Ambient/Sidecar from `ISTIO_MODE`, `version` = Istio version). **community**: upstream
      Istio Helm charts (base/istiod/+cni/ztunnel). Both apply Gateway API CRDs via a presync hook.
-   - `kgateway` = **enterprise kgateway** (kgateway 2.2.x, OCI charts `enterprise-kgateway[-crds]`,
+   - `kgateway` = **enterprise kgateway** (kgateway 2.3.x, OCI charts `enterprise-kgateway[-crds]`,
      ns `kgateway-system`, license `licensing.licenseKey`) / upstream kgateway in community.
      CLI-only: `KGATEWAY_ELS_CRD=true` also installs the `EnterpriseListenerSet` CRD (chart
      default is off); `KGATEWAY_SKIP_SHARED_CRDS=true` skips the ext-auth / rate-limit / WAF

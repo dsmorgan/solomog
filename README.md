@@ -245,7 +245,7 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
   - `istio` = enterprise installs **Solo managed Istio** via the **Gloo Operator** +
     a `ServiceMeshController` CR (`dataplaneMode` Ambient/Sidecar); community installs
     upstream Istio Helm charts.
-  - `kgateway` = **enterprise kgateway** (kgateway 2.2.x) / upstream kgateway in community.
+  - `kgateway` = **enterprise kgateway** (kgateway 2.3.x) / upstream kgateway in community.
   - `gloo-gateway` = **Gloo Gateway** (gloo-ee 1.21.x) — a *separate* product, not the same as kgateway.
   - `agentgateway` = **enterprise agentgateway** (CalVer default; override for SemVer customer pins) / OSS agentgateway in community.
   - `kagent` = stable **OSS kagent** in community; the **Solo Enterprise build**
@@ -284,7 +284,7 @@ solomog stack CLUSTER=cluster-one PRODUCTS="istio gloo-mesh" ISTIO_MODE=sidecar
 solomog istio:ambient:single CLUSTER=cluster-one
 solomog istio:sidecar:single CLUSTER=cluster-one
 solomog gloo-mesh:single CLUSTER=cluster-one     # istio + Gloo Mesh mgmt plane
-solomog kgateway CLUSTER=cluster-one             # enterprise kgateway 2.2.x
+solomog kgateway CLUSTER=cluster-one             # enterprise kgateway 2.3.x
 solomog kgateway:with-istio CLUSTER=cluster-one
 solomog gloo-gateway CLUSTER=cluster-one         # Gloo Gateway 1.21.x (separate product)
 solomog agentgateway CLUSTER=cluster-one
