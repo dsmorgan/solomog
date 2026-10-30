@@ -499,6 +499,30 @@ machinery behind it (what to change in `apply-bundle.sh` / `test-bundle.sh`), no
       a test that passed yesterday, with nothing in the bundle changed. Repo is mid-migration:
       `grep -rl -- "--with mcp" bundles/` still finds unpinned callers. Pin any new one.
 
+### Plugins (optional commands from another repo)
+Extra, personal, or unusual commands live outside this repo, so a checkout of the base
+gets none of them. `plugins/` is gitignored and usually holds a separately cloned plugin
+repo, the same way `bundles/private/` does. The contract is
+[scripts/lib/plugins.sh](scripts/lib/plugins.sh); its header is the spec.
+- A plugin is a directory with a `plugin.conf` manifest (never sourced) and one executable
+  `bin/solomog-<command>` per declared command. Found up to two levels under `plugins/`
+  and under `SOLOMOG_PLUGIN_PATH`.
+- The wrapper dispatches **before** the `cd`, the preflight, and the audit log:
+  `solomog <command> …` execs the plugin when the first word is a plugin command. Plugin
+  commands are plain words, never chained, and **a core task with the same name always
+  wins** (with a stderr note). The lookup only lists core tasks when a plugin matches, so a
+  checkout without plugins pays one `find` per run.
+- The plugin gets `SOLOMOG_ROOT`, `SOLOMOG_LIB`, `SOLOMOG_PLUGIN_API` (bump it only for a
+  breaking change to this env), `SOLOMOG_PLUGIN_DIR`, and `SOLOMOG_PLUGIN_DATA`
+  (`.solomog/plugins/<name>/`). That env is the whole interface.
+- `solomog plugins` lists plugins with their git revision; `solomog plugins doctor [--test]`
+  runs each one's declared `doctor` (and `test`) and exits 1 on any failure.
+- `solomog help` shows a **Plugins** group only when a non-`hidden` plugin is installed, so
+  a base checkout shows no trace of them. `solomog help <plugin-command>` runs its `--help`.
+- **Nothing in the base may depend on a plugin.** Do not add plugin names to the help
+  catalog, Taskfile, preflight, or docs. A feature that customers should have belongs in the
+  base; one they should not stumble on belongs in a plugin.
+
 ### Standalone agentgateway (no cluster at all)
 A different **shape** from everything else in solomog, not just another product. Standalone
 agentgateway is one self-contained binary: no control plane, no xDS, no CRDs, and the proxy
@@ -990,6 +1014,7 @@ injects fixture task/key lists — no live `task --list` in the assertion cases)
 `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute),
 `bash scripts/test-runs.sh` (in-flight run notice; no cluster),
 `bash scripts/test-setup.sh` (`.env` copy and `~/.zshrc` PATH line; no brew, no Docker),
+`bash scripts/test-plugins.sh` (plugin discovery, dispatch, core-task precedence, doctor; fixture plugins only),
 and `bash scripts/test-install.sh` (clean fast-forward, dirty skip, diverged pull; local git only).
 
 ## Status / open questions

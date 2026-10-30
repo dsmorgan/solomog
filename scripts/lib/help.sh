@@ -229,6 +229,23 @@ solomog_help_index() {
     printf "  %s%-10s%s  %s\n" "$HELP_G$HELP_B" "${_HELP_GROUP_NAMES[$i]}" "$HELP_R" "${_HELP_GROUP_BLURBS[$i]}"
     i=$((i + 1))
   done
+  _solomog_help_plugins
+}
+
+# Installed, non-hidden plugin commands. Silent when there are none, so a checkout
+# without plugins shows no trace of them.
+_solomog_help_plugins() {
+  local rows cmd desc
+  # shellcheck source=plugins.sh
+  source "$_HELP_LIB/plugins.sh"
+  rows="$(solomog_plugins_help_rows)"
+  [ -n "$rows" ] || return 0
+  printf '\n%sPlugins%s                            solomog plugins\n' "$HELP_B" "$HELP_R"
+  while IFS=$'\t' read -r cmd desc; do
+    printf "  %s%-10s%s  %s\n" "$HELP_G$HELP_B" "$cmd" "$HELP_R" "$desc"
+  done <<EOF
+$rows
+EOF
 }
 
 # solomog_help_group <group> [defer_footer]
@@ -432,6 +449,12 @@ solomog_help_dispatch() {
   if [ -n "$members" ]; then
     solomog_help_prefix "$topic"
     return 0
+  fi
+  # A plugin command answers its own --help (hidden ones too: you named it).
+  # shellcheck source=plugins.sh
+  source "$_HELP_LIB/plugins.sh"
+  if solomog_plugin_find "$topic" >/dev/null; then
+    solomog_plugin_exec "$topic" --help
   fi
   solomog_help_unknown "$topic"
 }
