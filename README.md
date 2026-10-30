@@ -5,11 +5,19 @@ environments with Solo.io products and sample apps preinstalled — so you can s
 the setup and get to the work that matters: testing, validating configs, and
 reproducing customer issues.
 
-Supports **agentgateway**, **kagent**, **kgateway**, **Gloo Gateway**, and **Istio**
-(ambient + sidecar), in both **Solo enterprise** and **community/OSS** editions, on
-single or multi-cluster topologies. Optional add-ons: Solo UI, Solo Portal, and
-Prometheus/Grafana. Optional cluster backends besides local vind: EKS and a vSphere
-homelab provisioner.
+Supports **Solo enterprise** and **community/OSS** editions, on single or multi-cluster
+topologies. Maturity varies by product:
+
+- **agentgateway** is the most mature. Most bundles and tests target it, and its version
+  pin tracks the current release.
+- **kgateway**, **Istio** (ambient + sidecar), and **Gloo Gateway** install and expose,
+  but have few or no bundles. Istio's multi-cluster mesh is the exception: it has been
+  tested end to end.
+- **kagent** installs, but its version pins lag the current releases. Current kagent 1.0
+  and Agent Substrate work lives in bundles that install their own versions.
+
+Optional add-ons: Solo UI, Solo Portal, and Prometheus/Grafana. Optional cluster
+backends besides local vind: EKS and a vSphere homelab provisioner.
 
 ---
 
