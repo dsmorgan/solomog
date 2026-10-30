@@ -44,6 +44,8 @@ Install these before `install.sh`. The script does not install them.
 
 Install agentgateway, expose it, and check that a request succeeds. Do the shared setup once. The community example needs no license key. The enterprise example does.
 
+Each example is the same three steps: one install command that includes the bundle, a curl, then `solomog test`. Run the curl and the test after the gateway is ready. A test in the install command starts the curl while the gateway is still coming up. If either check fails while the gateway is starting, run it again.
+
 The two examples use different cluster names, so you can keep both. Remove one with `solomog teardown CLUSTER=lab` (or `CLUSTER=lab-ent`).
 
 ### Shared setup
@@ -72,11 +74,12 @@ solomog setup:sudo
 Leave the license keys in `.env` blank.
 
 ```bash
-solomog agentgateway expose apps:utils ROUTE=true EDITION=community CLUSTER=lab
+solomog agentgateway expose apps:utils apply ROUTE=true EDITION=community BUNDLE=example CLUSTER=lab
 curl --fail-with-body -sS "https://agw.lab.test/httpbin/get"
+solomog test BUNDLE=example CLUSTER=lab
 ```
 
-That creates cluster `lab`, installs community agentgateway, and exposes Gateway `agw` at `https://agw.lab.test`. `expose` installs the mkcert CA on this Mac, so that HTTPS name is trusted. `apps:utils` routes httpbin at `/httpbin`. The curl returns httpbin's JSON for `/get`.
+That creates cluster `lab`, installs community agentgateway, and exposes Gateway `agw` at `https://agw.lab.test`. `expose` installs the mkcert CA on this Mac, so that HTTPS name is trusted. `apps:utils` routes httpbin at `/httpbin`. `apply` adds the [example](bundles/example/README.md) bundle (a namespace, ConfigMap, and Secret). The curl returns httpbin's JSON for `/get`. `test` runs that bundle's checks.
 
 ### Enterprise
 
@@ -84,12 +87,13 @@ Set `AGENTGATEWAY_LICENSE_KEY` in `.env` first. `SOLO_LICENSE_KEY` also satisfie
 
 ```bash
 solomog agentgateway expose apps:utils apply ROUTE=true EDITION=enterprise BUNDLE=agw-directresponse CLUSTER=lab-ent
+curl --fail-with-body -sS "https://agw.lab-ent.test/healthz"
 solomog test BUNDLE=agw-directresponse CLUSTER=lab-ent
 ```
 
 `EDITION=enterprise` is the default. The example sets it so this run stays distinct from the community one.
 
-`apply` runs with the install. It adds an HTTPRoute at `/healthz` and a directResponse policy that returns `{"status":"ok"}`. Run `test` as its own command after the gateway is ready. A test in the same command starts the curl while the gateway is still coming up. The test is [bundles/agw-directresponse/tests/10-healthz.sh](bundles/agw-directresponse/tests/10-healthz.sh), which curls `https://agw.lab-ent.test/healthz`. A passing run prints that JSON. If the gateway is still starting, run `test` again. The policy is an enterprise CR, so this bundle applies to the enterprise cluster.
+`apply` runs with the install. It adds an HTTPRoute at `/healthz` and a directResponse policy that returns `{"status":"ok"}`. The curl prints that JSON. `test` runs [bundles/agw-directresponse/tests/10-healthz.sh](bundles/agw-directresponse/tests/10-healthz.sh), which curls the same URL. The policy is an enterprise CR, so this bundle applies to the enterprise cluster.
 
 ---
 
