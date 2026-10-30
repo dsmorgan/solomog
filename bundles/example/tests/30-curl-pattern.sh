@@ -5,7 +5,7 @@
 #
 # `--fail-with-body` makes HTTP >=400 exit non-zero (test fails) while still printing the
 # body. $HOST is exported by the runner, so it's copy-paste runnable (`export HOST=…`).
-# See bundles/agw-dr/tests (a live, no-cost example) and bundles/llmroute/tests.
+# See bundles/agw-directresponse/tests (a live, no-cost example) and bundles/llmroute/tests.
 #
 # The example bundle deploys NO HTTP endpoint, so this self-skips (exit 0) when $HOST has
 # no gateway — that's the only bit of logic; a real test wouldn't need the guard.

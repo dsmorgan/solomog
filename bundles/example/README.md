@@ -16,7 +16,7 @@ And `tests/` showcases every test feature (run with `solomog test BUNDLE=example
   bundle's `%%TOKEN%%` templating round-trips)
 - `20-secret.sh` — validating hook output
 - `30-curl-pattern.sh` — the portable `curl --fail-with-body` style (self-skips here since
-  the example has no endpoint; see `bundles/agw-dr/tests` for a live, no-cost curl)
+  the example has no endpoint; see `bundles/agw-directresponse/tests` for a live, no-cost curl)
 
 ```bash
 solomog bundles:show BUNDLE=example
