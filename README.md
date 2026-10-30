@@ -60,10 +60,12 @@ Open a new terminal so `~/.local/bin` is on `PATH`. Then:
 
 ```bash
 solomog setup
+# Optional. Without this, expose stops and asks for your password
+# each time it edits /etc/hosts.
 solomog setup:sudo
 ```
 
-`bash install.sh` installs the tools, copies `.env.example` to `.env` when you do not have one, and links `solomog`. `solomog setup` refreshes those tools without pulling. `setup:sudo` prompts once so a later `expose` can write `/etc/hosts` without stopping for a password. What the installer does on a later run is under [Initialize](#initialize). The sudo grant is under [Passwordless /etc/hosts](#passwordless-etchosts-one-time).
+`bash install.sh` installs the tools, copies `.env.example` to `.env` when you do not have one, and links `solomog`. `solomog setup` refreshes those tools without pulling. `setup:sudo` is optional: it prompts once, and after that `expose` writes `/etc/hosts` with no password. Skip it and `expose` asks for your password when it edits `/etc/hosts`. What the installer does on a later run is under [Initialize](#initialize). The sudo grant is under [Passwordless /etc/hosts](#passwordless-etchosts-one-time).
 
 ### Community
 
