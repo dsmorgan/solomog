@@ -83,13 +83,13 @@ That creates cluster `lab`, installs community agentgateway, and exposes Gateway
 Set `AGENTGATEWAY_LICENSE_KEY` in `.env` first. `SOLO_LICENSE_KEY` also satisfies this install. See [License keys](#license-keys).
 
 ```bash
-solomog agentgateway expose apps:utils ROUTE=true EDITION=enterprise CLUSTER=lab-ent
-solomog apply test BUNDLE=agw-directresponse CLUSTER=lab-ent
+solomog agentgateway expose apps:utils apply ROUTE=true EDITION=enterprise BUNDLE=agw-directresponse CLUSTER=lab-ent
+solomog test BUNDLE=agw-directresponse CLUSTER=lab-ent
 ```
 
 `EDITION=enterprise` is the default. The example sets it so this run stays distinct from the community one.
 
-`apply` adds an HTTPRoute at `/healthz` and a directResponse policy that returns `{"status":"ok"}`. `test` runs [bundles/agw-directresponse/tests/10-healthz.sh](bundles/agw-directresponse/tests/10-healthz.sh), which curls `https://agw.lab-ent.test/healthz`. A passing run prints that JSON. The policy is an enterprise CR, so this bundle applies to the enterprise cluster.
+`apply` runs with the install. It adds an HTTPRoute at `/healthz` and a directResponse policy that returns `{"status":"ok"}`. Run `test` as its own command after the gateway is ready. A test in the same command starts the curl while the gateway is still coming up. The test is [bundles/agw-directresponse/tests/10-healthz.sh](bundles/agw-directresponse/tests/10-healthz.sh), which curls `https://agw.lab-ent.test/healthz`. A passing run prints that JSON. If the gateway is still starting, run `test` again. The policy is an enterprise CR, so this bundle applies to the enterprise cluster.
 
 ---
 
