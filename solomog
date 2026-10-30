@@ -179,12 +179,11 @@ _solomog_warn_cluster_list_slip() {
   } >&2
 }
 
-# Resolve the 🗿 banter mute flag (SOLOMOG_SERIOUS). The banter is the wrapper's own
-# output, but the wrapper — unlike `task` — does NOT source .env, so read the flag here.
-# All three forms work, in precedence order:
-#   1. environment / inline CLI var:  SOLOMOG_SERIOUS=1 solomog …   or   solomog … SOLOMOG_SERIOUS=1
-#   2. .env:  SOLOMOG_SERIOUS=1
-# Only affirmatives (1/true/yes/on) mute — see _solomog_truthy in ui.sh.
+# Resolve SOLOMOG_SERIOUS. Quips stay off unless the value is 0/false/no/off.
+# The wrapper — unlike `task` — does NOT source .env, so read the flag here.
+# An environment variable or an inline KEY= wins over .env:
+#   SOLOMOG_SERIOUS=0 solomog …    or    solomog … SOLOMOG_SERIOUS=0
+# See _solomog_slang in ui.sh.
 for _a in "$@"; do
   case "$_a" in SOLOMOG_SERIOUS=*) SOLOMOG_SERIOUS="${_a#*=}" ;; esac
 done

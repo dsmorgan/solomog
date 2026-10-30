@@ -780,7 +780,9 @@ the command line into task names vs `KEY=VALUE` globals, **preflights the whole 
 (unknown tasks and unknown `KEY=` names fail before any task runs — `monitor` never
 reaches `expose`), then runs each task as its own `task` invocation (this is why
 dotenv re-reads between tasks — see gcp:refresh), times each, stops on first failure,
-and prints ONE grand-total summary plus start/end 🗿 banter. `SOLOMOG_ALLOW_UNKNOWN_VARS=true`
+and prints ONE grand-total summary. Start/end 🗿 quips stay off unless
+`SOLOMOG_SERIOUS` is `0`, `false`, `no`, or `off` (unset, empty, and
+`1`/`true`/`yes`/`on` stay quiet). `SOLOMOG_ALLOW_UNKNOWN_VARS=true`
 (CLI, prefix, or `.env`) downgrades unknown KEY names to warnings; unknown tasks still
 fail. Version *values* are not pre-checked. Leaf tasks must go through
 `scripts/run.sh "<title>" <command...>`, which prints a step delimiter only
@@ -987,6 +989,7 @@ injects fixture task/key lists — no live `task --list` in the assertion cases)
 `bash scripts/test-graph-files.sh` (file-mode `graph` plus ghost nodes; no cluster),
 `bash scripts/test-explain.sh` (`explain` / `wwit` recipes; no cluster, no execute),
 `bash scripts/test-runs.sh` (in-flight run notice; no cluster),
+`bash scripts/test-ui.sh` (🗿 quips stay off unless `SOLOMOG_SERIOUS` is `0`/`false`/`no`/`off`, [scripts/lib/ui.sh](scripts/lib/ui.sh)),
 `bash scripts/test-setup.sh` (`.env` copy and `~/.zshrc` PATH line; no brew, no Docker),
 and `bash scripts/test-install.sh` (clean fast-forward, dirty skip, diverged pull; local git only).
 
