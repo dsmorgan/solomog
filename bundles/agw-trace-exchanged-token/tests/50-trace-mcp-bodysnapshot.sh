@@ -18,7 +18,7 @@ printf '%s\n' "$out"
 
 if printf '%s' "$out" | grep -q "OAuth token response"; then
   echo "✓ MCP relay route: the exchanged token IS readable from the trace."
-  echo "  → the workaround covers the customer's shape; note it on agentgateway-enterprise#7844."
+  echo "  → the workaround covers this policy shape; note it on agentgateway-enterprise#7844."
 else
   echo "! MCP relay route: NO token-endpoint body snapshot in the trace."
   echo "  → the relay's exchange is invisible to tracing as well as to access logs, so"

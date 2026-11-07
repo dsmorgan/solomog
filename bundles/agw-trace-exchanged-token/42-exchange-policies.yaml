@@ -1,4 +1,4 @@
-# The customer's policy shape, applied identically to both routes:
+# The policy shape under test, applied identically to both routes:
 #   traffic.jwtAuthentication      validates the inbound user token against the Keycloak realm
 #   backend.auth.oauthTokenExchange  exchanges it (RFC 8693) at the same realm's token endpoint
 #

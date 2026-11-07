@@ -8,6 +8,9 @@ certs/
 # Shareable bundles go in bundles/<name>/ and ARE committed.
 bundles/private/
 
+# Optional plugins (scripts/lib/plugins.sh): a separately cloned repo, never committed here.
+plugins/
+
 # OpenTofu (vsphere:* provisioner) — local state only; .terraform.lock.hcl files
 # ARE committed (they pin provider versions).
 terraform/**/.terraform/

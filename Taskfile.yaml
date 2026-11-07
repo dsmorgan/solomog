@@ -1023,7 +1023,7 @@ tasks:
         solomog apply BUNDLE=llmroute CLUSTER=aaa
         solomog apply BUNDLE=llmroute-bedrock-guardrails CLUSTER=g1 BEDROCK_GUARDRAIL_VERSION=DRAFT
         solomog apply BUNDLES="llmroute-vertex llmroute-bedrock" CLUSTER=aaa
-        solomog apply BUNDLE=agw-dr CLUSTER=aaa DRY_RUN=true
+        solomog apply BUNDLE=agw-directresponse CLUSTER=aaa DRY_RUN=true
     vars:
       CLUSTER: '{{.CLUSTER | default .CLUSTERS | default "" | splitList " " | first}}'
       # BUNDLE and BUNDLES are interchangeable (like CLUSTER/CLUSTERS); either may name

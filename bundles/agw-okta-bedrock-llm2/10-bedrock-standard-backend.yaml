@@ -5,7 +5,7 @@
 # stable agentgateway 2.3.x requires a non-empty policies.ai on any backend with a
 # policies block. Unconfirmed whether that CEL rule still applies on this cluster's
 # 2026.6.3 (CalVer) — harmless either way, so kept for consistency; if apply fails on
-# this field, that's the signal the rule was relaxed here (matches the CLAUDE.md note
+# this field, that's the signal the rule was relaxed here (matches the AGENTS.md note
 # that CalVer builds loosened it).
 apiVersion: enterpriseagentgateway.solo.io/v1alpha1
 kind: EnterpriseAgentgatewayBackend

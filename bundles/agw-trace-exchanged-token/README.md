@@ -1,7 +1,7 @@
 # agw-trace-exchanged-token — can you observe the token an OAuth exchange produced?
 
-A customer asked how to log the token produced by a backend OAuth token exchange, seeing only
-the inbound JWT. The answer turns out to depend on the backend type, so this bundle holds
+How do you log the token produced by a backend OAuth token exchange, when the logs show only
+the inbound JWT? The answer turns out to depend on the backend type, so this bundle holds
 everything constant except that: the same Keycloak realm, the same user, the same exchange
 policy, applied to one HTTP-backend route and one MCP-relay route.
 

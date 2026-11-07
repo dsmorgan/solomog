@@ -5,15 +5,25 @@ environments with Solo.io products and sample apps preinstalled — so you can s
 the setup and get to the work that matters: testing, validating configs, and
 reproducing customer issues.
 
-Supports **agentgateway**, **kagent**, **kgateway**, **Gloo Gateway**, and **Istio**
-(ambient + sidecar), in both **Solo enterprise** and **community/OSS** editions, on
-single or multi-cluster topologies. Optional add-ons: Solo UI, Solo Portal, and
-Prometheus/Grafana. Optional cluster backends besides local vind: EKS and a vSphere
-homelab provisioner.
+Supports **Solo enterprise** and **community/OSS** editions, on single or multi-cluster
+topologies. Maturity varies by product:
+
+- **agentgateway** is the most mature. Most bundles and tests target it, and its version
+  pin tracks the current release.
+- **kgateway**, **Istio** (ambient + sidecar), and **Gloo Gateway** install and expose,
+  but have few or no bundles. Istio's multi-cluster mesh is the exception: it has been
+  tested end to end.
+- **kagent** installs, but its version pins lag the current releases. Current kagent 1.0
+  and Agent Substrate work lives in bundles that install their own versions.
+
+Optional add-ons: Solo UI, Solo Portal, and Prometheus/Grafana. Optional cluster
+backends besides local vind: EKS and a vSphere homelab provisioner.
 
 ---
 
 ## Prerequisites
+
+This assumes a Mac running a recent macOS.
 
 Install these before `install.sh`. The script does not install them.
 
@@ -38,7 +48,84 @@ Install these before `install.sh`. The script does not install them.
 
 ---
 
+## Quickstart
+
+> **Note:** This section is the shortest path to a working gateway. For more detail, read the sections after it, starting with [Initialize](#initialize).
+
+Install agentgateway, expose it, and check that a request succeeds. Do the shared setup once. The community example needs no license key. The enterprise example does.
+
+Each example is the same three steps: one install command that includes the bundle, a curl, then `solomog test`. Three read-only commands follow: `routes`, `graph`, and `explain` show what you built without changing it. Run the curl and the test after the gateway is ready. A test in the install command starts the curl while the gateway is still coming up. If either check fails while the gateway is starting, run it again.
+
+The two examples use different cluster names, so you can keep both. Remove one with `solomog teardown CLUSTER=lab` (or `CLUSTER=lab-ent`).
+
+### Shared setup
+
+Docker Desktop is running. Clone the repo and install the CLI:
+
+```bash
+git clone https://github.com/dsmorgan/solomog.git
+cd solomog
+bash install.sh
+```
+
+Open a new terminal so `~/.local/bin` is on `PATH`. Then:
+
+```bash
+solomog setup
+# Optional. Without this, expose stops and asks for your password
+# each time it edits /etc/hosts.
+solomog setup:sudo
+```
+
+`bash install.sh` installs the tools, copies `.env.example` to `.env` when you do not have one, and links `solomog`. `solomog setup` refreshes those tools without pulling. `setup:sudo` is optional: it prompts once, and after that `expose` writes `/etc/hosts` with no password. Skip it and `expose` asks for your password when it edits `/etc/hosts`. What the installer does on a later run is under [Initialize](#initialize). The sudo grant is under [Passwordless /etc/hosts](#passwordless-etchosts-one-time).
+
+### Community
+
+Leave the license keys in `.env` blank.
+
+```bash
+solomog agentgateway expose apps:utils apply ROUTE=true EDITION=community BUNDLE=example CLUSTER=lab
+# Wait a few seconds for the rollout to complete.
+curl --fail-with-body -sS "https://agw.lab.test/httpbin/get"
+solomog test BUNDLE=example CLUSTER=lab
+
+# Print each Gateway, its routes, and whether each route is active.
+solomog routes CLUSTER=lab
+# Open the same config as an interactive graph in your browser.
+solomog graph CLUSTER=lab
+# Print the helm and kubectl steps a customer runs to build this setup.
+# Runs nothing.
+solomog explain agentgateway expose apps:utils ROUTE=true EDITION=community CLUSTER=lab
+```
+
+That creates cluster `lab`, installs community agentgateway, and exposes Gateway `agw` at `https://agw.lab.test`. `expose` installs the mkcert CA on this Mac, so that HTTPS name is trusted. `apps:utils` routes httpbin at `/httpbin`. `apply` adds the [example](bundles/example/README.md) bundle (a namespace, ConfigMap, and Secret). The curl returns httpbin's JSON for `/get`. `test` runs that bundle's checks.
+
+### Enterprise
+
+Set `AGENTGATEWAY_LICENSE_KEY` in `.env` first. `SOLO_LICENSE_KEY` also satisfies this install. See [License keys](#license-keys).
+
+```bash
+solomog agentgateway expose apps:utils apply ROUTE=true BUNDLE=agw-directresponse CLUSTER=lab-ent
+# Wait a few seconds for the rollout to complete.
+curl --fail-with-body -sS "https://agw.lab-ent.test/healthz"
+solomog test BUNDLE=agw-directresponse CLUSTER=lab-ent
+
+# Print each Gateway, its routes, and whether each route is active.
+solomog routes CLUSTER=lab-ent
+# Open the same config as an interactive graph in your browser.
+solomog graph CLUSTER=lab-ent
+# Print the helm and kubectl steps a customer runs to build this setup.
+# Runs nothing.
+solomog explain agentgateway expose apps:utils ROUTE=true CLUSTER=lab-ent
+```
+
+`apply` runs with the install. It adds an HTTPRoute at `/healthz` and a directResponse policy that returns `{"status":"ok"}`. The curl prints that JSON. `test` runs [bundles/agw-directresponse/tests/10-healthz.sh](bundles/agw-directresponse/tests/10-healthz.sh), which curls the same URL. The policy is an enterprise CR, so this bundle applies to the enterprise cluster.
+
+---
+
 ## Initialize
+
+The [Quickstart](#quickstart) is the first-run path. This section is what that setup does, and how you refresh it later.
 
 Docker Desktop is running, and Homebrew is installed. Clone the repo wherever
 you keep source. `install.sh` uses the directory it lives in.
@@ -121,7 +208,7 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
 
 ## Assumptions
 
-- **macOS + Docker Desktop.** Inter-cluster routing
+- **A Mac running a recent macOS, plus Docker Desktop.** Inter-cluster routing
   ([scripts/networking.sh](scripts/networking.sh)) injects rules into the Docker
   Desktop Linux VM. Those rules are **ephemeral** — after a Docker Desktop restart,
   recover with `solomog net:repair CLUSTERS="…"` (clusters / Istio / certs survive).
@@ -158,7 +245,7 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
   - `istio` = enterprise installs **Solo managed Istio** via the **Gloo Operator** +
     a `ServiceMeshController` CR (`dataplaneMode` Ambient/Sidecar); community installs
     upstream Istio Helm charts.
-  - `kgateway` = **enterprise kgateway** (kgateway 2.2.x) / upstream kgateway in community.
+  - `kgateway` = **enterprise kgateway** (kgateway 2.3.x) / upstream kgateway in community.
   - `gloo-gateway` = **Gloo Gateway** (gloo-ee 1.21.x) — a *separate* product, not the same as kgateway.
   - `agentgateway` = **enterprise agentgateway** (CalVer default; override for SemVer customer pins) / OSS agentgateway in community.
   - `kagent` = stable **OSS kagent** in community; the **Solo Enterprise build**
@@ -184,6 +271,8 @@ everything still works, sudo just prompts. Not needed at all for `DNS=real`
 
 ## Usage
 
+For a first agentgateway cluster, follow the [Quickstart](#quickstart).
+
 ### Single cluster — compose any products
 
 ```bash
@@ -195,7 +284,7 @@ solomog stack CLUSTER=cluster-one PRODUCTS="istio gloo-mesh" ISTIO_MODE=sidecar
 solomog istio:ambient:single CLUSTER=cluster-one
 solomog istio:sidecar:single CLUSTER=cluster-one
 solomog gloo-mesh:single CLUSTER=cluster-one     # istio + Gloo Mesh mgmt plane
-solomog kgateway CLUSTER=cluster-one             # enterprise kgateway 2.2.x
+solomog kgateway CLUSTER=cluster-one             # enterprise kgateway 2.3.x
 solomog kgateway:with-istio CLUSTER=cluster-one
 solomog gloo-gateway CLUSTER=cluster-one         # Gloo Gateway 1.21.x (separate product)
 solomog agentgateway CLUSTER=cluster-one
@@ -692,7 +781,8 @@ solomog
 ├── install.sh                  # clone or fast-forward, then scripts/setup.sh
 ├── solomog                     # CLI wrapper → runs `task` from repo root
 ├── Taskfile.yaml               # all scenarios (the `solomog <scenario>` targets)
-├── CLAUDE.md / AGENTS.md       # architecture + conventions; Cursor Cloud agent notes
+├── AGENTS.md                   # agent guidance: architecture, conventions, gotchas
+├── skills/                     # reusable agent skills (see skills/README.md)
 ├── .env / .env.example         # secrets + template (.env gitignored; env:sync aligns them)
 ├── versions.env                # pinned product versions
 ├── scripts/
@@ -747,4 +837,4 @@ solomog
     └── utils/                  # httpbin/curl/netshoot
 ```
 
-See [CLAUDE.md](CLAUDE.md) for architecture details and how to extend this repo.
+See [AGENTS.md](AGENTS.md) for architecture details and how to extend this repo.

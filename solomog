@@ -2,6 +2,24 @@
 # solomog — thin wrapper around task that always runs from the solomog repo root.
 # Symlink this to ~/.local/bin/solomog (done by: bash install.sh).
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+
+# Plugins (scripts/lib/plugins.sh): optional commands from a separately cloned repo under
+# plugins/. `solomog <plugin-command> …` execs the plugin — first word only, never chained,
+# never shadowing a core task. `solomog plugins [doctor [--test]]` lists and checks them.
+# Both run before the cd so a plugin sees the caller's directory. Not audited.
+# shellcheck source=scripts/lib/plugins.sh
+source "$SCRIPT_DIR/scripts/lib/plugins.sh"
+if [ "${1:-}" = "plugins" ]; then
+  case "${2:-}" in
+    doctor) shift 2; solomog_plugins_doctor "$@"; exit $? ;;
+    "")     solomog_plugins_list; exit 0 ;;
+    *)      echo "usage: solomog plugins [doctor [--test]]" >&2; exit 1 ;;
+  esac
+fi
+if [ $# -gt 0 ]; then
+  solomog_plugin_exec "$@"   # returns only when $1 is not a plugin command
+fi
+
 cd "$SCRIPT_DIR"
 
 if ! command -v task &>/dev/null; then

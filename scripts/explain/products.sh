@@ -152,7 +152,7 @@ explain_product_kgateway() {
       oci://cr.kgateway.dev/kgateway-dev/charts/kgateway \
       "${KGATEWAY_COMMUNITY_VERSION:-v2.3.1}" kgateway-system --wait
   else
-    echo "# Docs: https://docs.solo.io/kgateway/2.2.x/install/helm/"
+    echo "# Docs: https://docs.solo.io/kgateway/2.3.x/install/helm/"
     [ "${KGATEWAY_ELS_CRD:-false}" = "true" ] && \
       echo "# KGATEWAY_ELS_CRD=true — also set installEnterpriseListenerSetCRD=true on the CRDs chart."
     [ "${KGATEWAY_SKIP_SHARED_CRDS:-false}" = "true" ] && \

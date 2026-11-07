@@ -24,7 +24,7 @@ fi
 OUT=""
 [ -t 1 ] && OUT="${SRC%.json}.pem"
 
-# uv keeps this dependency-free (system python is externally managed — CLAUDE.md).
+# uv keeps this dependency-free (system python is externally managed — AGENTS.md).
 PEM=$(SRC="$SRC" uv run --quiet --python 3.12 --with 'pyjwt[crypto]>=2.8,<3' - <<'PY'
 import json, os, sys
 

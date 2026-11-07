@@ -13,7 +13,7 @@
 #   - .env.example is the canonical layout (sections + comments).
 #   - Filter/rebuild (not sed s///) so values with /,+,=,#, etc. can't break rewrites.
 #   - Empty values next to a trailing comment MUST be written as KEY=""  # comment
-#     (go-task dotenv gotcha — see CLAUDE.md).
+#     (go-task dotenv gotcha — see AGENTS.md).
 #   - CLI-only flags (TOKEN_EXCHANGE, OAUTH_ISSUER) are never written by sync.
 
 # Keep this many timestamped backups under .solomog/env-backups/.
