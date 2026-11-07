@@ -23,7 +23,7 @@ _SM_RULE='✦══════════════════════�
 _SM_TOP='╔════════════════════════════════════════════════════════════╗'
 _SM_BOT='╚════════════════════════════════════════════════════════════╝'
 
-# 🗿 mog-core banter. Pure flavor; set SOLOMOG_SERIOUS=1 to mute.
+# 🗿 mog-core banter. Off unless SOLOMOG_SERIOUS is 0/false/no/off.
 _SM_START_QUIPS=(
   "locking in. time to mog these clusters into submission"
   "it's mogging time"
@@ -89,8 +89,6 @@ solomog_dur() {
 }
 
 # _solomog_truthy <val> — exit 0 only for affirmative values (1/true/yes/on, any case).
-# Used for the SOLOMOG_SERIOUS mute flag so that the empty/"false"/"0" values people put
-# in .env keep the banter ON — only an explicit affirmative mutes.
 _solomog_truthy() {
   case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
     1|true|yes|on) return 0 ;;
@@ -98,11 +96,22 @@ _solomog_truthy() {
   esac
 }
 
-# solomog_intro [mode] — 🗿 start banner with a random quip (muted by SOLOMOG_SERIOUS=1).
-# Called once per session by the `solomog` wrapper, not per task.
+# _solomog_slang <val> — exit 0 only when the 🗿 quips should print.
+# Serious is the default: unset, empty, and 1/true/yes/on stay quiet.
+# Only an explicit negative (0/false/no/off, any case) turns the slang on.
+_solomog_slang() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')" in
+    0|false|no|off) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# solomog_intro [mode] — 🗿 start banner with a random quip.
+# Quiet unless SOLOMOG_SERIOUS is 0/false/no/off. Called once per session by the
+# `solomog` wrapper, not per task.
 # mode "destroy" → removal-themed pool (teardown); anything else → the build pool.
 solomog_intro() {
-  _solomog_truthy "${SOLOMOG_SERIOUS:-}" && return 0
+  _solomog_slang "${SOLOMOG_SERIOUS:-}" || return 0
   local q
   if [ "${1:-}" = "destroy" ]; then
     q="${_SM_DESTROY_START_QUIPS[$((RANDOM % ${#_SM_DESTROY_START_QUIPS[@]}))]}"
@@ -113,9 +122,10 @@ solomog_intro() {
 }
 
 # solomog_outro <exit-code> [mode] — 🗿 closing banner; win quip on success, loss on
-# failure. Called once per session by the wrapper. mode "destroy" uses the removal pools.
+# failure. Quiet unless SOLOMOG_SERIOUS is 0/false/no/off. Called once per session
+# by the wrapper. mode "destroy" uses the removal pools.
 solomog_outro() {
-  _solomog_truthy "${SOLOMOG_SERIOUS:-}" && return 0
+  _solomog_slang "${SOLOMOG_SERIOUS:-}" || return 0
   local rc="${1:-0}" mode="${2:-}" q
   if [ "$rc" = "0" ]; then
     if [ "$mode" = "destroy" ]; then
