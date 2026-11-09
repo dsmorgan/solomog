@@ -4,9 +4,11 @@
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 
 # Plugins (scripts/lib/plugins.sh): optional commands from a separately cloned repo under
-# plugins/. `solomog <plugin-command> …` execs the plugin — first word only, never chained,
-# never shadowing a core task. `solomog plugins [doctor [--test]]` lists and checks them.
-# Both run before the cd so a plugin sees the caller's directory. Not audited.
+# plugins/. `solomog <plugin-command> …` runs the plugin — first word only, never chained,
+# never shadowing a core task — in the caller's directory, framed and audited like a task
+# (see "Plugin command" below). With stdout piped or redirected it is exec'd unframed, so
+# `solomog <cmd> > file` and `| grep` get the plugin's output only.
+# `solomog plugins [doctor [--test]]` lists and checks them (meta: no framing, not audited).
 # shellcheck source=scripts/lib/plugins.sh
 source "$SCRIPT_DIR/scripts/lib/plugins.sh"
 if [ "${1:-}" = "plugins" ]; then
@@ -16,8 +18,11 @@ if [ "${1:-}" = "plugins" ]; then
     *)      echo "usage: solomog plugins [doctor [--test]]" >&2; exit 1 ;;
   esac
 fi
-if [ $# -gt 0 ]; then
-  solomog_plugin_exec "$@"   # returns only when $1 is not a plugin command
+_SOLOMOG_PLUGIN_CMD=""
+if [ $# -gt 0 ] && solomog_plugin_prepare "$1"; then
+  [ -t 1 ] || { shift; exec "$SOLOMOG_PLUGIN_BIN" "$@"; }
+  _SOLOMOG_PLUGIN_CMD="$1"
+  _SOLOMOG_CALLER_PWD="$PWD"
 fi
 
 cd "$SCRIPT_DIR"
@@ -47,7 +52,7 @@ AUDIT_TASKS=()
 _solomog_audit() {
   local rc="$1" status dir month v cmd line red=()
   [ "$rc" = "0" ] && status=ok || status=FAIL
-  dir="$SCRIPT_DIR/.solomog/audit"
+  dir="${SOLOMOG_AUDIT_DIR:-$SCRIPT_DIR/.solomog/audit}"   # override: hermetic tests
   month="$(date +%Y-%m 2>/dev/null)" || return 0
   mkdir -p "$dir" 2>/dev/null || return 0
   for v in "${VARS[@]}"; do
@@ -58,6 +63,45 @@ _solomog_audit() {
   [ "${#AUDIT_TASKS[@]}" -gt 1 ] && line="${line}  [${AUDIT_TASKS[*]}]"
   printf '%s\n' "$line" >> "$dir/${month}.log" 2>/dev/null || true
 }
+
+# Resolve SOLOMOG_SERIOUS. Quips stay off unless the value is 0/false/no/off.
+# The wrapper — unlike `task` — does NOT source .env, so read the flag here.
+# An environment variable or an inline KEY= wins over .env:
+#   SOLOMOG_SERIOUS=0 solomog …    or    solomog … SOLOMOG_SERIOUS=0
+# See _solomog_slang in ui.sh.
+for _a in "$@"; do
+  case "$_a" in SOLOMOG_SERIOUS=*) SOLOMOG_SERIOUS="${_a#*=}" ;; esac
+done
+if [ -z "${SOLOMOG_SERIOUS:-}" ] && [ -f "$SCRIPT_DIR/.env" ]; then
+  _sm_v="$(sed -n 's/^[[:space:]]*SOLOMOG_SERIOUS[[:space:]]*=[[:space:]]*//p' "$SCRIPT_DIR/.env" | tail -n1)"
+  _sm_v="${_sm_v%%#*}"                          # drop any trailing inline comment
+  _sm_v="${_sm_v%"${_sm_v##*[![:space:]]}"}"    # rtrim
+  _sm_v="${_sm_v#\"}"; _sm_v="${_sm_v%\"}"      # strip surrounding double quotes
+  _sm_v="${_sm_v#\'}"; _sm_v="${_sm_v%\'}"      # …or single quotes
+  SOLOMOG_SERIOUS="$_sm_v"; unset _sm_v
+fi
+export SOLOMOG_SERIOUS
+
+# Plugin command (resolved before the cd, above): the same 🗿 bookends, step banner, timed
+# summary and audit line as a task, but no CLI preflight (its arguments are its own) and no
+# in-flight run record (plugins never touch a cluster). It runs in the caller's directory.
+if [ -n "$_SOLOMOG_PLUGIN_CMD" ]; then
+  TASKS=("$@"); VARS=()   # the audit line records the whole command
+  solomog_intro ""
+  solomog_clock_reset
+  solomog_step "$*"
+  (cd "$_SOLOMOG_CALLER_PWD" && shift && "$SOLOMOG_PLUGIN_BIN" "$@")
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    solomog_summary "Run complete — 1 task(s)" "$_SOLOMOG_PLUGIN_CMD  —  $(solomog_dur "$SECONDS")"
+  else
+    solomog_summary "Run complete — 1 task(s)" \
+      "$_SOLOMOG_PLUGIN_CMD  —  $(solomog_dur "$SECONDS")  (FAILED, exit $rc)"
+  fi
+  _solomog_audit "$rc"
+  solomog_outro "$rc" ""
+  exit "$rc"
+fi
 
 # Bare `solomog` (no args) → grouped index, no framing (not audited).
 if [ $# -eq 0 ]; then
@@ -197,23 +241,6 @@ _solomog_warn_cluster_list_slip() {
   } >&2
 }
 
-# Resolve SOLOMOG_SERIOUS. Quips stay off unless the value is 0/false/no/off.
-# The wrapper — unlike `task` — does NOT source .env, so read the flag here.
-# An environment variable or an inline KEY= wins over .env:
-#   SOLOMOG_SERIOUS=0 solomog …    or    solomog … SOLOMOG_SERIOUS=0
-# See _solomog_slang in ui.sh.
-for _a in "$@"; do
-  case "$_a" in SOLOMOG_SERIOUS=*) SOLOMOG_SERIOUS="${_a#*=}" ;; esac
-done
-if [ -z "${SOLOMOG_SERIOUS:-}" ] && [ -f "$SCRIPT_DIR/.env" ]; then
-  _sm_v="$(sed -n 's/^[[:space:]]*SOLOMOG_SERIOUS[[:space:]]*=[[:space:]]*//p' "$SCRIPT_DIR/.env" | tail -n1)"
-  _sm_v="${_sm_v%%#*}"                          # drop any trailing inline comment
-  _sm_v="${_sm_v%"${_sm_v##*[![:space:]]}"}"    # rtrim
-  _sm_v="${_sm_v#\"}"; _sm_v="${_sm_v%\"}"      # strip surrounding double quotes
-  _sm_v="${_sm_v#\'}"; _sm_v="${_sm_v%\'}"      # …or single quotes
-  SOLOMOG_SERIOUS="$_sm_v"; unset _sm_v
-fi
-export SOLOMOG_SERIOUS
 
 # Reject unknown tasks and unknown KEY= names before any task runs (and before
 # the 🗿 bookends). A typo mid-chain used to fail only when that token's turn

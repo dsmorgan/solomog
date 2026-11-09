@@ -76,6 +76,24 @@ assert_contains "plugin dir and data dir" "$out" "dir=$SOLOMOG_PLUGINS_DIR/hello
 assert_contains "second command of the same plugin" "$(wrapper hi)" "args="
 set +e; wrapper hello fail >/dev/null; rc=$?; set -e
 [ "$rc" -eq 3 ] && pass "plugin exit code propagates" || fail "plugin exit code propagates (rc=$rc)"
+assert_not_contains "piped output is unframed" "$out" "total run time"
+
+echo "framing on a terminal"
+# script(1) gives the wrapper a real tty, so it frames the run like a core task.
+export SOLOMOG_AUDIT_DIR="$TMP/audit"
+on_tty() { (cd "$TMP/caller" && script -q /dev/null bash "$REPO_DIR/solomog" "$@" </dev/null 2>&1 | tr -d '\r'); }
+out="$(on_tty hello a)"
+assert_contains "step banner names the command" "$out" "▶ hello a"
+assert_contains "plugin output inside the frame" "$out" "args=a pwd=$TMP/caller"
+assert_contains "timed summary" "$out" "hello  —  0s"
+assert_contains "total run time" "$out" "total run time:"
+out="$(on_tty hello fail || true)"
+assert_contains "failure in the summary" "$out" "(FAILED, exit 3)"
+audit="$(cat "$TMP"/audit/*.log)"
+assert_contains "audited like a task" "$audit" "ok  rc=0"
+assert_contains "failed run audited" "$audit" "FAIL  rc=3"
+assert_contains "audit names the command" "$audit" "hello fail"
+unset SOLOMOG_AUDIT_DIR
 
 echo "lookup rules"
 (

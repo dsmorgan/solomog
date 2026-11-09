@@ -94,9 +94,10 @@ solomog_plugin_shadowed() {
   _solomog_plugin_core_tasks | grep -qx -- "$1"
 }
 
-# solomog_plugin_exec <command> [args…] — replaces the shell; returns only when
-# <command> is not a runnable plugin command (the caller then carries on as usual).
-solomog_plugin_exec() {
+# solomog_plugin_prepare <command> — when <command> is a runnable plugin command, export
+# the plugin env and set SOLOMOG_PLUGIN_BIN; return 1 when it is not a plugin command (the
+# caller then carries on as usual). A plugin that declares it but cannot run exits 1 here.
+solomog_plugin_prepare() {
   local cmd="$1" d name problem
   d="$(solomog_plugin_find "$cmd")" || return 1
   name="$(solomog_plugin_conf "$d" name)"; name="${name:-$(basename "$d")}"
@@ -110,10 +111,17 @@ solomog_plugin_exec() {
     echo "  Check all plugins:  solomog plugins doctor" >&2
     exit 1
   fi
-  shift
   export SOLOMOG_ROOT="$_PLUGINS_ROOT" SOLOMOG_LIB="$_PLUGINS_LIB" SOLOMOG_PLUGIN_API
   export SOLOMOG_PLUGIN_DIR="$d" SOLOMOG_PLUGIN_DATA="$_PLUGINS_ROOT/.solomog/plugins/$name"
-  exec "$d/bin/solomog-$cmd" "$@"
+  SOLOMOG_PLUGIN_BIN="$d/bin/solomog-$cmd"
+}
+
+# solomog_plugin_exec <command> [args…] — replaces the shell with the plugin, unframed;
+# returns only when <command> is not a runnable plugin command.
+solomog_plugin_exec() {
+  solomog_plugin_prepare "$1" || return 1
+  shift
+  exec "$SOLOMOG_PLUGIN_BIN" "$@"
 }
 
 # ─── `solomog plugins [doctor [--test]]` ──────────────────────────────────────

@@ -507,11 +507,15 @@ repo, the same way `bundles/private/` does. The contract is
 - A plugin is a directory with a `plugin.conf` manifest (never sourced) and one executable
   `bin/solomog-<command>` per declared command. Found up to two levels under `plugins/`
   and under `SOLOMOG_PLUGIN_PATH`.
-- The wrapper dispatches **before** the `cd`, the preflight, and the audit log:
-  `solomog <command> …` execs the plugin when the first word is a plugin command. Plugin
-  commands are plain words, never chained, and **a core task with the same name always
-  wins** (with a stderr note). The lookup only lists core tasks when a plugin matches, so a
-  checkout without plugins pays one `find` per run.
+- The wrapper resolves a plugin command **before** the `cd` and the CLI preflight (its
+  arguments are its own), then frames it like a task: 🗿 bookends, a `solomog_step`
+  banner, the timed "Run complete" summary, and an audit line. It runs in the caller's
+  directory and gets no in-flight run record (plugins never touch a cluster). **When
+  stdout is not a terminal the plugin is exec'd unframed**, so `solomog <cmd> > file` and
+  pipes carry only the plugin's output. `SOLOMOG_AUDIT_DIR` redirects the audit log for
+  hermetic tests. Plugin commands are plain words, never chained, and **a core task with
+  the same name always wins** (with a stderr note). The lookup only lists core tasks when
+  a plugin matches, so a checkout without plugins pays one `find` per run.
 - The plugin gets `SOLOMOG_ROOT`, `SOLOMOG_LIB`, `SOLOMOG_PLUGIN_API` (bump it only for a
   breaking change to this env), `SOLOMOG_PLUGIN_DIR`, and `SOLOMOG_PLUGIN_DATA`
   (`.solomog/plugins/<name>/`). That env is the whole interface.
