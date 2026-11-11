@@ -1,0 +1,179 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: agw
+  namespace: agentgateway-system
+spec:
+  gatewayClassName: enterprise-agentgateway
+  listeners:
+    - name: http
+      port: 8080
+      protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: enterprise-agentgateway
+spec:
+  controllerName: solo.io/enterprise-agentgateway
+  parametersRef:
+    group: enterpriseagentgateway.solo.io
+    kind: EnterpriseAgentgatewayParameters
+    name: agentgateway-config
+    namespace: agentgateway-system
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayParameters
+metadata:
+  name: agentgateway-config
+  namespace: agentgateway-system
+spec: {}
+---
+apiVersion: enterprise.solo.io/v1alpha1
+kind: EnterpriseListenerSet
+metadata:
+  name: extra
+  namespace: agentgateway-system
+spec:
+  parentRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: agw
+    namespace: agentgateway-system
+  listeners:
+    - name: https
+      port: 443
+      protocol: HTTPS
+      hostname: app.example.test
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GRPCRoute
+metadata:
+  name: grpc
+  namespace: app
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agw
+      namespace: agentgateway-system
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBackend
+metadata:
+  name: llm
+  namespace: agentgateway-system
+spec:
+  ai: {}
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: connector
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: enterpriseagentgateway.solo.io
+      kind: EnterpriseAgentgatewayBackend
+      name: llm
+  backend:
+    entConnector:
+      displayName: GitHub
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: base
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agw
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayPolicy
+metadata:
+  name: importer
+  namespace: agentgateway-system
+spec:
+  imports:
+    - kind: EnterpriseAgentgatewayPolicy
+      name: base
+      alias: base
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: GRPCRoute
+      name: grpc
+      namespace: app
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: gpt
+  namespace: agentgateway-system
+spec:
+  provider: OpenAI
+  match:
+    model: gpt
+  parentRefs:
+    - name: agw
+      namespace: agentgateway-system
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: virtual
+  namespace: agentgateway-system
+spec:
+  virtualModel:
+    weighted:
+      - modelRef:
+          kind: AgentgatewayModel
+          name: gpt
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agw
+      namespace: agentgateway-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enterprise-agentgateway-identity
+  namespace: agentgateway-system
+  labels:
+    app.kubernetes.io/component: identity
+spec:
+  replicas: 1
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseIdentityConfig
+metadata:
+  name: other
+  namespace: agentgateway-system
+spec:
+  connectors:
+    publicBaseUrl: https://id.example.test
+    ui:
+      baseUrl: https://ui.example.test
+    grant:
+      idleTimeout: 10m
+      maxLifetime: 2160h
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayBudget
+metadata:
+  name: team
+  namespace: agentgateway-system
+spec:
+  budgets:
+    - name: daily
+---
+apiVersion: enterpriseagentgateway.solo.io/v1alpha1
+kind: EnterpriseAgentgatewayRoleBinding
+metadata:
+  name: readers
+spec:
+  roles:
+    - reader

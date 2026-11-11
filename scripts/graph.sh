@@ -5,7 +5,12 @@ set -euo pipefail
 # configuration and renders it as an interactive, self-contained HTML graph you explore in a
 # browser:
 #   agentgateway: Gateway (data plane) + control-plane deployment + pods → HTTPRoutes →
-#                 Backends → Policies, with Gateway-API edges (parentRef / backendRef / targetRef)
+#                 Backends → Policies, with Gateway-API edges (parentRef / backendRef / targetRef).
+#                 Also GRPCRoute, ListenerSet, EnterpriseListenerSet, ServiceEntry, AgentgatewayModel,
+#                 GatewayClass parameters, AuthConfig / RateLimitConfig / WAFPolicy, and
+#                 EnterpriseIdentityConfig (the identity Deployment reads the object named default;
+#                 entConnector on a policy or backend points at it). Budget, role binding, RBAC
+#                 policy, and external secret are drawn with no invented edges.
 #   kagent:       controller → Agents → AgentTemplate / Harness (1.0) or declarative refs (0.10)
 #                 → ModelConfigs / RemoteMCPServers; Harness → substrate WorkerPool → worker
 #                 pods + SandboxConfig (model in lib/graph/kagent.jq)
@@ -99,6 +104,24 @@ _items() {
 }
 # Merge a CRD's items, tagging each with its full resource type (for kubectl hints).
 _tagged() { _items "$1" | jq --arg t "$1" 'map(. + {_rtype:$t})'; }
+# Namespaced list when the CRD is installed, otherwise []. Cluster-scoped resources
+# reject `kubectl get -A` (EnterpriseAgentgatewayRoleBinding).
+_when_crd() {
+  local res="$1" scope="${2:-ns}" out
+  if _has_crd "$res"; then
+    if [ "$scope" = cluster ]; then
+      out="$(kubectl --context "$CTX" get "$res" -o json 2>/dev/null | LC_ALL=C tr -d '\000-\037' || true)"
+      case "$out" in
+        '') echo '[]' ;;
+        *) printf '%s' "$out" | jq --arg t "$res" '[.items[]? | . + {_rtype:$t}]' ;;
+      esac
+    else
+      _tagged "$res"
+    fi
+  else
+    echo '[]'
+  fi
+}
 # Large lists (pods, deployments, services) go to jq through --slurpfile <(...), never
 # --argjson: on a real cluster they exceed ARG_MAX ("argument list too long").
 _json() { printf '%s' "$1"; }
@@ -149,6 +172,15 @@ EOF
   GC="$(printf '%s' "$classified" | jq -c '.gc')"
   SVCS="$(printf '%s' "$classified" | jq -c '.svcs')"
   KOBJS="$(printf '%s' "$classified" | jq -c '.kobjs')"
+  GRT="$(printf '%s' "$classified" | jq -c '.grt')"
+  LS="$(printf '%s' "$classified" | jq -c '.ls')"
+  ELS="$(printf '%s' "$classified" | jq -c '.els')"
+  SE="$(printf '%s' "$classified" | jq -c '.se')"
+  PAR="$(printf '%s' "$classified" | jq -c '.par')"
+  IDC="$(printf '%s' "$classified" | jq -c '.idc')"
+  MOD="$(printf '%s' "$classified" | jq -c '.mod')"
+  EXT="$(printf '%s' "$classified" | jq -c '.ext')"
+  SIDE="$(printf '%s' "$classified" | jq -c '.side')"
   defaulted="$(printf '%s' "$classified" | jq -r '.defaulted')"
   skipped="$(printf '%s' "$classified" | jq -r '.skipped[] | "    \(.kind) ×\(.count)"')"
   [ "$defaulted" != 0 ] && echo "    ${defaulted} object(s) had no namespace; treated as default"
@@ -158,7 +190,7 @@ EOF
   fi
   other_gw="$(printf '%s' "$GW" | jq -r '[.[] | select((.spec.gatewayClassName // "") | test("agentgateway") | not) | .metadata.namespace + "/" + .metadata.name + " (" + (.spec.gatewayClassName // "no class") + ")"] | join(", ")')"
   [ -n "$other_gw" ] && echo "    skipped Gateway (not an agentgateway class): ${other_gw}"
-  echo "    objects: $(printf '%s' "$classified" | jq -r '.objects')  routes=$(printf '%s' "$RT" | jq 'length') backends=$(printf '%s' "$BE" | jq 'length') policies=$(printf '%s' "$POL" | jq 'length')"
+  echo "    objects: $(printf '%s' "$classified" | jq -r '.objects')  routes=$(printf '%s' "$RT" | jq 'length') backends=$(printf '%s' "$BE" | jq 'length') policies=$(printf '%s' "$POL" | jq 'length') models=$(printf '%s' "$MOD" | jq 'length') identity=$(printf '%s' "$IDC" | jq 'length')"
   if [ "$HONOR_STATUS" = true ]; then
     echo "    coloring nodes from status in the files (exported). That status was not re-evaluated." >&2
   else
@@ -167,6 +199,7 @@ EOF
   echo "    object YAML is embedded in the HTML. Review it before sharing." >&2
 }
 
+GRT='[]'; LS='[]'; ELS='[]'; SE='[]'; PAR='[]'; IDC='[]'; MOD='[]'; EXT='[]'; SIDE='[]'
 if [ "$FILE_MODE" = true ]; then
   _load_input "$INPUT"
   HAS_KAGENT=false
@@ -197,6 +230,19 @@ BE="$(jq -s 'add' <(_tagged enterpriseagentgatewaybackends.enterpriseagentgatewa
 PODS="$(_items pods | jq '[.[] | select(.metadata.labels["gateway.networking.k8s.io/gateway-name"] or .metadata.labels["ate.dev/worker-pool"])]')"
 DEPS="$(_items deployments.apps)"
 GC="$(_items gatewayclasses.gateway.networking.k8s.io)"
+GRT="$(_when_crd grpcroutes.gateway.networking.k8s.io)"
+LS="$(_when_crd listenersets.gateway.networking.k8s.io)"
+ELS="$(_when_crd enterpriselistenersets.enterprise.solo.io)"
+SE="$(_when_crd serviceentries.networking.istio.io)"
+PAR="$(jq -s 'add' <(_when_crd agentgatewayparameters.agentgateway.dev) <(_when_crd enterpriseagentgatewayparameters.enterpriseagentgateway.solo.io))"
+IDC="$(_when_crd enterpriseidentityconfigs.enterpriseagentgateway.solo.io)"
+MOD="$(_when_crd agentgatewaymodels.agentgateway.dev)"
+EXT="$(jq -s 'add' <(_when_crd authconfigs.extauth.solo.io) <(_when_crd ratelimitconfigs.ratelimit.solo.io) <(_when_crd wafpolicies.waf.solo.io))"
+SIDE="$(jq -s 'add' \
+  <(_when_crd enterpriseagentgatewaybudgets.enterpriseagentgateway.solo.io) \
+  <(_when_crd enterpriseagentgatewayrolebindings.enterpriseagentgateway.solo.io cluster) \
+  <(_when_crd enterpriseagentgatewayrbacpolicies.enterpriseagentgateway.solo.io) \
+  <(_when_crd enterpriseagentgatewayexternalsecrets.enterpriseagentgateway.solo.io))"
 
 # kagent (0.10 kagent.dev/v1alpha2; 1.0 api.kagent.dev/v1alpha3 — early 1.0 alphas served
 # v1alpha3 under kagent.dev) + Agent Substrate (ate.dev). Fetch whichever are served.
@@ -227,7 +273,9 @@ HAS_AGW=true; [ -z "$GWNAMES" ] && HAS_AGW=false
 # was included. On a cluster, those objects without an agentgateway Gateway belong to
 # some other gateway and are left out.
 if [ "$FILE_MODE" = true ] && [ "$HAS_AGW" = false ]; then
-  draw_n="$(jq -s '.[0]+.[1]+.[2] | length' <(_json "$RT") <(_json "$POL") <(_json "$BE"))"
+  draw_n="$(jq -s 'add | length' \
+    <(_json "$RT") <(_json "$POL") <(_json "$BE") <(_json "$GRT") <(_json "$LS") <(_json "$ELS") \
+    <(_json "$SE") <(_json "$PAR") <(_json "$IDC") <(_json "$MOD") <(_json "$EXT") <(_json "$SIDE"))"
   [ "$draw_n" != 0 ] && HAS_AGW=true
 fi
 if [ "$HAS_AGW" = false ] && [ "$HAS_KAGENT" = false ] && [ "$HAS_SUBSTRATE" = false ]; then
@@ -240,7 +288,10 @@ if [ "$HAS_AGW" = false ] && [ "$HAS_KAGENT" = false ] && [ "$HAS_SUBSTRATE" = f
 fi
 # No agentgateway Gateway on a cluster → leave its half empty, so HTTPRoutes / backends
 # that belong to some other gateway (kgateway, Istio) don't surface as unused agentgateway config.
-if [ "$HAS_AGW" = false ]; then GW="[]"; RT="[]"; POL="[]"; BE="[]"; fi
+if [ "$HAS_AGW" = false ]; then
+  GW="[]"; RT="[]"; POL="[]"; BE="[]"
+  GRT="[]"; LS="[]"; ELS="[]"; SE="[]"; PAR="[]"; IDC="[]"; MOD="[]"; EXT="[]"; SIDE="[]"
+fi
 EDITION="community"; echo "$GW" | jq -e '.[]|select(.spec.gatewayClassName=="enterprise-agentgateway")' >/dev/null 2>&1 && EDITION="enterprise"
 
 # ── Proxy admin /config_dump (version + loaded enrichment). Soft-fail. ──────────
@@ -387,15 +438,20 @@ LOADED="$(jq -cn --argjson dumps "$DUMPS" '
 ')"
 
 # ── Build Cytoscape elements (nodes + edges) from the snapshot. ─────────────────
-DATA="$(jq -cn \
+DATA="$(jq -cn -L "$REPO_DIR/scripts/lib/graph" \
   --argjson gw "$GW" --slurpfile rt <(_json "$RT") --slurpfile pol <(_json "$POL") --slurpfile be <(_json "$BE") \
   --slurpfile pods <(_json "$PODS") --slurpfile deps <(_json "$DEPS") --argjson gc "$GC" \
+  --slurpfile grt <(_json "$GRT") --slurpfile ls <(_json "$LS") --slurpfile els <(_json "$ELS") \
+  --slurpfile se <(_json "$SE") --slurpfile par <(_json "$PAR") --slurpfile idc <(_json "$IDC") \
+  --slurpfile mod <(_json "$MOD") --slurpfile ext <(_json "$EXT") --slurpfile side <(_json "$SIDE") \
   --argjson loaded "$LOADED" \
   --arg cluster "$CLUSTER" --arg edition "$EDITION" \
   --arg version "$VERSION" --arg versionSource "$VERSION_SOURCE" --arg gitRevision "$GIT_REVISION" \
   --arg honorStatus "$HONOR_STATUS" --arg fileMode "$FILE_MODE" '
-  $rt[0] as $rt | $pol[0] as $pol | $be[0] as $be | $pods[0] as $pods | $deps[0] as $deps |
-  def honor: $honorStatus == "true";
+  include "agw";
+  $rt[0] as $rt | $pol[0] as $pol | $be[0] as $be | $pods[0] as $pods | $deps[0] as $deps
+  | $grt[0] as $grt | $ls[0] as $ls | $els[0] as $els | $se[0] as $se | $par[0] as $par
+  | $idc[0] as $idc | $mod[0] as $mod | $ext[0] as $ext | $side[0] as $side |
   def cond(t): [.status.conditions[]?|select(.type==t).status];
   def stat(t): if honor|not then "na" else (cond(t) as $c | if ($c|length)==0 then "na" elif ($c|all(.=="True")) then "ok" else "bad" end) end;
   def rstat:
@@ -407,16 +463,6 @@ DATA="$(jq -cn \
   # .status.ancestors[].conditions[] (Accepted + Attached), NOT .status.conditions.
   def pconds: [.status.ancestors[]?.conditions[]?];
   def pstat: if honor|not then "na" else (pconds as $c | if ($c|length)==0 then "na" elif ($c|any(.status!="True")) then "bad" else "ok" end) end;
-  def backend_rtype($default):
-    (.group // "") as $g | (.kind // "") as $k
-    | if $g=="enterpriseagentgateway.solo.io" or $k=="EnterpriseAgentgatewayBackend"
-      then "enterpriseagentgatewaybackends.enterpriseagentgateway.solo.io"
-      elif $g=="agentgateway.dev" or $k=="AgentgatewayBackend"
-      then "agentgatewaybackends.agentgateway.dev"
-      elif $k=="Service" or $g=="" or $g=="core" then $default
-      else $default end;
-  def backend_key($default_ns; $default_rtype):
-    (backend_rtype($default_rtype))+":"+(.namespace // $default_ns)+"/"+.name;
   def aggregate_refs($relation):
     group_by(.data.source+"|"+.data.target)
     | map(length as $n | .[0]
@@ -446,6 +492,24 @@ DATA="$(jq -cn \
          | {key:($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev")),
             ns:(.namespace // $pns), name:.name,
             rtype:($ref|backend_rtype("agentgatewaybackends.agentgateway.dev")), cr:false}),
+       ($pol[] | .metadata.namespace as $pns | .spec.targetRefs[]?
+         | select((.kind // "")=="Service" or ((.kind // "")|test("Backend"))) | . as $ref
+         | {key:($ref|backend_key($pns; "service")), ns:(.namespace // $pns), name:.name,
+            rtype:($ref|backend_rtype("service")), cr:false}),
+       ($grt[] | .metadata.namespace as $rns | .spec.rules[]?.backendRefs[]?
+         | . as $ref
+         | {key:($ref|backend_key($rns; "service")), ns:(.namespace // $rns), name:.name,
+            rtype:($ref|backend_rtype("service")), cr:false}),
+       ($mod[] | .metadata.namespace as $ns
+         | (.spec.custom.backendRef, .spec.virtualModel.callout.backendRef)
+         | select(type=="object" and .name? != null) | . as $ref
+         | {key:($ref|backend_key($ns; "service")), ns:(.namespace // $ns), name:.name,
+            rtype:($ref|backend_rtype("service")), cr:false}),
+       ($idc[] | .metadata.namespace as $ns
+         | .spec.trust.issuers[]? | (.discovery.backendRef, .jwks.remote.backendRef)
+         | select(type=="object" and .name? != null) | . as $ref
+         | {key:($ref|backend_key($ns; "service")), ns:(.namespace // $ns), name:.name,
+            rtype:($ref|backend_rtype("service")), cr:false}),
        ($be[] | {key:(._rtype+":"+.metadata.namespace+"/"+.metadata.name),
                  ns:.metadata.namespace, name:.metadata.name, origin:(._source // null),
                  cr:true, btype:((.spec|keys|map(select(.!="policies"))|first)//"?"), rtype:._rtype,
@@ -534,7 +598,7 @@ DATA="$(jq -cn \
         + [ $rt[] | .metadata.namespace as $rns | .metadata.name as $rn
             | .spec.parentRefs[]? | select(.name as $p | $gwnames|index($p))
             | {data:{ id:("e:parent:"+$rns+":"+$rn+":"+.name), source:("httproute:"+$rns+"/"+$rn),
-                      target:("gateway:"+((.namespace)//$rns)+"/"+.name), rel:"parentRef" }} ]
+                      target:("gateway:"+((.namespace)//$rns)+"/"+.name), rel:"parentRef", refKind:"Gateway" }} ]
 
         # ── Backend nodes + backendRef edges from routes ──
         + [ $backends[] | {data:{
@@ -575,19 +639,18 @@ DATA="$(jq -cn \
                                  (( [pconds[] | .type+"="+.status+(if .status!="True" then " — "+(.reason//"")+": "+(.message//"") else "" end)] )
                                  | if length==0 then ["(none reported)"] else . end) end) } }} ]
         + [ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
-            | .spec.targetRefs[]?
-            | {data:{ id:("e:target:"+$pns+":"+$pn+":"+.kind+":"+.name), source:("policy:"+$pns+"/"+$pn),
-                      target:(if .kind=="Gateway" then "gateway:"+(.namespace // $pns)+"/"+.name
-                              elif .kind=="HTTPRoute" then "httproute:"+(.namespace // $pns)+"/"+.name
-                              elif (.kind|test("Backend")) then "backend:"+(.|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))
-                              else "unknown:"+(.namespace // $pns)+"/"+.name end),
-                      rel:"targetRef" }} ]
+            | .spec.targetRefs[]? | . as $ref
+            | {data:{ id:("e:target:"+$pns+":"+$pn+":"+($ref.kind // "Object")+":"+($ref.namespace // $pns)+":"+$ref.name),
+                      source:("policy:"+$pns+"/"+$pn),
+                      target:($ref|target_id($pns)),
+                      rel:"targetRef", refKind:($ref.kind // "Object") }} ]
         + ([ $pol[] | .metadata.namespace as $pns | .metadata.name as $pn
             | .. | objects | .backendRef? | select(type=="object" and .name? != null) | . as $ref
             | {data:{ id:("e:polbe:"+$pns+":"+$pn+":"+($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))),
                       source:("policy:"+$pns+"/"+$pn),
                       target:("backend:"+($ref|backend_key($pns; "agentgatewaybackends.agentgateway.dev"))) }} ]
            | aggregate_refs("uses"))
+        + agw_extra($grt; $ls; $els; $se; $par; $idc; $mod; $ext; $side; $deps; $gc; $pol; $be)
       )
     }')"
 
@@ -651,8 +714,12 @@ echo "    ${NODE_N} node(s), ${EDGE_N} edge(s)${ghost_note}"
 # map each node id to its full object, then render two YAML views: the raw manifest and a
 # cleaned one for copy/paste into a new cluster/bundle (kubectl-neat if installed, else a
 # built-in strip of server-managed fields). All done at generate time — no extra cluster calls.
+EXTRAS="$(jq -s 'add // []' \
+  <(_json "$GRT") <(_json "$LS") <(_json "$ELS") <(_json "$SE") <(_json "$PAR") \
+  <(_json "$IDC") <(_json "$MOD") <(_json "$EXT") <(_json "$SIDE"))"
 MANIFESTS="$(jq -n --slurpfile data <(_json "$DATA") --argjson gws "$GW" --slurpfile rts <(_json "$RT") --argjson gcs "$GC" \
   --slurpfile deps <(_json "$DEPS") --slurpfile pods <(_json "$PODS") --slurpfile bes <(_json "$BE") --slurpfile pols <(_json "$POL") \
+  --slurpfile extras <(_json "$EXTRAS") \
   --slurpfile kobjs <(printf '%s' "$KDATA" | jq '.objs') '
   def redact:
     if type == "object" then
@@ -665,7 +732,7 @@ MANIFESTS="$(jq -n --slurpfile data <(_json "$DATA") --argjson gws "$GW" --slurp
     elif type == "array" then map(redact)
     else . end;
   $data[0] as $data | $rts[0] as $rts | $deps[0] as $deps | $pods[0] as $pods | $bes[0] as $bes
-  | $pols[0] as $pols | $kobjs[0] as $kobjs
+  | $pols[0] as $pols | $kobjs[0] as $kobjs | $extras[0] as $extras
   | ($data.elements | map(select(.data.source|not) | .data)) as $nodes
   | reduce $nodes[] as $n ({};
       ($n.rtype) as $k | ($n.ns) as $ns | ($n.name) as $nm | ($n.id) as $id
@@ -677,7 +744,10 @@ MANIFESTS="$(jq -n --slurpfile data <(_json "$DATA") --argjson gws "$GW" --slurp
            elif $k=="pod"          then first($pods[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
            elif ($k|test("backend")) then first($bes[]|select(._rtype==$k and .metadata.namespace==$ns and .metadata.name==$nm))
            elif ($k|test("polic"))   then first($pols[]|select(.metadata.namespace==$ns and .metadata.name==$nm))
-           else null end ) // null ) as $obj
+           else null end )
+         # first() of no match is empty, and empty resets a reduce. Coalesce to null.
+         // (first($extras[] | select(._rtype==$k and ((.metadata.namespace // "(cluster-scoped)")==$ns) and .metadata.name==$nm)) // null)
+         ) as $obj
       # Drop kubectl'"'"'s last-applied-configuration bookkeeping annotation (a redundant
       # serialized copy of the object). It'"'"'s huge noise and — because it'"'"'s stored with a
       # trailing newline — YAML-serializes to a blank line + lone "'"'"'" that reads like a
@@ -832,12 +902,22 @@ HTMLHEAD
 (function(){
   var D=window.SOLOMOG_DATA;
   var DUMP=window.SOLOMOG_DUMP||{};
-  var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c',GatewayClass:'#80cbc4',
+  var COLOR={Gateway:'#7aa2ff',Deployment:'#c792ea',Pod:'#82aaff',HTTPRoute:'#5fe3a1',GRPCRoute:'#5fe3a1',Backend:'#ffcb6b',Policy:'#f78c6c',GatewayClass:'#80cbc4',
+    ListenerSet:'#4dd0e1',EnterpriseListenerSet:'#4dd0e1',ServiceEntry:'#9fb0d0',AgentgatewayModel:'#e6c07b',
+    EnterpriseIdentityConfig:'#ce93d8',AgentgatewayParameters:'#90a4ae',EnterpriseAgentgatewayParameters:'#90a4ae',
+    AuthConfig:'#ffab91',RateLimitConfig:'#ffd54f',WAFPolicy:'#ef9a9a',
+    EnterpriseAgentgatewayBudget:'#8d99ae',EnterpriseAgentgatewayRoleBinding:'#8d99ae',
+    EnterpriseAgentgatewayRBACPolicy:'#8d99ae',EnterpriseAgentgatewayExternalSecret:'#8d99ae',
     Agent:'#ff79c6',SandboxAgent:'#ff79c6',AgentTemplate:'#b39ddb',Harness:'#4dd0e1',AgentHarness:'#4dd0e1',SandboxTemplate:'#4dd0e1',
     ModelConfig:'#e6c07b',ModelProviderConfig:'#bcaaa4',RemoteMCPServer:'#9ccc65',MCPServer:'#9ccc65',Service:'#9fb0d0',
     WorkerPool:'#4fc3f7',SandboxConfig:'#80cbc4',EnterpriseKagentRBACPolicy:'#f78c6c'};
   // legend swatch class per kind (mirrors the canvas shape)
-  var SHAPE={Gateway:'rrect',GatewayClass:'tag',Deployment:'rrect',Pod:'ellipse',HTTPRoute:'ellipse',Backend:'diamond',Policy:'hex',
+  var SHAPE={Gateway:'rrect',GatewayClass:'tag',Deployment:'rrect',Pod:'ellipse',HTTPRoute:'ellipse',GRPCRoute:'ellipse',Backend:'diamond',Policy:'hex',
+    ListenerSet:'rrect',EnterpriseListenerSet:'rrect',ServiceEntry:'barrel',AgentgatewayModel:'tri',
+    EnterpriseIdentityConfig:'tag',AgentgatewayParameters:'rrect',EnterpriseAgentgatewayParameters:'rrect',
+    AuthConfig:'pent',RateLimitConfig:'pent',WAFPolicy:'pent',
+    EnterpriseAgentgatewayBudget:'ellipse',EnterpriseAgentgatewayRoleBinding:'ellipse',
+    EnterpriseAgentgatewayRBACPolicy:'ellipse',EnterpriseAgentgatewayExternalSecret:'ellipse',
     Agent:'star',SandboxAgent:'star',AgentTemplate:'rhomb',Harness:'cut',AgentHarness:'cut',SandboxTemplate:'cut',
     ModelConfig:'tri',ModelProviderConfig:'tri',RemoteMCPServer:'pent',MCPServer:'pent',Service:'barrel',
     WorkerPool:'oct',SandboxConfig:'tag',EnterpriseKagentRBACPolicy:'hex'};
@@ -863,6 +943,13 @@ HTMLHEAD
       // policies' kind is the CR kind (EnterpriseAgentgatewayPolicy / AgentgatewayPolicy),
       // not "Policy", so the kind→COLOR lookup misses — set their fill by role instead.
       {selector:'node[role="policy"]',style:{'shape':'hexagon','background-color':'#f78c6c'}},
+      {selector:'node[kind="ListenerSet"], node[kind="EnterpriseListenerSet"]',style:{'shape':'round-rectangle','background-color':'#4dd0e1','width':34,'height':22}},
+      {selector:'node[kind="ServiceEntry"]',style:{'shape':'barrel','background-color':'#9fb0d0','width':30,'height':22}},
+      {selector:'node[kind="AgentgatewayModel"]',style:{'shape':'round-triangle','background-color':'#e6c07b','width':30,'height':28}},
+      {selector:'node[kind="EnterpriseIdentityConfig"]',style:{'shape':'round-tag','background-color':'#ce93d8','width':34,'height':26}},
+      {selector:'node[kind="AgentgatewayParameters"], node[kind="EnterpriseAgentgatewayParameters"]',style:{'shape':'round-rectangle','background-color':'#90a4ae'}},
+      {selector:'node[kind="AuthConfig"], node[kind="RateLimitConfig"], node[kind="WAFPolicy"]',style:{'shape':'round-pentagon','width':30,'height':30}},
+      {selector:'node[role="side"]',style:{'shape':'ellipse','background-color':'#8d99ae'}},
       // kagent + substrate
       {selector:'node[kind="Agent"], node[kind="SandboxAgent"]',style:{'shape':'star','width':34,'height':34}},
       {selector:'node[kind="AgentTemplate"]',style:{'shape':'rhomboid','width':34,'height':24}},
@@ -995,7 +1082,11 @@ HTMLHEAD
     cy.nodes().forEach(function(n){
       var k=n.data('kind');
       if(n.data('product')==='agentgateway'){
-        if((k==='HTTPRoute'||k==='Backend'||k==='Service'||n.data('role')==='policy')&&!agw[n.id()]&&!n.data('ghost')) groups.agentgateway.push(n);
+        if((k==='HTTPRoute'||k==='GRPCRoute'||k==='Backend'||k==='Service'||k==='ServiceEntry'
+          ||k==='ListenerSet'||k==='EnterpriseListenerSet'||k==='AgentgatewayModel'
+          ||k==='EnterpriseIdentityConfig'||k==='AgentgatewayParameters'||k==='EnterpriseAgentgatewayParameters'
+          ||k==='AuthConfig'||k==='RateLimitConfig'||k==='WAFPolicy'
+          ||n.data('role')==='policy'||n.data('role')==='side')&&!agw[n.id()]&&!n.data('ghost')) groups.agentgateway.push(n);
       } else if(KSIDE[n.data('product')]&&KORPH[k]&&!kr[n.id()]&&!n.data('missing')) groups.kagent.push(n);
     });
     Object.keys(groups).forEach(function(p){
@@ -1160,7 +1251,11 @@ HTMLHEAD
 
   // legend — only the kinds in the current view, each with its canvas SHAPE + fill colour; then
   // the plane grouping the colours encode; then status as a ring (status is the node BORDER).
-  var ORDER=['Gateway','GatewayClass','Deployment','Pod','HTTPRoute','Backend','Service','Policy',
+  var ORDER=['Gateway','GatewayClass','Deployment','Pod','HTTPRoute','GRPCRoute','ListenerSet','EnterpriseListenerSet',
+    'Backend','Service','ServiceEntry','AgentgatewayModel','EnterpriseIdentityConfig',
+    'AgentgatewayParameters','EnterpriseAgentgatewayParameters','AuthConfig','RateLimitConfig','WAFPolicy',
+    'EnterpriseAgentgatewayBudget','EnterpriseAgentgatewayRoleBinding','EnterpriseAgentgatewayRBACPolicy','EnterpriseAgentgatewayExternalSecret',
+    'Policy',
     'Agent','SandboxAgent','AgentTemplate','Harness','AgentHarness','SandboxTemplate','ModelConfig','ModelProviderConfig',
     'RemoteMCPServer','MCPServer','WorkerPool','SandboxConfig','EnterpriseKagentRBACPolicy'];
   function sw(shape,color){return '<i class="'+shape+'" style="background:'+color+'"></i>';}

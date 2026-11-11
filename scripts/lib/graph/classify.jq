@@ -28,7 +28,22 @@ def plural:
     "MCPServer": "mcpservers",
     "EnterpriseKagentRBACPolicy": "enterprisekagentrbacpolicies",
     "WorkerPool": "workerpools",
-    "SandboxConfig": "sandboxconfigs"
+    "SandboxConfig": "sandboxconfigs",
+    "GRPCRoute": "grpcroutes",
+    "ListenerSet": "listenersets",
+    "EnterpriseListenerSet": "enterpriselistenersets",
+    "ServiceEntry": "serviceentries",
+    "AgentgatewayParameters": "agentgatewayparameters",
+    "EnterpriseAgentgatewayParameters": "enterpriseagentgatewayparameters",
+    "EnterpriseIdentityConfig": "enterpriseidentityconfigs",
+    "AgentgatewayModel": "agentgatewaymodels",
+    "AuthConfig": "authconfigs",
+    "RateLimitConfig": "ratelimitconfigs",
+    "WAFPolicy": "wafpolicies",
+    "EnterpriseAgentgatewayBudget": "enterpriseagentgatewaybudgets",
+    "EnterpriseAgentgatewayRoleBinding": "enterpriseagentgatewayrolebindings",
+    "EnterpriseAgentgatewayRBACPolicy": "enterpriseagentgatewayrbacpolicies",
+    "EnterpriseAgentgatewayExternalSecret": "enterpriseagentgatewayexternalsecrets"
   }[.kind] // "";
 
 def rtype:
@@ -41,7 +56,7 @@ def rtype:
   elif .kind == "SandboxConfig" then "sandboxconfigs.ate.dev"
   else (plural + "." + group) end;
 
-def cluster_scoped: .kind == "GatewayClass" or .kind == "SandboxConfig";
+def cluster_scoped: .kind == "GatewayClass" or .kind == "SandboxConfig" or .kind == "EnterpriseAgentgatewayRoleBinding";
 
 def bucket:
   if ._skip then "skip"
@@ -51,6 +66,21 @@ def bucket:
   elif .kind == "GatewayClass" and group_ok("gateway.networking.k8s.io") then "gc"
   elif .kind == "EnterpriseAgentgatewayPolicy" or .kind == "AgentgatewayPolicy" then "pol"
   elif .kind == "EnterpriseAgentgatewayBackend" or .kind == "AgentgatewayBackend" then "be"
+  elif .kind == "GRPCRoute" and group_ok("gateway.networking.k8s.io") then "grt"
+  elif .kind == "ListenerSet" and group_ok("gateway.networking.k8s.io") then "ls"
+  elif .kind == "EnterpriseListenerSet" and group_ok("enterprise.solo.io") then "els"
+  elif .kind == "ServiceEntry" and group_ok("networking.istio.io") then "se"
+  elif .kind == "AgentgatewayParameters" and group_ok("agentgateway.dev") then "par"
+  elif .kind == "EnterpriseAgentgatewayParameters" and group_ok("enterpriseagentgateway.solo.io") then "par"
+  elif .kind == "EnterpriseIdentityConfig" and group_ok("enterpriseagentgateway.solo.io") then "idc"
+  elif .kind == "AgentgatewayModel" and group_ok("agentgateway.dev") then "mod"
+  elif .kind == "AuthConfig" and group_ok("extauth.solo.io") then "ext"
+  elif .kind == "RateLimitConfig" and group_ok("ratelimit.solo.io") then "ext"
+  elif .kind == "WAFPolicy" and group_ok("waf.solo.io") then "ext"
+  elif .kind == "EnterpriseAgentgatewayBudget" and group_ok("enterpriseagentgateway.solo.io") then "side"
+  elif .kind == "EnterpriseAgentgatewayRoleBinding" and group_ok("enterpriseagentgateway.solo.io") then "side"
+  elif .kind == "EnterpriseAgentgatewayRBACPolicy" and group_ok("enterpriseagentgateway.solo.io") then "side"
+  elif .kind == "EnterpriseAgentgatewayExternalSecret" and group_ok("enterpriseagentgateway.solo.io") then "side"
   elif .kind == "Pod" and group_ok("core") then "pods"
   elif .kind == "Deployment" and group_ok("apps") then "deps"
   elif .kind == "Service" and group_ok("core") then "svcs"
@@ -65,7 +95,10 @@ def withns:
     else . end;
 
 def tagged:
-  if bucket == "pol" or bucket == "be" or bucket == "kobjs" then . + {_rtype: rtype} else . end;
+  if bucket == "pol" or bucket == "be" or bucket == "kobjs"
+     or bucket == "grt" or bucket == "ls" or bucket == "els" or bucket == "se"
+     or bucket == "par" or bucket == "idc" or bucket == "mod" or bucket == "ext" or bucket == "side"
+  then . + {_rtype: rtype} else . end;
 
 [.[] | select(type == "object")] as $raw
 | ($raw | map(if bucket == "skip" then . else withns | tagged end)) as $docs
@@ -87,6 +120,15 @@ def tagged:
     gc: take("gc"),
     svcs: take("svcs"),
     kobjs: take("kobjs"),
+    grt: take("grt"),
+    ls: take("ls"),
+    els: take("els"),
+    se: take("se"),
+    par: take("par"),
+    idc: take("idc"),
+    mod: take("mod"),
+    ext: take("ext"),
+    side: take("side"),
     duplicates: $dups,
     defaulted: ([$docs[] | select(.metadata._defaultedNamespace == true)] | length),
     skipped: (

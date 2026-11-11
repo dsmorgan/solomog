@@ -129,6 +129,38 @@ echo "==> missing path"
 render INPUT="$FIX/no-such-dir"
 assert_eq "missing exit 1" "$OUT_RC" "1"
 
+echo "==> agentgateway coverage (identity, model, listener, import)"
+render INPUT="$FIX/coverage.yaml"
+assert_eq "coverage exit 0" "$OUT_RC" "0"
+COV="$(data_json)"
+edge_n() {
+  printf '%s' "$COV" | jq -r --arg s "$1" --arg t "$2" --arg r "$3" \
+    '[.elements[]|select(.data.source==$s and .data.target==$t and .data.rel==$r)]|length'
+}
+assert_eq "listener parent" "$(edge_n "enterpriselistenerset:agentgateway-system/extra" "gateway:agentgateway-system/agw" "parentRef")" "1"
+assert_eq "parameters ref" "$(edge_n "gatewayclass:enterprise-agentgateway" "parameters:enterpriseagentgatewayparameters.enterpriseagentgateway.solo.io:agentgateway-system/agentgateway-config" "parametersRef")" "1"
+assert_eq "model parent defaults to Gateway" "$(edge_n "model:agentgateway-system/gpt" "gateway:agentgateway-system/agw" "parentRef")" "1"
+assert_eq "modelRef" "$(edge_n "model:agentgateway-system/virtual" "model:agentgateway-system/gpt" "modelRef")" "1"
+assert_eq "import" "$(edge_n "policy:agentgateway-system/importer" "policy:agentgateway-system/base" "import")" "1"
+assert_eq "grpc node" "$(printf '%s' "$COV" | jq -r '.elements[]|select(.data.id=="grpcroute:app/grpc")|.data.kind')" "GRPCRoute"
+assert_eq "grpc targetRef" "$(edge_n "policy:agentgateway-system/importer" "grpcroute:app/grpc" "targetRef")" "1"
+assert_eq "connector to default" "$(edge_n "policy:agentgateway-system/connector" "identity:agentgateway-system/default" "entConnector")" "1"
+assert_eq "identity deploy reads default" "$(edge_n "deploy:agentgateway-system/enterprise-agentgateway-identity" "identity:agentgateway-system/default" "reads")" "1"
+assert_eq "missing default is a ghost" "$(printf '%s' "$COV" | jq -r '.elements[]|select(.data.id=="identity:agentgateway-system/default")|.data.ghost')" "true"
+assert_eq "missing default kind" "$(printf '%s' "$COV" | jq -r '.elements[]|select(.data.id=="identity:agentgateway-system/default")|.data.kind')" "EnterpriseIdentityConfig"
+assert_eq "other identity is real" "$(printf '%s' "$COV" | jq -r '.elements[]|select(.data.id=="identity:agentgateway-system/other")|.data.ghost // false')" "false"
+assert_contains "other identity not served" "$(printf '%s' "$COV" | jq -r '.elements[]|select(.data.id=="identity:agentgateway-system/other")|.data.detail.served')" "no"
+assert_eq "budget node" "$(printf '%s' "$COV" | jq -r '.elements[]|select(.data.id=="side:EnterpriseAgentgatewayBudget:agentgateway-system/team")|.data.kind')" "EnterpriseAgentgatewayBudget"
+assert_eq "rolebinding node" "$(printf '%s' "$COV" | jq -r '.elements[]|select(.data.id=="side:EnterpriseAgentgatewayRoleBinding:(cluster-scoped)/readers")|.data.kind')" "EnterpriseAgentgatewayRoleBinding"
+assert_contains "identity yaml embedded" "$(cat "$OUT_HTML")" "https://id.example.test"
+assert_contains "rolebinding yaml embedded" "$(cat "$OUT_HTML")" "reader"
+assert_not_contains "coverage draws identity" "$OUT_LOG" "EnterpriseIdentityConfig"
+assert_not_contains "coverage draws model" "$OUT_LOG" "AgentgatewayModel"
+assert_not_contains "coverage draws listener" "$OUT_LOG" "EnterpriseListenerSet"
+assert_not_contains "coverage draws grpc" "$OUT_LOG" "GRPCRoute"
+assert_not_contains "coverage draws budget" "$OUT_LOG" "EnterpriseAgentgatewayBudget"
+assert_not_contains "coverage draws rolebinding" "$OUT_LOG" "EnterpriseAgentgatewayRoleBinding"
+
 echo "==> INPUT and CLUSTER together"
 set +e
 BOTH="$(OPEN=false INPUT="$FIX/stacked.yaml" bash "$GRAPH" foo 2>&1)"
