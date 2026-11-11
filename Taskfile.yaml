@@ -288,6 +288,8 @@ tasks:
       # TOKEN_EXCHANGE is CLI-only — no .env fallback — so it can never silently leak
       # into an unrelated cluster's install. See .env.example for why.
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
+      # CLI-only, like TOKEN_EXCHANGE: the identity service (connectors) is opt-in per install.
+      AGENTGATEWAY_IDENTITY: '{{.AGENTGATEWAY_IDENTITY | default "false"}}'
       # CLI-only for the same reason (see the kgateway task).
       KGATEWAY_ELS_CRD: '{{.KGATEWAY_ELS_CRD | default "false"}}'
       KGATEWAY_SKIP_SHARED_CRDS: '{{.KGATEWAY_SKIP_SHARED_CRDS | default "false"}}'
@@ -733,6 +735,9 @@ tasks:
         OAUTH_ISSUER     true to enable the eager-auth OAuth issuer (gateway acts as the
                          OAuth AS at /oauth-issuer, brokers to Okta). Needs TOKEN_EXCHANGE=true
                          + OKTA_* in .env. CLI-only. default false.
+        AGENTGATEWAY_IDENTITY  true to install the identity service (connectors, v2026.11.0+):
+                         identity.enabled plus the EnterpriseIdentityConfig CRD. It serves once an
+                         EnterpriseIdentityConfig named default exists. CLI-only. default false.
         OAUTH_ISSUER_HOST   public gateway host for the issuer base_url.
                             default agw.<cluster>.test
         OAUTH_ISSUER_BASE_URL / _IDP_NAME / _AUTHORIZE_URL / _TOKEN_URL   point the issuer at a
@@ -754,6 +759,8 @@ tasks:
       # instead of a vind cluster. Empty → vind default vcluster-docker_<cluster>. See lib/target.sh.
       CONTEXT: '{{.CONTEXT | default ""}}'
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
+      # CLI-only, like TOKEN_EXCHANGE: the identity service (connectors) is opt-in per install.
+      AGENTGATEWAY_IDENTITY: '{{.AGENTGATEWAY_IDENTITY | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       # CLI-only, like TOKEN_EXCHANGE: no .env fallback (see the helmfile for why).
       TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'
@@ -886,6 +893,8 @@ tasks:
       # SOLO_UI_OIDC_* in .env for one run.
       UI_OIDC: '{{.UI_OIDC | default "true"}}'
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
+      # CLI-only, like TOKEN_EXCHANGE: the identity service (connectors) is opt-in per install.
+      AGENTGATEWAY_IDENTITY: '{{.AGENTGATEWAY_IDENTITY | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'
       # CLI-only, like TOKEN_EXCHANGE: no .env fallback (see the helmfile for why).
       TOKEN_EXCHANGE_ISSUER: '{{.TOKEN_EXCHANGE_ISSUER | default ""}}'

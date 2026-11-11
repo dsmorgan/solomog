@@ -30,6 +30,10 @@ releases:
     chart: agentgateway/{{ if eq .Environment.Name "enterprise" }}enterprise-agentgateway-crds{{ else }}agentgateway-crds{{ end }}
     version: "{{ .Values.agentgateway_version }}"
     wait: true
+{{- if and (eq .Environment.Name "enterprise") (eq (env "AGENTGATEWAY_IDENTITY") "true") }}
+    values:
+      - installIdentityConfigCRD: true
+{{- end }}
     hooks:
       - events: ["presync"]
         showlogs: true
@@ -54,6 +58,13 @@ releases:
       - licensing:
           licenseKey: "{{ .Values.agentgateway_license_key }}"
 {{ end }}
+{{- /* Identity service (connectors), v2026.11.0+. Opt-in via AGENTGATEWAY_IDENTITY=true. The
+       chart renders no EnterpriseIdentityConfig; whoever uses connectors creates `default`
+       (with its Postgres Secret) in agentgateway-system. */}}
+{{- if and (eq .Environment.Name "enterprise") (eq (env "AGENTGATEWAY_IDENTITY") "true") }}
+      - identity:
+          enabled: true
+{{- end }}
 {{- /* OBO token-exchange STS (enterprise-only). Opt-in via TOKEN_EXCHANGE=true; off otherwise
        so the normal install is untouched. Shape follows the 2.3.x OBO docs. The chart passes
        this whole block to the controller as JSON (KGW_AGENTGATEWAY_TOKEN_EXCHANGE_CONFIG) and

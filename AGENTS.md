@@ -58,6 +58,10 @@ These combine freely and are the core mental model:
      makes the gateway an OAuth AS at `/oauth-issuer` (needs token exchange + `OKTA_*`, or the
      CLI-only `OAUTH_ISSUER_BASE_URL` / `_IDP_NAME` / `_AUTHORIZE_URL` / `_TOKEN_URL` overrides
      for another IdP such as in-cluster Keycloak; blank keeps the Okta wiring).
+     `AGENTGATEWAY_IDENTITY=true` (CLI-only, v2026.11.0+) installs the identity service for
+     connectors: `identity.enabled` plus `installIdentityConfigCRD` on the CRD chart. The chart
+     renders no `EnterpriseIdentityConfig`; whoever uses connectors creates `default` and its
+     Postgres Secret. Pass it on every later sync of that cluster, or helm removes the service.
      Related JWKS / callback knobs may live in `.env`; they are inert unless the CLI flag is set.
    - `kagent` = **enterprise**: singleton `management` release in `agentgateway-system`
      plus `kagent-enterprise[-crds]` in ns `kagent` (experimental in solomog);
