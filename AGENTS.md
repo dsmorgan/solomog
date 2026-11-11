@@ -315,6 +315,14 @@ also covers kagent and Agent Substrate):
   - **Unused** is per side: agentgateway is undirected from Gateways (policies point at their
     targets); kagent is DIRECTED from Agents/SandboxTemplates along outgoing refs, so an unused
     template pointing at a used ModelConfig still counts as unused.
+  - **More agentgateway kinds** are drawn when the CRD is installed (or the object is in
+    `INPUT=`): GRPCRoute, ListenerSet, EnterpriseListenerSet, ServiceEntry, AgentgatewayModel
+    (`parentRefs`, `modelRef`, custom and callout `backendRef`), GatewayClass `parametersRef`,
+    policy `imports`, and AuthConfig / RateLimitConfig / WAFPolicy named by a policy.
+    `EnterpriseIdentityConfig` is one of them. The identity Deployment reads only the object
+    named `default`; `entConnector` on a policy or backend points at that object, and a missing
+    one is a ghost. Any other name is drawn and marked not served. Budget, role binding, RBAC
+    policy, and external secret are nodes with no invented edges. Secrets are not drawn.
   - **Large lists go to jq via `--slurpfile <(...)`, never `--argjson`.** On a real EKS cluster
     the Pods JSON alone is ~700KB and `--argjson` dies with `Argument list too long` (ARG_MAX).
     Pods are also pre-filtered to the ones drawn (gateway + worker pods).

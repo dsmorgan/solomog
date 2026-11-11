@@ -21,9 +21,9 @@ $data[0] as $data
     if $fileMode == "true" then "not in this input" else "not in the cluster" end;
   def gw_exists($ns; $name):
     any($gw[]; .metadata.namespace == $ns and .metadata.name == $name);
-  def tail($id):
-    if ($id | startswith("backend:")) then ($id | split(":") | last)
-    else $id | sub("^[^:]+:"; "") end;
+  # Node ids are "<prefix>:<ns>/<name>" or "<prefix>:<rtype>:<ns>/<name>".
+  # The ns/name pair is always the last colon-separated piece.
+  def tail($id): $id | split(":") | last;
   def ns_of($id): (tail($id) | split("/"))[0];
   def name_of($id): (tail($id) | split("/"))[1];
   def ghost($id; $kind; $role; $ns; $name):
@@ -77,24 +77,33 @@ $data[0] as $data
 
   | ($flagged + $gw_nodes) as $with_gw
   | ($with_gw | map(select(.data.source | not) | .data.id)) as $ids2
-  | [ $with_gw[] | select(.data.rel == "targetRef")
+  | [ $with_gw[]
+      | select(.data.rel == "targetRef" or .data.rel == "parentRef" or .data.rel == "parametersRef"
+              or .data.rel == "import" or .data.rel == "modelRef" or .data.rel == "reads"
+              or .data.rel == "entConnector" or .data.rel == "uses" or .data.rel == "backendRef")
       | . as $e
       | select(has($ids2; $e.data.target) | not)
       | ($e.data.id | split(":")) as $parts
-      | ($parts[4] // "Object") as $refkind
+      | ($e.data.refKind // $parts[4] // "Object") as $refkind
       | select(
           if ($e.data.target | startswith("gateway:")) then
             gw_exists(ns_of($e.data.target); name_of($e.data.target)) | not
           else true end)
-      | (if $refkind == "HTTPRoute" then "HTTPRoute"
+      | (if $refkind == "HTTPRoute" or $refkind == "GRPCRoute" then $refkind
          elif $refkind == "Gateway" then "Gateway"
          elif $refkind == "Service" then "Service"
          elif ($refkind | test("Backend")) then "Backend"
          else $refkind end) as $kind
       | (if $kind == "Gateway" then "dataplane"
-         elif $kind == "HTTPRoute" then "route"
-         elif $kind == "Service" then "external"
+         elif $kind == "HTTPRoute" or $kind == "GRPCRoute" then "route"
+         elif $kind == "Service" or $kind == "ServiceEntry" then "external"
          elif $kind == "Backend" then "backend"
+         elif ($kind | test("ListenerSet")) then "listener"
+         elif $kind == "AgentgatewayModel" then "model"
+         elif $kind == "EnterpriseIdentityConfig" then "identity"
+         elif ($kind | test("Parameters")) then "parameters"
+         elif $kind == "AuthConfig" or $kind == "RateLimitConfig" or $kind == "WAFPolicy" then "extension"
+         elif ($kind | test("Policy$")) then "policy"
          else "ghost" end) as $role
       | ghost($e.data.target; $kind; $role; ns_of($e.data.target); name_of($e.data.target))
     ] as $target_ghosts
