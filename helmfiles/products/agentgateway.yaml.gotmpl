@@ -99,6 +99,16 @@ releases:
             validatorType: remote
             remoteConfig:
               url: "{{ $jwks }}"
+{{- /* TOKEN_EXCHANGE_SUBJECT_K8S (CLI-only): also accept Kubernetes ServiceAccount tokens as the
+       subject (a workload exchanging its own SA token). Renders the chart's subjectValidators list,
+       tried in order, which takes precedence over the singular subjectValidator above. */}}
+{{- if eq (env "TOKEN_EXCHANGE_SUBJECT_K8S") "true" }}
+          subjectValidators:
+            - validatorType: remote
+              remoteConfig:
+                url: "{{ $jwks }}"
+            - validatorType: k8s
+{{- end }}
           actorValidator:
             validatorType: k8s
           # apiValidator validates the SOLO UI's calls into the STS elicitation CRUD API. Per the
