@@ -9,9 +9,13 @@
 # Verified: https://docs.solo.io/istio/1.30.x/quickstart/multi/
 helm_repo_gloo_operator: "us-docker.pkg.dev/solo-public/gloo-operator-helm"
 
-# Gloo Mesh Enterprise management plane + agent (optional product).
-# TODO: verify against https://docs.solo.io/gloo-mesh-enterprise/latest/setup/installation/
-helm_repo_gloo_mesh: "https://storage.googleapis.com/gloo-mesh-enterprise/gloo-mesh-enterprise"
+# Gloo Mesh management plane + agent (optional product; Gloo Platform APIs).
+# Charts: gloo-platform-crds, gloo-platform. Namespace: gloo-mesh (shared with the Gloo Operator).
+# License: licensing.glooMeshLicenseKey. The old gloo-mesh-enterprise chart repo stops at 2.4.x.
+# Verified 2026-11-17: 2.14.1 single-cluster on vind sidecar Istio 1.30.7 (agent connected,
+# cluster ACCEPTED, VirtualDestination + policies translated). Versions:
+# https://docs.solo.io/istio/1.31.x/reference/changelog/release-notes/
+helm_repo_gloo_mesh: "https://storage.googleapis.com/gloo-platform/helm-charts"
 
 # Enterprise kgateway (kgateway 2.3.x) — OCI registry.
 # Charts: enterprise-kgateway-crds, enterprise-kgateway. Namespace: kgateway-system.

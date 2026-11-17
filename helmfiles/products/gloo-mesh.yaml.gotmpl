@@ -1,10 +1,23 @@
-# Product module: Gloo Mesh Enterprise management plane + agent (single cluster).
+# Product module: Gloo Mesh management plane + agent on ONE cluster (the Gloo Platform APIs:
+# Workspace, VirtualDestination, VirtualGateway/RouteTable, *Policy CRs).
 # Enterprise only — in community mode this module installs nothing.
-# Assumes Istio is already present (compose after the istio module).
+# Assumes Istio is already present (compose after the istio module); the Gloo Operator's
+# managed Istio already sets PILOT_ENABLE_K8S_SELECT_WORKLOAD_ENTRIES=false, which
+# VirtualDestinations need.
 #
-# License: gloo_mesh_license_key (GLOO_MESH_LICENSE_KEY or SOLO_LICENSE_KEY).
+# Charts: gloo-platform-crds + gloo-platform (https://storage.googleapis.com/gloo-platform/helm-charts).
+# The older `gloo-mesh-enterprise` repo stops at 2.4.x and is not used.
+# 2.14.x supports Istio 1.27-1.31 and Kubernetes 1.30-1.36.
+#
+# Single-cluster shape: registerCluster=true creates the KubernetesCluster for this cluster
+# and the agent relays to the in-cluster management server; createGlobalWorkspace=true
+# makes one workspace selecting every namespace. Insights, UI, Prometheus and the
+# telemetry pipeline are off to keep the footprint small.
+#
+# License: glooMeshLicenseKey (GLOO_MESH_LICENSE_KEY or SOLO_LICENSE_KEY).
 #
 # Composed via: solomog stack CLUSTER=... PRODUCTS="istio gloo-mesh"
+#           or: solomog gloo-mesh:single CLUSTER=... ISTIO_MODE=sidecar
 
 bases:
   - ../commons.yaml
@@ -13,38 +26,52 @@ bases:
 
 {{ if eq .Environment.Name "enterprise" }}
 repositories:
-  - name: gloo-mesh-enterprise
+  - name: gloo-platform
     url: "{{ .Values.helm_repo_gloo_mesh }}"
 
 releases:
-  - name: gloo-mesh-enterprise
+  - name: gloo-platform-crds
     namespace: gloo-mesh
-    chart: gloo-mesh-enterprise/gloo-mesh-enterprise
+    chart: gloo-platform/gloo-platform-crds
     version: "{{ .Values.gloo_mesh_version }}"
     wait: true
-    values:
-      - licenseKey: "{{ .Values.gloo_mesh_license_key }}"
-        glooMeshMgmtServer:
-          serviceType: ClusterIP
-          enabled: true
-        glooMeshUi:
-          enabled: true
-        prometheus:
-          enabled: true
 
-  - name: gloo-mesh-agent
+  - name: gloo-platform
     namespace: gloo-mesh
-    chart: gloo-mesh-enterprise/gloo-mesh-agent
+    chart: gloo-platform/gloo-platform
     version: "{{ .Values.gloo_mesh_version }}"
     wait: true
     needs:
-      - gloo-mesh/gloo-mesh-enterprise
+      - gloo-mesh/gloo-platform-crds
     values:
-      - relay:
-          serverAddress: "gloo-mesh-mgmt-server.gloo-mesh.svc:9900"
-          # TODO: hardcodes cluster identity — should use SOLO_CLUSTER (or similar) like istio.
-          cluster: solomog-cluster
+      - common:
+          cluster: "{{ env "SOLO_CLUSTER" | default "cluster-one" }}"
+        licensing:
+          glooMeshLicenseKey: "{{ .Values.gloo_mesh_license_key }}"
+        glooMgmtServer:
+          enabled: true
+          serviceType: ClusterIP
+          registerCluster: true
+          createGlobalWorkspace: true
+          policyApis:
+            enabled: true
+        glooAgent:
+          enabled: true
+          relay:
+            serverAddress: "gloo-mesh-mgmt-server.gloo-mesh:9900"
+        glooInsightsEngine:
+          enabled: false
+        glooAnalyzer:
+          enabled: false
+        glooUi:
+          enabled: false
+        prometheus:
+          enabled: false
+        telemetryCollector:
+          enabled: false
+        telemetryGateway:
+          enabled: false
 {{ else }}
-# community mode: Gloo Mesh Enterprise is not available — nothing to install.
+# community mode: Gloo Mesh is enterprise-only — nothing to install.
 releases: []
 {{ end }}

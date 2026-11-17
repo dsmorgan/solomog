@@ -81,8 +81,11 @@ These combine freely and are the core mental model:
      controller runs in "external OIDC" mode while pointed at the bundled IdP. There
      is no values-level fix — `namespaceOverride` would break the Postgres DSN.
      Runtime impact is unconfirmed; do not "fix" it by emptying `oidc.issuer`.
-   - `gloo-mesh` = optional Gloo Mesh Enterprise mgmt plane. Repo unverified (TODO); not used
-     by any default scenario. Distinct from the Gloo Operator above.
+   - `gloo-mesh` = optional Gloo Mesh management plane + agent on one cluster (`gloo-platform-crds`
+     + `gloo-platform` charts, ns `gloo-mesh`, license `licensing.glooMeshLicenseKey`).
+     `registerCluster` + `createGlobalWorkspace` give a single-cluster setup that translates
+     VirtualDestination / VirtualGateway / RouteTable / *Policy CRs; UI, insights and telemetry
+     are off. Not used by any default scenario. Distinct from the Gloo Operator above.
 2. **Edition** — `enterprise` (default) or `community`. A helmfile *environment*.
    Selects chart repos and whether license keys apply.
 3. **Istio mode** — `ambient` (default) or `sidecar`. Passed as `ISTIO_MODE` env,
@@ -926,7 +929,7 @@ Scanners skip `SOLOMOG_RUN_PID`, the wrapper's own pid.
   and the docs link each was verified against live in
   [enterprise.yaml](helmfiles/environments/enterprise.yaml) and
   [community.yaml.gotmpl](helmfiles/environments/community.yaml.gotmpl), one commented
-  block per product. All are verified except the `gloo-mesh` mgmt plane (`TODO`). A copy
+  block per product. All are verified. A copy
   in this file just means a version bump needs two edits and silently drifts.
   Two consequences worth knowing without opening those files:
   - **agentgateway CalVer vs SemVer changes CRD validation.** On the CalVer line an
@@ -1040,7 +1043,6 @@ and `bash scripts/test-install.sh` (clean fast-forward, dirty skip, diverged pul
   check` → all ✅). N>2 is a full remote-peer mesh (every cluster links every other);
   `istio:*:multi-3-gateway` is the task. A live 3-cluster gateway mesh has not been
   confirmed here.
-- **`gloo-mesh` mgmt-plane repo** is the last unverified chart coordinate.
 - Confirm whether enterprise products use **distinct** license keys or one shared
   Gloo license (design supports both; per-product env vars fall back to SOLO_LICENSE_KEY).
 - Confirm combined-management entitlement behavior: Solo's kagent docs upgrade an
