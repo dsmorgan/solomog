@@ -846,7 +846,8 @@ tasks:
   agentgateway:ui:
     desc: "1 cluster · agentgateway + Solo UI"
     summary: |
-      Install agentgateway, then the Solo UI (management chart) on top. Enterprise only
+      Install agentgateway with the Solo UI: the UI subchart bundled in the agentgateway chart
+      when it has one (v2026.10+), otherwise the separate management chart. Enterprise only
       (community is rejected). With ROUTE=true, also routes the UI at ui.<gw>.<cluster>.test.
 
       Variables:
@@ -855,6 +856,9 @@ tasks:
         GATEWAY      gateway to target for tracing + routing            default agw
         GATEWAY_NS   gateway namespace                                  default agentgateway-system
         EDITION      enterprise (community is rejected — no community UI)
+        UI_MODE      auto | bundled | management — UI packaging. auto uses the UI subchart
+                     bundled in the agentgateway chart (v2026.10+) and falls back to the
+                     separate management chart on older versions.       default auto
         UI_OIDC      false to log in with the bundled dev IdP (autoauth) instead of the
                      real IdP in .env. CLI-only — no .env fallback. default true.
                      Use it when SOLO_UI_OIDC_* in .env points at an IdP with no redirect
@@ -890,6 +894,11 @@ tasks:
       # CLI-only, like TOKEN_EXCHANGE below: no `env` fallback, so .env cannot turn it
       # off and a CLI value always wins. That is the whole point — it exists to override
       # SOLO_UI_OIDC_* in .env for one run.
+      # Asks stack.sh to render the bundled UI (ui.enabled) when the agentgateway chart carries
+      # it (v2026.10+). Older charts fall back to the separate management release.
+      AGENTGATEWAY_UI: "true"
+      # auto (default) prefers the bundled subchart; bundled or management forces one.
+      UI_MODE: '{{.UI_MODE | default "auto"}}'
       UI_OIDC: '{{.UI_OIDC | default "true"}}'
       TOKEN_EXCHANGE: '{{.TOKEN_EXCHANGE | default "false"}}'
       TOKEN_EXCHANGE_JWKS_URL: '{{.TOKEN_EXCHANGE_JWKS_URL | default (env "TOKEN_EXCHANGE_JWKS_URL") | default ""}}'

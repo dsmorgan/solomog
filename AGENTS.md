@@ -335,6 +335,20 @@ Add-ons are a fourth thing alongside products/apps: cross-cutting helmfile modul
 in [helmfiles/addons/](helmfiles/addons/), usually installed by their own scripts.
 The shared management chart is also consumed by the Enterprise kagent product
 module so it can coordinate one Helm release across products:
+- **Bundled Solo UI (agentgateway v2026.10+)** — newer `enterprise-agentgateway` charts carry
+  the UI as the `ui` subchart (`ui.enabled`). `agentgateway:ui` prefers it:
+  [scripts/lib/agw-ui.sh](scripts/lib/agw-ui.sh) reads `helm show chart` for the
+  `enterprise-agentgateway-ui` dependency (cached per version in `.solomog/cache/`;
+  `UI_MODE=bundled|management` forces one). In bundled mode `stack.sh` exports
+  `AGENTGATEWAY_UI_BUNDLED=true` and the product helmfile renders the `ui:` values; it also sets
+  it when the installed release already has `ui.enabled`, because the agentgateway release has
+  no `reuseValues` and a plain `solomog agentgateway` re-sync would otherwise drop the UI.
+  The install script then only waits, wires tracing to `enterprise-agentgateway-ui-telemetry-collector`
+  and routes `enterprise-agentgateway-ui` (served at `/`, not `/age/`). Same two Okta apps as
+  the management chart (`ui.oidc.clientId` + `ui.backend.oidc`), plus a new access-token
+  audience check: an Okta custom authorization server issues tokens for its own audience
+  (`api://default`), so set `SOLO_UI_OIDC_AUDIENCE` or every login fails. Older charts fall back
+  to the management release below.
 - **Shared Solo UI** — `agentgateway:ui` is the same compound pattern as
   `kgateway:with-istio`: the task installs the product then enables agentgateway
   in [scripts/install-agentgateway-ui.sh](scripts/install-agentgateway-ui.sh).

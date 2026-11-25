@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 #
-# Enables agentgateway on solomog's singleton Solo UI (`management` chart), wires
-# tracing to its built-in OTEL collector, and — with ROUTE=true — exposes the UI
-# on its own sub-host under expose's wildcard (ui.agw.<cluster>.test).
+# Enables the Solo UI for agentgateway, wires tracing to its built-in OTEL collector,
+# and — with ROUTE=true — exposes the UI on its own sub-host under expose's wildcard
+# (ui.agw.<cluster>.test).
+#
+# Two packagings, chosen by scripts/lib/agw-ui.sh (UI_MODE=auto|bundled|management):
+#   bundled     v2026.10+ charts carry the UI as the `ui` subchart of the agentgateway
+#               release. stack.sh already rendered it (AGENTGATEWAY_UI=true); this script
+#               only checks it, wires tracing and routes it. Served at /.
+#   management  older charts: enable agentgateway on solomog's singleton `management`
+#               release (helmfiles/addons/agentgateway-ui). Served at /age/.
 #
 # This is the UI half of `solomog agentgateway:ui`; the agentgateway product itself
 # is installed first (by the task, via stack.sh). Enterprise kagent may already
@@ -22,6 +29,8 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=lib/target.sh
 source "$REPO_DIR/scripts/lib/target.sh"
+# shellcheck source=lib/agw-ui.sh
+source "$REPO_DIR/scripts/lib/agw-ui.sh"
 # Target: positional context arg (back-compat) → else CLUSTER/CONTEXT via lib/target.sh
 # (registry-aware: vind, EKS, vsphere alike — never hardcode vcluster-docker_).
 if [ -n "${1:-}" ]; then CONTEXT="$1"; else
@@ -53,6 +62,27 @@ if ! kubectl --context "$CONTEXT" get crd \
   exit 1
 fi
 
+UI_PACKAGING="$(agw_ui_mode)"
+if [[ "$UI_PACKAGING" == "bundled" ]]; then
+  UI_SVC=enterprise-agentgateway-ui
+  COLLECTOR_SVC=enterprise-agentgateway-ui-telemetry-collector
+  UI_PATH=/
+  if ! agw_ui_bundled_enabled "$CONTEXT"; then
+    echo "Error: the agentgateway chart bundles the UI, but the release has ui.enabled off." >&2
+    echo "       Install through the scenario, which turns it on:  solomog agentgateway:ui CLUSTER=${CLUSTER}" >&2
+    exit 1
+  fi
+  if helm list --kube-context "$CONTEXT" -A -o json 2>/dev/null | jq -e '.[] | select(.chart | startswith("management-"))' >/dev/null; then
+    echo "Warning: a management (Solo UI) release is also installed. The bundled UI runs beside it;" >&2
+    echo "         both ship the EnterpriseAgentgatewayRBACPolicy CRD. Remove one, or force UI_MODE=management." >&2
+  fi
+  echo "==> Solo UI bundled in the agentgateway release (${NS}); waiting for it"
+  kubectl --context "$CONTEXT" -n "$NS" rollout status deploy/"$UI_SVC" --timeout=300s
+else
+UI_SVC=solo-enterprise-ui
+COLLECTOR_SVC=solo-enterprise-telemetry-collector
+UI_PATH=/age/
+
 # Never create a second management release: its bundled cluster-scoped CRDs can
 # only have one Helm owner. Enterprise kagent and agentgateway UI share this one.
 management_releases="$(
@@ -80,11 +110,12 @@ SOLO_CLUSTER="$CLUSTER" helmfile sync \
   -f "$REPO_DIR/helmfiles/addons/agentgateway-ui.yaml.gotmpl" \
   -e "$EDITION" \
   --kube-context "$CONTEXT"
+fi
 
 # Tracing: point agentgateway at the UI's built-in OTEL collector. Targets the
 # gateway by name — safe to apply before `expose` creates it; the policy attaches
 # once the gateway exists.
-echo "==> Wiring tracing (EnterpriseAgentgatewayPolicy → solo-enterprise-telemetry-collector)"
+echo "==> Wiring tracing (EnterpriseAgentgatewayPolicy → ${COLLECTOR_SVC})"
 kubectl --context "$CONTEXT" apply -f - <<EOF
 apiVersion: enterpriseagentgateway.solo.io/v1alpha1
 kind: EnterpriseAgentgatewayPolicy
@@ -99,7 +130,7 @@ spec:
   frontend:
     tracing:
       backendRef:
-        name: solo-enterprise-telemetry-collector
+        name: ${COLLECTOR_SVC}
         namespace: ${NS}
         kind: Service
         port: 4317
@@ -107,15 +138,15 @@ spec:
 EOF
 
 if [[ "$ROUTE" == "true" ]]; then
-  # Solo UI service is solo-enterprise-ui on port 80; it serves under /age/.
+  # Both packagings serve the UI on port 80 of their Service.
   bash "$REPO_DIR/scripts/route-host.sh" \
-    "$CONTEXT" "$CLUSTER" ui solo-enterprise-ui "$NS" 80 "$GATEWAY" "$GATEWAY_NS"
+    "$CONTEXT" "$CLUSTER" ui "$UI_SVC" "$NS" 80 "$GATEWAY" "$GATEWAY_NS"
   echo ""
-  echo "==> Solo UI routed. Open:  https://ui.${GATEWAY}.${CLUSTER}.test/age/"
+  echo "==> Solo UI routed. Open:  https://ui.${GATEWAY}.${CLUSTER}.test${UI_PATH}"
 else
   echo ""
   echo "==> UI installed (not routed). Reach it either way:"
-  echo "    port-forward:  kubectl --context ${CONTEXT} port-forward -n ${NS} svc/solo-enterprise-ui 4000:80"
-  echo "                   then open  http://localhost:4000/age/"
+  echo "    port-forward:  kubectl --context ${CONTEXT} port-forward -n ${NS} svc/${UI_SVC} 4000:80"
+  echo "                   then open  http://localhost:4000${UI_PATH}"
   echo "    or route it:   solomog agentgateway:ui expose ROUTE=true CLUSTER=${CLUSTER}"
 fi
