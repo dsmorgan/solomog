@@ -25,6 +25,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PRODUCTS_DIR="$REPO_DIR/helmfiles/products"
 source "$REPO_DIR/scripts/lib/ui.sh"
 source "$REPO_DIR/scripts/lib/target.sh"
+source "$REPO_DIR/scripts/lib/agw-ui.sh"
 
 EDITION="${EDITION:-enterprise}"
 
@@ -151,6 +152,18 @@ for product in "${CANONICAL_ORDER[@]}"; do
   if [[ "$product" == "kagent" ]]; then
     solomog_step "Prepare kagent prerequisites on ${CTX}"
     bash "$REPO_DIR/scripts/prepare-kagent.sh" "$CTX"
+  fi
+  if [[ "$product" == "agentgateway" && "$EDITION" == "enterprise" ]]; then
+    # Bundled Solo UI (v2026.10+ charts): rendered by the product helmfile when asked for
+    # (AGENTGATEWAY_UI=true from agentgateway:ui and the chart bundles it) or already on, so a
+    # plain re-sync never drops it. Older charts use the management add-on instead.
+    export AGENTGATEWAY_UI_BUNDLED=false
+    if agw_ui_bundled_enabled "$CTX"; then
+      AGENTGATEWAY_UI_BUNDLED=true
+    elif [[ "${AGENTGATEWAY_UI:-false}" == "true" ]] && [[ "$(agw_ui_mode)" == "bundled" ]]; then
+      AGENTGATEWAY_UI_BUNDLED=true
+    fi
+    [[ "$AGENTGATEWAY_UI_BUNDLED" == "true" ]] && solomog_step "Solo UI: bundled in the agentgateway release (ui.enabled)"
   fi
   solomog_step "Install ${product} onto ${CTX}  (edition=${EDITION})"
   helmfile sync \

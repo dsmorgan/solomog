@@ -179,3 +179,48 @@ releases:
               }
 {{- end }}
 {{- end }}
+{{- /* Bundled Solo UI (v2026.10+ charts carry the enterprise-agentgateway-ui subchart as `ui`).
+       stack.sh sets AGENTGATEWAY_UI_BUNDLED=true when `solomog agentgateway:ui` asks for the UI
+       and the chart bundles it (scripts/lib/agw-ui.sh), or when the installed release already
+       has ui.enabled, so a plain `solomog agentgateway` re-sync keeps the UI. This release has
+       no reuseValues, so every UI value must be rendered here on every sync.
+       Older charts use the separate `management` release instead (addons/agentgateway-ui).
+       Values mirror the management add-on: ClusterIP, Cost Management on, verbose traces, and
+       real OIDC only when SOLO_UI_OIDC_ISSUER is set and UI_OIDC is not false.
+       Same two Okta apps as the management add-on: the public SPA (SOLO_UI_OIDC_FRONTEND_CLIENT_ID,
+       ui.oidc.clientId) and the confidential backend app (SOLO_UI_OIDC_BACKEND_*, ui.backend.oidc;
+       the chart creates the Secret from the inline secret). New on 2026.10+: the backend checks
+       the access token audience against those two client IDs and ui.oidc.audience. An Okta
+       custom authorization server issues access tokens for its own audience (api://default for
+       `default`), so set SOLO_UI_OIDC_AUDIENCE to it or every login fails. The license reuses
+       this chart's licensing Secret. */ -}}
+{{- if and (eq .Environment.Name "enterprise") (eq (env "AGENTGATEWAY_UI_BUNDLED") "true") }}
+{{- $uiOIDC := and (ne (env "UI_OIDC") "false") (env "SOLO_UI_OIDC_ISSUER") }}
+      - ui:
+          enabled: true
+          cluster: "{{ env "SOLO_CLUSTER" | default "mgmt-cluster" }}"
+          service:
+            type: ClusterIP
+          features:
+            # Unquoted on purpose: booleans, not strings (see addons/agentgateway-ui).
+            costManagement: {{ env "COST_MANAGEMENT" | default "true" }}
+            costManagementWrites: {{ env "COST_MANAGEMENT_WRITES" | default "true" }}
+          traces:
+            verbose: true
+{{- if $uiOIDC }}
+          oidc:
+            issuer: "{{ env "SOLO_UI_OIDC_ISSUER" }}"
+            clientId: "{{ env "SOLO_UI_OIDC_FRONTEND_CLIENT_ID" }}"
+            additionalScopes: {{ env "SOLO_UI_OIDC_ADDITIONAL_SCOPES" | default "[\"profile\",\"email\"]" }}
+            audience: "{{ env "SOLO_UI_OIDC_AUDIENCE" }}"
+          backend:
+            oidc:
+              clientId: "{{ env "SOLO_UI_OIDC_BACKEND_CLIENT_ID" }}"
+              secret: "{{ env "SOLO_UI_OIDC_BACKEND_CLIENT_SECRET" }}"
+              secretKey: clientSecret
+          rbac:
+            roleMapping:
+              # Same PoV default as the management add-on: every authenticated user is global.Admin.
+              roleMapper: '{{ env "SOLO_UI_OIDC_ROLE_MAPPER" | default "[\"global.Admin\"]" }}'
+{{- end }}
+{{- end }}
