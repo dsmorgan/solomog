@@ -84,6 +84,15 @@ releases:
 {{- if eq (env "TOKEN_EXCHANGE_SKIP_MAY_ACT") "true" }}
           skipMayActClaimValidation: true
 {{- end }}
+{{- /* TOKEN_EXCHANGE_SUBJECT_VALIDATORS_FILE (CLI-only): absolute path to a YAML LIST of extra
+       subject validators (validatorType/remoteConfig/issuer entries). The chart writes the list to
+       the <release>-config ConfigMap, mounted into the controller by subPath and read once at
+       startup; the singular subjectValidator below is still tried first. Used for per-issuer
+       validator lists, such as one validator per Keycloak realm. */}}
+{{- with env "TOKEN_EXCHANGE_SUBJECT_VALIDATORS_FILE" }}
+          subjectValidators:
+{{ readFile . | indent 12 }}
+{{- end }}
           subjectValidator:
             validatorType: remote
             remoteConfig:
